@@ -1,0 +1,47 @@
+{
+  "_comment": "Placeholder stats for balancing. DMG vs DEF 0 = atk * en_atk. Effects: venom (magnitude = HP per tick, duration = ticks), acid (magnitude = DEF shred per hit).",
+  "units": [
+    {
+      "key": "boss",
+      "name": "Boss",
+      "code": "B",
+      "hp": 40,
+      "atk": 3,
+      "en_atk": 2,
+      "def": 3,
+      "max_en": 6,
+      "reg_en": 3,
+      "range": 1,
+      "boss": true,
+      "on_hit": []
+    },
+    {
+      "key": "big_rat",
+      "name": "Big Rat",
+      "code": "R",
+      "hp": 10,
+      "atk": 2,
+      "en_atk": 2,
+      "def": 1,
+      "max_en": 10,
+      "reg_en": 6,
+      "range": 1,
+      "boss": false,
+      "on_hit": [{"kind": "venom", "magnitude": 1, "duration": 3}]
+    },
+    {
+      "key": "peasant",
+      "name": "Peasant",
+      "code": "P",
+      "hp": 14,
+      "atk": 2,
+      "en_atk": 3,
+      "def": 2,
+      "max_en": 8,
+      "reg_en": 5,
+      "range": 1,
+      "boss": false,
+      "on_hit": []
+    }
+  ]
+}
