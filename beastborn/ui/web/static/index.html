@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beastborn</title>
+  <link rel="icon" href="/static/img/units/boss.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/css/beastborn.css">
+</head>
+<body class="d-flex flex-column min-vh-100">
+
+<nav class="navbar bg-body-tertiary border-bottom px-3">
+  <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
+    <span class="brand-icon"></span> Beastborn
+  </a>
+  <div class="d-flex align-items-center gap-2">
+    <span id="game-badge" class="badge text-bg-secondary d-none" title="Game id"></span>
+    <button id="btn-copy-link" class="btn btn-sm btn-outline-secondary d-none" title="Copy link to this game">
+      <i class="bi bi-link-45deg"></i> Copy link
+    </button>
+    <button id="btn-new-game" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> New game</button>
+  </div>
+</nav>
+
+<main class="container-fluid py-3 flex-grow-1">
+
+  <!-- Start screen -->
+  <section id="start-screen" class="row justify-content-center">
+    <div class="col-sm-10 col-md-7 col-lg-5 col-xl-4">
+      <div class="card shadow">
+        <div class="card-body p-4">
+          <div class="text-center mb-3">
+            <div class="start-art mb-2">
+              <span class="sprite sprite-lg" style="--sprite:url(/static/img/units/peasant.svg); --team:#d6483f"></span>
+              <span class="sprite sprite-xl" style="--sprite:url(/static/img/units/boss.svg); --team:#e2b830"></span>
+              <span class="sprite sprite-lg" style="--sprite:url(/static/img/units/big_rat.svg); --team:#3e7cde"></span>
+            </div>
+            <h1 class="h3 mb-1">New game</h1>
+            <p class="text-secondary small mb-0">Hot-seat tactics. No dice: energy, terrain and height decide every fight.</p>
+          </div>
+
+          <form id="start-form" autocomplete="off">
+            <label class="form-label">Players</label>
+            <div class="btn-group w-100 mb-3" role="group">
+              <input type="radio" class="btn-check" name="players" id="players-2" value="2" checked>
+              <label class="btn btn-outline-primary" for="players-2">2</label>
+              <input type="radio" class="btn-check" name="players" id="players-3" value="3">
+              <label class="btn btn-outline-primary" for="players-3">3</label>
+              <input type="radio" class="btn-check" name="players" id="players-4" value="4">
+              <label class="btn btn-outline-primary" for="players-4">4</label>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-7">
+                <label class="form-label" for="size">Map size</label>
+                <select class="form-select" id="size">
+                  <option value="10">Small (10×10)</option>
+                  <option value="12" selected>Normal (12×12)</option>
+                  <option value="16">Large (16×16)</option>
+                </select>
+              </div>
+              <div class="col-5">
+                <label class="form-label" for="seed">Seed</label>
+                <input class="form-control" id="seed" type="number" min="0" placeholder="random">
+              </div>
+            </div>
+
+            <button id="btn-start" type="submit" class="btn btn-success btn-lg w-100">
+              <i class="bi bi-play-fill"></i> Start
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Game screen -->
+  <section id="game-screen" class="row g-3 d-none">
+    <div class="col-lg-7 col-xl-8">
+      <div id="board-wrap">
+        <div id="board"></div>
+      </div>
+    </div>
+
+    <div class="col-lg-5 col-xl-4 d-flex flex-column gap-3">
+      <div class="card">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div id="turn-info" class="fw-semibold"></div>
+            <span id="seed-info" class="small text-secondary"></span>
+          </div>
+          <div id="players" class="d-flex flex-wrap gap-2 mt-2"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header py-1 small text-secondary">Selected</div>
+        <div id="selected-info" class="card-body py-2"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header py-1 small text-secondary">Hover</div>
+        <div id="hover-info" class="card-body py-2 small"></div>
+      </div>
+
+      <button id="btn-end-turn" class="btn btn-primary btn-lg">
+        <i class="bi bi-hourglass-split"></i> End turn <kbd class="ms-1">E</kbd>
+      </button>
+
+      <div class="card flex-grow-1">
+        <div class="card-header py-1 small text-secondary d-flex justify-content-between">
+          <span>Log</span>
+          <span class="text-body-tertiary">LMB select · move · attack &nbsp;|&nbsp; RMB/Esc cancel</span>
+        </div>
+        <ul id="log" class="list-group list-group-flush small"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="text-center small text-secondary py-2 border-top">
+  Icons by Delapouite, Lorc &amp; Sbed — <a href="https://game-icons.net" class="link-secondary">game-icons.net</a> — CC BY 3.0 ·
+  jQuery · Bootstrap
+</footer>
+
+<!-- Toasts -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+
+<!-- Game over -->
+<div class="modal fade" id="game-over-modal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content text-center">
+      <div class="modal-body p-4">
+        <div class="mb-2"><span id="winner-sprite" class="sprite sprite-xl"></span></div>
+        <h2 class="h3" id="winner-text"></h2>
+        <p class="text-secondary mb-0" id="winner-subtext"></p>
+      </div>
+      <div class="modal-footer justify-content-center">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Look at the board</button>
+        <button class="btn btn-success" id="btn-modal-new-game"><i class="bi bi-plus-lg"></i> New game</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/jquery/jquery-3.7.1.min.js"></script>
+<script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/static/js/beastborn.js"></script>
+</body>
+</html>

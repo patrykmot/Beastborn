@@ -1,28 +1,24 @@
-"""Start Beastborn: python main.py --players 4 --seed 42"""
+"""Start the Beastborn web server: python main.py  ->  open http://127.0.0.1:8000"""
 from __future__ import annotations
 
 import argparse
 
-from beastborn.game import GameConfig, new_game
-
 
 def parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Beastborn - turn-based beast tactics")
-    parser.add_argument("--players", type=int, default=2, choices=[2, 3, 4], help="hot-seat players (2-4)")
-    parser.add_argument("--seed", type=int, default=None, help="map seed (same seed = same map)")
-    parser.add_argument("--width", type=int, default=12, help="map width in tiles")
-    parser.add_argument("--height", type=int, default=12, help="map height in tiles")
+    parser = argparse.ArgumentParser(description="Beastborn - turn-based beast tactics (web server)")
+    parser.add_argument("--host", default="127.0.0.1", help="interface to listen on (0.0.0.0 = whole network)")
+    parser.add_argument("--port", type=int, default=8000, help="HTTP port")
+    parser.add_argument("--reload", action="store_true", help="restart on code changes (development)")
     return parser.parse_args(argv)
 
 
 def main(argv=None) -> None:
+    import uvicorn
+
     args = parse_args(argv)
-    gsm = new_game(args.players, seed=args.seed, config=GameConfig(width=args.width, height=args.height))
-    print(f"Beastborn - {args.players} players, seed {gsm.view().seed}")
-
-    from beastborn.ui.pygame_ui.app import PygameFrontend  # pygame only needed for this frontend
-
-    PygameFrontend().run(gsm)
+    print(f"Beastborn running on http://{args.host}:{args.port}  (Ctrl+C to stop)")
+    # One worker on purpose: games are kept in this process's memory.
+    uvicorn.run("beastborn.ui.web.app:app", host=args.host, port=args.port, reload=args.reload, workers=1)
 
 
 if __name__ == "__main__":

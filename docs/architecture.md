@@ -1,23 +1,28 @@
 # Architecture
 
 ```
-            ┌──────────────────────────────┐
- device ──▶ │ InputAdapter (mouse/keyboard) │ ──UIIntent──┐
-            └──────────────────────────────┘             ▼
-            ┌──────────────────────────────┐   ┌──────────────────┐   Command   ┌───────────────────────┐
- screen ◀── │ Renderer (pygame)             │◀──│ Interaction       │───────────▶│ GameStateMachine (GSM) │
-            └──────────────────────────────┘   │ (ui presenter)    │◀─ events ──│  state, turn flow,     │
-                                               └──────────────────┘   GameView │  validation            │
-                         PlayerController (bot) ── Command ──────────────────▶ └──────────┬────────────┘
-                                                                                           │ values in / values out
-                                                                                ┌──────────▼────────────┐
-                                                                                │ CalculationEngine (CE) │
-                                                                                │  stateless formulas    │
-                                                                                └───────────────────────┘
+ Browser (jQuery + Bootstrap)          FastAPI  beastborn/ui/web                      unchanged core
+┌───────────────────────────┐ intents ┌───────────────────────────────┐
+│ static/index.html          │────────▶│ app.py      routes             │
+│ static/js/beastborn.js     │         │ intents.py  JSON → UIIntent    │
+│  render(state)             │◀────────│ serializers Interaction → JSON │
+│  hover previews (local)    │  state  │ sessions.py game id → session  │
+└───────────────────────────┘         └──────────────┬────────────────┘
+                                                      │ one per game
+                                             ┌────────▼─────────┐  Command   ┌───────────────────────┐
+                                             │ Interaction       │──────────▶│ GameStateMachine (GSM) │
+                                             │ (ui presenter)    │◀─ events ─│  state, turn flow,     │
+                                             └──────────────────┘  GameView │  validation            │
+                       PlayerController (bot) ── Command ─────────────────▶ └──────────┬────────────┘
+                                                                                       │ values in / values out
+                                                                            ┌──────────▼────────────┐
+                                                                            │ CalculationEngine (CE) │
+                                                                            │  stateless formulas    │
+                                                                            └───────────────────────┘
 ```
 
 Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `ui`.
-`tests/test_architecture.py` fails if a layer imports something it must not. For example, pygame is only allowed in `ui/pygame_ui`.
+`tests/test_architecture.py` fails if a layer imports something it must not. For example, FastAPI, Starlette, uvicorn and pydantic are only allowed in `ui/web`.
 
 ## Calculation Engine (`beastborn/engine`)
 
@@ -70,15 +75,28 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 
 - `interface.py` defines the neutral contracts:
   - intents: `ClickTile`, `HoverTile`, `EndTurn`, `Cancel`, `Quit`
-  - `InputAdapter`
-  - `Frontend`
-- `interaction.py` (`Interaction`) holds the selection and hover state and turns intents into commands. It does not import pygame and is unit-tested.
-- `pygame_ui/` is the desktop frontend: `Layout`, `MouseKeyboardInput`, `Renderer`, `PygameFrontend`.
+  - `InputAdapter` and `Frontend`, for loop-based clients such as a console client. The web client is request-driven, so it reuses the intents but not these two.
+- `interaction.py` (`Interaction`) holds the selection and hover state and turns intents into commands. It knows nothing about the web and is unit-tested.
+- `text.py` turns events into log lines.
 
-**New input device:** implement `InputAdapter.poll()` and pass it in with `PygameFrontend(MyInput)`.
-**New frontend** (console, web): render `Interaction.view` and feed it intents. Game code does not change.
+### Web client (`beastborn/ui/web`)
+
+- `sessions.py`: `SessionStore` keeps one `GameSession` (an `Interaction` plus a lock) per game id (`uuid4().hex`).
+  - Sessions live in memory, so run a single uvicorn worker.
+  - A game expires after `BEASTBORN_SESSION_TTL` seconds idle (default 2 h). At most `BEASTBORN_MAX_GAMES` (default 500) run at once.
+- `intents.py` maps request JSON to the existing intents: `click` → `ClickTile`, `end_turn` → `EndTurn`, `cancel` → `Cancel`.
+- `serializers.py` turns an `Interaction` into the state JSON: board, units, players, selection (reachable tiles with cost and path, targets with exact damage), message and log. Nothing is recomputed.
+- `app.py`: `create_app(store=None)` returns the FastAPI app.
+  - `POST /api/games`, `GET /api/games/{id}`, `POST /api/games/{id}/intents`, `DELETE /api/games/{id}`, plus the static page at `/`.
+  - Each intent runs under the game's lock: `interaction.handle(intent)` → `render(...)`.
+- `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.
+  - The browser redraws the whole board from every state response.
+  - Hover previews (path, cost, damage) come from the last state, so they need no requests.
+  - A unit's picture is `img/units/<unit key>.svg`. A unit type without a picture shows its letter `code`.
+
+**New frontend** (console, desktop): render `Interaction.view` and feed it intents. Game code does not change.
 
 ## Bots
 
-Implement `PlayerController.choose_command(gsm)` using `reachable_tiles` / `attack_targets` / `preview_attack`, then pass `controllers={player_index: MyBot()}` to the frontend.
+Implement `PlayerController.choose_command(gsm)` using `reachable_tiles` / `attack_targets` / `preview_attack`, then give the session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`). After every intent the web backend calls `run_bots()`, which lets bots act until a human is to move.
 `PassController` is a trivial example: it always ends its turn.

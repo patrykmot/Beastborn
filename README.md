@@ -5,6 +5,8 @@ Turn-based tactics for 2–4 hot-seat players. Beasts fight on a random battlefi
 
 Made with fun by Patryk Motyczyński.
 
+![Beastborn in the browser](docs/screenshot.png)
+
 ## Run
 
 ```bash
@@ -12,11 +14,14 @@ python -m venv venv
 venv\Scripts\activate            # Windows  (Linux/macOS: source venv/bin/activate)
 pip install -r requirements.txt
 
-python main.py                   # 2 players, random map
-python main.py --players 4 --seed 42 --width 14 --height 14
+python main.py                   # then open http://127.0.0.1:8000 and press Start
+python main.py --port 9000 --reload   # other port, auto-restart on code changes
 ```
 
-Requires Python 3.10+ and `pygame-ce`.
+Requires Python 3.10+, FastAPI and uvicorn. Choose players (2–4), map size and an optional seed, then press **Start**.
+Every game gets its own id in the URL (`/?game=<id>`). Refreshing the page keeps the game, and several games can run at once.
+Games live in server memory. They are lost when the server stops and expire after 2 h without activity.
+Settings: `BEASTBORN_SESSION_TTL` (seconds, default 7200) and `BEASTBORN_MAX_GAMES` (default 500).
 
 ## Test
 
@@ -53,7 +58,7 @@ python -m pytest
 
 Stats are placeholders for balancing. Edit them in `beastborn/data/units.json`.
 
-## Controls (pygame)
+## Controls (browser)
 
 | Action | Input |
 |---|---|
@@ -61,6 +66,7 @@ Stats are placeholders for balancing. Edit them in `beastborn/data/units.json`.
 | Move | Left click a highlighted tile (number = EN cost) |
 | Attack | Left click an enemy with a red frame (hover shows exact damage) |
 | Deselect | Right click / Esc |
+| Preview | Hover: path + move cost, or exact damage on a target |
 | End turn | E / Space / button |
 
 ## Project layout
@@ -71,11 +77,29 @@ beastborn/
   engine/    Calculation Engine (CE): interface + StandardCalculationEngine + RulesConfig
   game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
   control/   player controllers (human now, bots later)
-  ui/        frontend-neutral intents + presenter; ui/pygame_ui = desktop frontend
+  ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
+    web/     FastAPI backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
   data/      units.json
-tests/       pytest suite (engine, GSM, map, UI, architecture rules)
+tests/       pytest suite (engine, GSM, map, UI, web API, architecture rules)
+tools/       fetch_assets.py - re-downloads vendor libraries and icons
 docs/        architecture.md
-main.py      entry point
+main.py      entry point (web server)
 ```
+
+## Web API
+
+Interactive docs: `http://127.0.0.1:8000/docs`.
+
+| Method | Path | Body |
+|---|---|---|
+| `POST` | `/api/games` | `{"players": 2, "size": 12, "seed": null}` → new game state |
+| `GET` | `/api/games/{id}` | → state |
+| `POST` | `/api/games/{id}/intents` | `{"type": "click", "x": 3, "y": 5}` / `{"type": "end_turn"}` / `{"type": "cancel"}` → state |
+| `DELETE` | `/api/games/{id}` | → 204 |
+
+## Credits
+
+Icons by Delapouite, Lorc & Sbed from [game-icons.net](https://game-icons.net) (CC BY 3.0).
+jQuery, Bootstrap and Bootstrap Icons (MIT). See `beastborn/ui/web/static/CREDITS.md`.
 
 See [docs/architecture.md](docs/architecture.md) for how to swap the rules or the UI.

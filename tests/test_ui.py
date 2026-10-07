@@ -1,9 +1,7 @@
-"""UI presenter tests (no pygame) + a headless pygame smoke test."""
-import pytest
-
+"""UI presenter tests (frontend-neutral)."""
 from beastborn.control import PassController
 from beastborn.domain import Board, Position
-from beastborn.game import Phase, custom_game, new_game
+from beastborn.game import Phase, custom_game
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.interface import Cancel, ClickTile, EndTurn, HoverTile, Quit
 from tests.conftest import KING, SOLDIER
@@ -78,59 +76,9 @@ def test_no_commands_after_game_over():
     assert gsm.command_log == []
 
 
-@pytest.fixture
-def headless(monkeypatch):
-    monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
-    monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
-
-
-def test_pygame_frontend_smoke(headless, tmp_path):
-    pytest.importorskip("pygame")
-    from beastborn.ui.pygame_ui.app import PygameFrontend
-    from beastborn.ui.pygame_ui.layout import Layout
-
-    script = [ClickTile(Position(1, 0)), HoverTile(Position(1, 1)), EndTurn()]
-
-    class ScriptedInput:
-        def __init__(self, layout):
-            self.layout = layout
-
-        def poll(self):
-            return [script.pop(0)] if script else []
-
-    gsm = new_game(4, seed=3)
-    shot = tmp_path / "frame.png"
-    ui = PygameFrontend(ScriptedInput).run(gsm, max_frames=5, screenshot=str(shot))
-    assert shot.exists() and shot.stat().st_size > 0
-    assert gsm.active_player == 1  # the scripted End Turn went through
-    assert isinstance(ui, Interaction)
-
-    layout = Layout.for_board(12, 12)
-    assert layout.tile_at(0, 0) == Position(0, 0)
-    assert layout.tile_at(layout.board_w + 5, 5) is None
-
-
-def test_mouse_keyboard_translation(headless):
-    pygame = pytest.importorskip("pygame")
-    from beastborn.ui.pygame_ui.input_mouse_kb import MouseKeyboardInput
-    from beastborn.ui.pygame_ui.layout import Layout
-
-    layout = Layout.for_board(12, 12)
-    adapter = MouseKeyboardInput(layout)
-    t = layout.tile
-    click = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(t * 2 + 1, t * 3 + 1))
-    assert adapter.translate(click) == ClickTile(Position(2, 3))
-    button = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=layout.end_turn_button.center)
-    assert adapter.translate(button) == EndTurn()
-    assert adapter.translate(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=(1, 1))) == Cancel()
-    assert adapter.translate(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e)) == EndTurn()
-    assert adapter.translate(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)) == Cancel()
-    assert adapter.translate(pygame.event.Event(pygame.QUIT)) == Quit()
-
-
 def test_main_parses_arguments():
     from main import parse_args
 
-    args = parse_args(["--players", "3", "--seed", "5"])
-    assert (args.players, args.seed, args.width) == (3, 5, 12)
-
+    args = parse_args(["--port", "9000", "--reload"])
+    assert (args.host, args.port, args.reload) == ("127.0.0.1", 9000, True)
+    assert parse_args([]).port == 8000

@@ -6,11 +6,13 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parent.parent / "beastborn"
 
+WEB = ("fastapi", "starlette", "uvicorn", "pydantic")
+
 FORBIDDEN = {
-    "domain": ("pygame", "beastborn.engine", "beastborn.game", "beastborn.control", "beastborn.ui"),
-    "engine": ("pygame", "beastborn.game", "beastborn.control", "beastborn.ui"),
-    "game": ("pygame", "beastborn.control", "beastborn.ui"),
-    "control": ("pygame", "beastborn.ui"),
+    "domain": ("pygame", *WEB, "beastborn.engine", "beastborn.game", "beastborn.control", "beastborn.ui"),
+    "engine": ("pygame", *WEB, "beastborn.game", "beastborn.control", "beastborn.ui"),
+    "game": ("pygame", *WEB, "beastborn.control", "beastborn.ui"),
+    "control": ("pygame", *WEB, "beastborn.ui"),
 }
 
 
@@ -35,8 +37,13 @@ def test_layer_dependencies(layer):
                 )
 
 
-def test_only_pygame_ui_imports_pygame():
+def test_no_pygame_anywhere():
     for path in PACKAGE.rglob("*.py"):
-        if "pygame_ui" in path.parts:
-            continue
         assert not any(m.split(".")[0] == "pygame" for m in imported_modules(path)), path
+
+
+def test_web_frameworks_only_in_ui_web():
+    for path in PACKAGE.rglob("*.py"):
+        if "web" in path.relative_to(PACKAGE).parts:
+            continue
+        assert not any(m.split(".")[0] in WEB for m in imported_modules(path)), path
