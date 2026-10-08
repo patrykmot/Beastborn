@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.ui.interaction import Interaction
 
-DEFAULT_TTL_SECONDS = 2 * 60 * 60
-DEFAULT_MAX_SESSIONS = 500
+DEFAULT_TTL_SECONDS = 30 * 60
+DEFAULT_MAX_SESSIONS = 100
 
 
 class TooManySessions(RuntimeError):
