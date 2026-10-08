@@ -3,9 +3,8 @@ name = "beastborn"
 version = "0.1.0"
 description = "Turn-based beast tactics with zero combat RNG"
 requires-python = ">=3.10"
-dependencies = ["fastapi==0.142.2", "uvicorn[standard]==0.54.0"]
+dependencies = ["flask==3.0.3", "pydantic==2.13.5"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-filterwarnings = ["ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning"]

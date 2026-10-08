@@ -1,10 +1,9 @@
-"""Web API tests (FastAPI TestClient - no browser needed)."""
+"""Web API tests (Flask test client - no browser needed)."""
 import re
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from beastborn.domain import Board
 from beastborn.game import custom_game
@@ -20,19 +19,19 @@ def store():
 
 @pytest.fixture
 def client(store):
-    return TestClient(create_app(store))
+    return create_app(store).test_client()
 
 
 def new(client, **body):
     response = client.post("/api/games", json={"players": 2, "seed": 42, **body})
     assert response.status_code == 201, response.text
-    return response.json()
+    return response.json
 
 
 def intent(client, game_id, **body):
     response = client.post(f"/api/games/{game_id}/intents", json=body)
     assert response.status_code == 200, response.text
-    return response.json()
+    return response.json
 
 
 def own_unit_with_moves(client, state):
@@ -71,8 +70,8 @@ def test_many_games_at_once(client):
     assert a["game_id"] != b["game_id"]
     assert a["board"] != b["board"]
     intent(client, a["game_id"], type="end_turn")
-    assert client.get(f"/api/games/{a['game_id']}").json()["active_player"] == 1
-    assert client.get(f"/api/games/{b['game_id']}").json()["active_player"] == 0
+    assert client.get(f"/api/games/{a['game_id']}").json["active_player"] == 1
+    assert client.get(f"/api/games/{b['game_id']}").json["active_player"] == 0
 
 
 def test_same_seed_same_board(client):
@@ -80,7 +79,7 @@ def test_same_seed_same_board(client):
 
 
 def test_random_seed_when_missing(client):
-    state = client.post("/api/games", json={}).json()
+    state = client.post("/api/games", json={}).json
     assert isinstance(state["seed"], int)
 
 
@@ -107,6 +106,25 @@ def test_too_many_games(client):
     for _ in range(5):
         new(client)
     assert client.post("/api/games", json={}).status_code == 503
+
+
+def test_error_bodies_are_json(client):
+    """The page reads errors as {"detail": str} or {"detail": [{"msg": ...}, ...]} (beastborn.js errorText)."""
+    response = client.get("/api/games/nope")
+    assert response.status_code == 404
+    assert response.json == {"detail": "Game not found or expired"}
+
+    response = client.post("/api/games", json={"players": 9})
+    assert response.status_code == 422
+    detail = response.json["detail"]
+    assert isinstance(detail, list) and detail
+    assert detail[0]["loc"] == ["body", "players"] and detail[0]["msg"]
+
+
+def test_non_json_body_is_422(client):
+    assert client.post("/api/games", data="x").status_code == 422
+    gid = new(client)["game_id"]
+    assert client.post(f"/api/games/{gid}/intents", data="x").status_code == 422
 
 
 # ---------------------------------------------------------------- intents

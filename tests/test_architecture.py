@@ -6,7 +6,8 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parent.parent / "beastborn"
 
-WEB = ("fastapi", "starlette", "uvicorn", "pydantic")
+WEB = ("flask", "werkzeug", "pydantic")
+REMOVED_WEB = ("fastapi", "starlette", "uvicorn", "httpx")
 
 FORBIDDEN = {
     "domain": ("pygame", *WEB, "beastborn.engine", "beastborn.game", "beastborn.control", "beastborn.ui"),
@@ -47,3 +48,8 @@ def test_web_frameworks_only_in_ui_web():
         if "web" in path.relative_to(PACKAGE).parts:
             continue
         assert not any(m.split(".")[0] in WEB for m in imported_modules(path)), path
+
+
+def test_no_fastapi_anywhere():
+    for path in [*PACKAGE.rglob("*.py"), *PACKAGE.parent.joinpath("tests").rglob("*.py"), PACKAGE.parent / "main.py"]:
+        assert not any(m.split(".")[0] in REMOVED_WEB for m in imported_modules(path)), path

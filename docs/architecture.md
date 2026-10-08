@@ -1,7 +1,7 @@
 # Architecture
 
 ```
- Browser (jQuery + Bootstrap)          FastAPI  beastborn/ui/web                      unchanged core
+ Browser (jQuery + Bootstrap)          Flask    beastborn/ui/web                      unchanged core
 ┌───────────────────────────┐ intents ┌───────────────────────────────┐
 │ static/index.html          │────────▶│ app.py      routes             │
 │ static/js/beastborn.js     │         │ intents.py  JSON → UIIntent    │
@@ -22,7 +22,7 @@
 ```
 
 Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `ui`.
-`tests/test_architecture.py` fails if a layer imports something it must not. For example, FastAPI, Starlette, uvicorn and pydantic are only allowed in `ui/web`.
+`tests/test_architecture.py` fails if a layer imports something it must not. For example, Flask, Werkzeug and pydantic are only allowed in `ui/web`.
 
 ## Calculation Engine (`beastborn/engine`)
 
@@ -82,11 +82,11 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 ### Web client (`beastborn/ui/web`)
 
 - `sessions.py`: `SessionStore` keeps one `GameSession` (an `Interaction` plus a lock) per game id (`uuid4().hex`).
-  - Sessions live in memory, so run a single uvicorn worker.
+  - Sessions live in memory, so run a single server process (threads are fine).
   - A game expires after `BEASTBORN_SESSION_TTL` seconds idle (default 2 h). At most `BEASTBORN_MAX_GAMES` (default 500) run at once.
 - `intents.py` maps request JSON to the existing intents: `click` → `ClickTile`, `end_turn` → `EndTurn`, `cancel` → `Cancel`.
 - `serializers.py` turns an `Interaction` into the state JSON: board, units, players, selection (reachable tiles with cost and path, targets with exact damage), message and log. Nothing is recomputed.
-- `app.py`: `create_app(store=None)` returns the FastAPI app.
+- `app.py`: `create_app(store=None)` returns the Flask app.
   - `POST /api/games`, `GET /api/games/{id}`, `POST /api/games/{id}/intents`, `DELETE /api/games/{id}`, plus the static page at `/`.
   - Each intent runs under the game's lock: `interaction.handle(intent)` → `render(...)`.
 - `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.

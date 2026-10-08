@@ -18,7 +18,7 @@ python main.py                   # then open http://127.0.0.1:8000 and press Sta
 python main.py --port 9000 --reload   # other port, auto-restart on code changes
 ```
 
-Requires Python 3.10+, FastAPI and uvicorn. Choose players (2–4), map size and an optional seed, then press **Start**.
+Requires Python 3.10+ and Flask. Choose players (2–4), map size and an optional seed, then press **Start**.
 Every game gets its own id in the URL (`/?game=<id>`). Refreshing the page keeps the game, and several games can run at once.
 Games live in server memory. They are lost when the server stops and expire after 2 h without activity.
 Settings: `BEASTBORN_SESSION_TTL` (seconds, default 7200) and `BEASTBORN_MAX_GAMES` (default 500).
@@ -78,7 +78,7 @@ beastborn/
   game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
   control/   player controllers (human now, bots later)
   ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
-    web/     FastAPI backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
+    web/     Flask backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
   data/      units.json
 tests/       pytest suite (engine, GSM, map, UI, web API, architecture rules)
 tools/       fetch_assets.py - re-downloads vendor libraries and icons
@@ -87,8 +87,6 @@ main.py      entry point (web server)
 ```
 
 ## Web API
-
-Interactive docs: `http://127.0.0.1:8000/docs`.
 
 | Method | Path | Body |
 |---|---|---|
