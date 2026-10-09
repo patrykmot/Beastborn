@@ -42,7 +42,7 @@ class Roster:
 
 def _parse_unit(raw: dict) -> UnitStats:
     effects = tuple(
-        EffectSpec(EffectKind(e["kind"]), int(e["magnitude"]), int(e.get("duration", 0)))
+        EffectSpec(EffectKind(e["kind"]))
         for e in raw.get("on_hit", [])
     )
     stats = UnitStats(
@@ -56,13 +56,14 @@ def _parse_unit(raw: dict) -> UnitStats:
         max_en=int(raw["max_en"]),
         reg_en=int(raw["reg_en"]),
         attack_range=int(raw.get("range", 1)),
+        move_penalty=int(raw.get("move_penalty", 0)),
         is_boss=bool(raw.get("boss", False)),
         on_hit=effects,
     )
-    for field_name in ("hp", "max_en"):
+    for field_name in ("hp", "max_en", "attack_range"):
         if getattr(stats, field_name) <= 0:
             raise ValueError(f"{stats.key}: {field_name} must be > 0")
-    for field_name in ("atk", "en_atk", "defense", "reg_en"):
+    for field_name in ("atk", "en_atk", "defense", "reg_en", "move_penalty"):
         if getattr(stats, field_name) < 0:
             raise ValueError(f"{stats.key}: {field_name} must be >= 0")
     return stats

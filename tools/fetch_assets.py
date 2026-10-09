@@ -32,6 +32,7 @@ ICONS = {
     "img/units/boss.svg": ("ogre", "Delapouite"),
     "img/units/big_rat.svg": ("rat", "Delapouite"),
     "img/units/peasant.svg": ("farmer", "Delapouite"),
+    "img/units/archer.svg": ("archer", "Delapouite"),
     "img/terrain/grass.svg": ("grass", "Delapouite"),
     "img/terrain/swamp.svg": ("swamp", "Delapouite"),
     "img/terrain/hills.svg": ("hills", "Delapouite"),

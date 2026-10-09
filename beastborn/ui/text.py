@@ -27,10 +27,11 @@ def describe(event, before: GameView, after: GameView) -> str | None:
         return f"{label(event.unit_id)} moved {event.path[0]}->{event.path[-1]} (-{event.cost} EN)"
     if isinstance(event, ev.UnitAttacked):
         r = event.result
+        verb = "shot" if r.ranged else "hit"
         if r.blocked:
-            return f"{label(event.attacker_id)} hit {label(event.target_id)}: blocked"
+            return f"{label(event.attacker_id)} {verb} {label(event.target_id)}: blocked"
         return (
-            f"{label(event.attacker_id)} hit {label(event.target_id)} for {r.damage} "
+            f"{label(event.attacker_id)} {verb} {label(event.target_id)} for {r.damage} "
             f"[{r.formula()}], HP {event.target_hp_after}"
         )
     if isinstance(event, ev.EffectTicked):

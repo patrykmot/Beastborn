@@ -1,5 +1,13 @@
-"""The initial Calculation Engine: the rules from the game design document."""
+"""The standard Calculation Engine.
+
+Movement follows the game design document. Combat follows docs/game_mechanics.md
+(``resolve_attack`` calculation rules); the section numbers below refer to that file.
+All maths is exact (``Fraction``); only the final damage is rounded down.
+"""
 from __future__ import annotations
+
+import math
+from fractions import Fraction
 
 from beastborn.domain.effects import EffectKind, StatusEffect
 from beastborn.domain.terrain import Tile
@@ -17,15 +25,20 @@ class StandardCalculationEngine(CalculationEngine):
     def _is_difficult(self, tile: Tile) -> bool:
         return tile.terrain in self.config.difficult_terrains
 
+    @staticmethod
+    def _is_ranged(unit: UnitStats) -> bool:
+        return unit.attack_range > 1
+
     # ---------- Movement ----------
     def step_cost(self, unit: UnitStats, src: Tile, dst: Tile) -> int:
         c = self.config
         difficult = self._is_difficult(dst)
         if dst.elevation < src.elevation:  # downhill
-            return c.EN_MD_DIFFICULT if difficult else c.EN_MD_NORMAL
-        base = c.EN_DT if difficult else c.EN_NT
-        levels_up = dst.elevation - src.elevation  # 0 on level ground
-        return base + c.EN_MU * levels_up
+            base = c.EN_MD_DIFFICULT if difficult else c.EN_MD_NORMAL
+        else:
+            levels_up = dst.elevation - src.elevation  # 0 on level ground
+            base = (c.EN_DT if difficult else c.EN_NT) + c.EN_MU * levels_up
+        return base + unit.move_penalty
 
     # ---------- Energy ----------
     def initial_energy(self, unit: UnitStats) -> int:
@@ -35,50 +48,77 @@ class StandardCalculationEngine(CalculationEngine):
         return min(unit.max_en, current_energy + unit.reg_en)
 
     def attack_cost(self, attacker: UnitStats) -> int:
-        return attacker.en_atk
+        return attacker.en_atk  # 1. Energy_remaining = Energy_current - en_atk
 
     def in_attack_range(self, attacker: UnitStats, distance: int) -> bool:
-        return 1 <= distance <= attacker.attack_range
+        if not 1 <= distance <= attacker.attack_range:
+            return False
+        # 3. "> 4 tiles": a ranged attack cannot be performed at all (and costs no energy).
+        return not self._is_ranged(attacker) or distance in self.config.range_dissipation
 
     # ---------- Combat ----------
     def elevation_modifier(self, attacker_tile: Tile, defender_tile: Tile) -> int:
-        diff = attacker_tile.elevation - defender_tile.elevation
-        if diff > 0:
-            return diff * self.config.elevation_attack_bonus
-        if diff < 0 and self.config.uphill_attack_penalty:
-            return diff * self.config.uphill_penalty_per_level  # diff is negative
-        return 0
+        # 2. Elevation_Modifier = Elev_attacker - Elev_defender
+        return attacker_tile.elevation - defender_tile.elevation
 
     def current_defense(self, defense: int, tile: Tile) -> int:
-        penalty = self.config.terrain_defense_penalty.get(tile.terrain, 0)
-        return max(0, defense - penalty)
+        # 4. GRASS: DEF; MUD: floor(DEF / 2)
+        divisor = self.config.terrain_defense_divisor.get(tile.terrain, 1)
+        return max(0, defense // divisor)
+
+    def range_divisor(self, attacker: UnitStats, distance: int, elevation_modifier: int) -> int | None:
+        # 3. Effective_RP = max(1, Raw_RP - max(0, Elevation_Modifier)); None = cannot attack that far
+        if not self._is_ranged(attacker):
+            return 1
+        raw_rp = self.config.range_dissipation.get(distance)
+        if raw_rp is None:
+            return None
+        return max(1, raw_rp - max(0, elevation_modifier))
 
     def resolve_attack(self, attacker: CombatantSnapshot, defender: CombatantSnapshot) -> AttackResult:
-        base = attacker.stats.atk * attacker.stats.en_atk
+        c = self.config
+        atk = attacker.stats.atk
         em = self.elevation_modifier(attacker.tile, defender.tile)
+        distance = attacker.position.manhattan(defender.position)
+        ranged = self._is_ranged(attacker.stats)
+        # 2. Momentum_Damage = ATK + 0.5 * ATK * Elevation_Modifier (never negative)
+        momentum = max(Fraction(0), atk + Fraction(c.momentum_per_level) * atk * em)
         current_def = self.current_defense(defender.defense, defender.tile)
-        raw = base + em - current_def
 
-        if raw <= 0 and self.config.allow_block:
-            return AttackResult(base, em, current_def, raw, 0, True, 0, defender.effects)
+        rp = self.range_divisor(attacker.stats, distance, em)
+        if rp is None:  # 3. "> 4 tiles": Damage = 0, the attack fails
+            return AttackResult(atk, em, momentum, distance, ranged, 0, Fraction(0), current_def, Fraction(0),
+                                0, True, 0, defender.effects, out_of_range=True)
 
-        damage = max(self.config.min_damage, raw)
+        base = momentum / rp  # 3. Base_Damage = Momentum_Damage / Effective_RP
+        raw = base - current_def
+        damage = max(c.min_damage, math.floor(raw))  # 5. Final_Damage, rounded down
+
+        if damage <= 0 and c.allow_block:
+            return AttackResult(atk, em, momentum, distance, ranged, rp, base, current_def, raw,
+                                0, True, 0, defender.effects)
+
         defense_change, effects_after = self._apply_on_hit(attacker.stats, defender)
-        return AttackResult(base, em, current_def, raw, damage, False, defense_change, effects_after)
+        return AttackResult(atk, em, momentum, distance, ranged, rp, base, current_def, raw,
+                            damage, False, defense_change, effects_after)
 
     def _apply_on_hit(
         self, attacker: UnitStats, defender: CombatantSnapshot
     ) -> tuple[int, tuple[StatusEffect, ...]]:
+        """6. On-hit effects. Applied whenever the attack resolves, even for 0 damage."""
+        c = self.config
         defense_change = 0
         effects = list(defender.effects)
         for spec in attacker.on_hit:
             if spec.kind is EffectKind.ACID:
+                shred = max(1, attacker.atk // c.acid_atk_divisor)
                 remaining_def = defender.defense + defense_change
-                defense_change -= min(spec.magnitude, remaining_def)
+                defense_change -= min(shred, remaining_def)  # DEF never below 0
             elif spec.kind is EffectKind.VENOM:
-                # Re-applying refreshes the effect instead of stacking (D13).
+                # Does not stack: re-applying refreshes the duration.
+                damage = max(1, attacker.atk // c.venom_atk_divisor)
                 effects = [e for e in effects if e.kind is not EffectKind.VENOM]
-                effects.append(StatusEffect(EffectKind.VENOM, spec.magnitude, spec.duration))
+                effects.append(StatusEffect(EffectKind.VENOM, damage, c.venom_duration))
         return defense_change, tuple(effects)
 
     # ---------- Status effects ----------

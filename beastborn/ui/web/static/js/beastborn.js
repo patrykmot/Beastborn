@@ -3,19 +3,21 @@
  * The server owns all game state (including the current selection). This file only:
  *   1. sends intents   (click / cancel / end_turn) and new-game requests,
  *   2. draws the state JSON it gets back,
- *   3. shows hover previews (path, move cost, exact damage) from that same state.
+ *   3. shows hover previews (path, move cost, exact damage) from that same state,
+ *   4. animates new attacks (arrow flight / melee lunge) before drawing the new state.
  */
 $(function () {
   "use strict";
 
   const PLAYER_COLORS = ["#d6483f", "#3e7cde", "#e2b830", "#a056cc"];
-  const SPRITES = new Set(["boss", "big_rat", "peasant"]); // files in /static/img/units/<type>.svg
+  const SPRITES = new Set(["boss", "big_rat", "peasant", "archer"]); // files in /static/img/units/<type>.svg
   const MIN_TILE = 28, MAX_TILE = 64;
 
   let state = null;          // last state from the server
   let busy = false;          // a request is in flight
   let hover = null;          // {x, y} of the tile under the mouse
   let gameOverShown = null;  // game id for which the modal was already shown
+  let seenSeq = 0;           // last action already shown; only newer attacks are animated
   const gameOverModal = new bootstrap.Modal("#game-over-modal");
 
   // ------------------------------------------------------------------ API
@@ -93,6 +95,7 @@ $(function () {
 
   function setState(newState) {
     state = newState;
+    seenSeq = state.actions.seq;
     if (new URLSearchParams(location.search).get("game") !== state.game_id) {
       history.replaceState(null, "", `/?game=${state.game_id}`);
     }
@@ -136,6 +139,7 @@ $(function () {
     if (busy || !state) return;
     setBusy(true);
     api.intent(state.game_id, body)
+      .then((newState) => playAttacks(newAttacks(newState)).then(() => newState))
       .done(setState)
       .fail((xhr) => {
         toast(errorText(xhr));
@@ -248,10 +252,11 @@ $(function () {
         </div>
         ${compact ? "" : `
         <div class="stats small">
-          <span>ATK ${u.atk} × EN_ATK ${u.en_atk} = <strong>${u.atk * u.en_atk}</strong></span>
+          <span>ATK <strong>${u.atk}</strong></span>
           <span>DEF ${def}</span>
-          <span>Range ${u.range}</span>
+          <span>Range ${u.range}${u.range > 1 ? ' <i class="bi bi-bullseye" title="Ranged: damage depends on distance"></i>' : ""}</span>
           <span>Attack costs ${u.en_atk} EN</span>
+          ${u.move_penalty ? `<span class="text-warning">Slow: +${u.move_penalty} EN per step</span>` : ""}
         </div>`}
         <div class="mt-1">${effects} ${onHit}</div>
       </div>`;
@@ -322,6 +327,120 @@ $(function () {
     if (t) {
       $board.find(`.tile[data-x=${hover.x}][data-y=${hover.y}]`).append(`<span class="dmg-pop">-${t.damage}</span>`);
     }
+  }
+
+  // ------------------------------------------------------------------ attack animations
+  const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ARROW_SVG = `
+    <svg viewBox="0 0 64 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M3 3 L14 8 L3 13 L7 8 Z M9 3 L20 8 L9 13 L13 8 Z" fill="currentColor"/>
+      <rect x="8" y="7" width="44" height="2" rx="1" fill="#e9d8a6"/>
+      <path d="M64 8 L50 2 L53 8 L50 14 Z" fill="#d9dee3" stroke="#5b6670" stroke-width="0.8"/>
+    </svg>`;
+
+  const newAttacks = (s) => s.actions.attacks.filter((a) => a.seq > seenSeq);
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const speed = (ms) => (REDUCED_MOTION ? Math.min(ms, 120) : ms);
+
+  function run(el, keyframes, options) {
+    if (!el || !el.animate) return wait(options.duration || 0);
+    return el.animate(keyframes, options).finished.catch(() => {});
+  }
+
+  /** Centre of a board tile in #fx coordinates (the overlay inside #board-wrap). */
+  function tileCenter([x, y]) {
+    const wrap = $("#board-wrap")[0];
+    const tile = $(`#board .tile[data-x=${x}][data-y=${y}]`)[0];
+    if (!tile) return null;
+    const w = wrap.getBoundingClientRect(), r = tile.getBoundingClientRect();
+    return { x: r.left - w.left + wrap.scrollLeft + r.width / 2, y: r.top - w.top + wrap.scrollTop + r.height / 2, size: r.width };
+  }
+
+  const unitDisc = ([x, y]) => $(`#board .tile[data-x=${x}][data-y=${y}] .unit .disc`)[0];
+  const at = (p, dx = 0, dy = 0) => `translate(${p.x + dx}px, ${p.y + dy}px) translate(-50%, -50%)`;
+
+  /** Plays the attacks one after another. Never rejects: a failed animation must not block the game. */
+  async function playAttacks(attacks) {
+    if (!attacks.length || !state) return;
+    $("#board .dmg-pop").remove();
+    for (const a of attacks) {
+      try {
+        if (a.ranged) await shoot(a); else await strike(a);
+      } catch (err) {
+        console.warn("animation skipped", err);
+      }
+    }
+  }
+
+  /** Ranged: the shooter draws, an arrow flies along an arc and sticks in the target. */
+  async function shoot(a) {
+    const from = tileCenter(a.from), to = tileCenter(a.to);
+    if (!from || !to) return;
+    await run(unitDisc(a.from), [
+      { transform: "translate(-50%, -50%) scale(1)" },
+      { transform: "translate(-50%, -50%) scale(0.86)", offset: 0.6 },
+      { transform: "translate(-50%, -50%) scale(1.06)" },
+    ], { duration: speed(170), easing: "ease-out" });
+
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+    const lift = Math.min(length * 0.3, from.size * 1.3); // arc height: lob over the tiles in between
+    const frames = [];
+    for (let i = 0, steps = 24; i <= steps; i++) {
+      const t = i / steps;
+      const x = from.x + dx * t, y = from.y + dy * t - lift * 4 * t * (1 - t);
+      const angle = (Math.atan2(dy - lift * 4 * (1 - 2 * t), dx) * 180) / Math.PI;
+      frames.push({ transform: `${at({ x, y })} rotate(${angle}deg)`, offset: t });
+    }
+    const $arrow = $(`<div class="fx-arrow" style="--team:${color(a.owner)}; width:${Math.round(from.size * 0.85)}px">${ARROW_SVG}</div>`)
+      .appendTo("#fx");
+    await run($arrow[0], frames, { duration: speed(240 + length * 1.6), easing: "cubic-bezier(.3,.1,.7,1)", fill: "forwards" });
+    run($arrow[0], [{ opacity: 1 }, { opacity: 0 }], { duration: 320, delay: 120, fill: "forwards" }).then(() => $arrow.remove());
+    await impact(a, to);
+  }
+
+  /** Melee: the attacker lunges at the target and back. */
+  async function strike(a) {
+    const from = tileCenter(a.from), to = tileCenter(a.to);
+    if (!from || !to) return;
+    const dx = (to.x - from.x) * 0.45, dy = (to.y - from.y) * 0.45;
+    const disc = unitDisc(a.from);
+    if (disc) disc.style.zIndex = 6;
+    const lunge = run(disc, [
+      { transform: "translate(-50%, -50%)" },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1.1)`, offset: 0.45 },
+      { transform: "translate(-50%, -50%)" },
+    ], { duration: speed(300), easing: "ease-in-out" });
+    await wait(speed(135));
+    const hit = impact(a, to);
+    await Promise.all([lunge, hit]);
+  }
+
+  /** Flash + shake on the target, and a floating damage number that survives the redraw. */
+  async function impact(a, to) {
+    const $burst = $('<div class="fx-burst"></div>').css({ width: to.size, height: to.size }).appendTo("#fx");
+    run($burst[0], [
+      { transform: `${at(to)} scale(0.3)`, opacity: 0.95 },
+      { transform: `${at(to)} scale(1.15)`, opacity: 0 },
+    ], { duration: speed(380), easing: "ease-out", fill: "forwards" }).then(() => $burst.remove());
+
+    const text = a.damage > 0 ? `-${a.damage}` : "0";
+    const $dmg = $(`<div class="fx-dmg ${a.damage > 0 ? "" : "zero"}">${text}${a.killed ? ' <i class="bi bi-x-octagon-fill"></i>' : ""}</div>`)
+      .appendTo("#fx");
+    const rise = Math.max(0, Math.min(to.size * 0.95, to.y - 12)); // stay inside the board on the top row
+    run($dmg[0], [
+      { transform: at(to, 0, -rise * 0.2), opacity: 0 },
+      { transform: at(to, 0, -rise * 0.5), opacity: 1, offset: 0.2 },
+      { transform: at(to, 0, -rise), opacity: 0 },
+    ], { duration: REDUCED_MOTION ? 700 : 1100, easing: "ease-out", fill: "forwards" }).then(() => $dmg.remove());
+
+    await run(unitDisc(a.to), [
+      { transform: "translate(-50%, -50%)", filter: "brightness(1)" },
+      { transform: "translate(calc(-50% - 4px), -50%)", filter: "brightness(2.2)", offset: 0.25 },
+      { transform: "translate(calc(-50% + 4px), -50%)", filter: "brightness(1.6)", offset: 0.55 },
+      { transform: "translate(-50%, -50%)", filter: "brightness(1)" },
+    ], { duration: speed(260), easing: "ease-out" });
+    await wait(speed(120));
   }
 
   function showGameOver() {

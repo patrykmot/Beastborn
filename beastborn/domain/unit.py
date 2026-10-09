@@ -21,6 +21,7 @@ class UnitStats:
     max_en: int  # MAX_EN
     reg_en: int  # REG_EN
     attack_range: int = 1
+    move_penalty: int = 0  # extra EN per step (slow units)
     is_boss: bool = False
     on_hit: tuple[EffectSpec, ...] = ()
 

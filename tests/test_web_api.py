@@ -182,7 +182,7 @@ def test_attack_and_game_over(client, store):
     gid = inject(store, gsm)
 
     state = intent(client, gid, type="click", x=1, y=1)
-    assert state["selection"]["targets"] == [{"unit_id": 3, "damage": 3, "formula": "4 +0 - 1 = 3", "blocked": False}]
+    assert state["selection"]["targets"] == [{"unit_id": 3, "damage": 3, "formula": "4 - 1 = 3", "blocked": False}]
     state = intent(client, gid, type="click", x=2, y=1)
     assert state["phase"] == "game_over" and state["winner"] == 0
     assert state["players"][1]["eliminated"] and state["players"][1]["units"] == 0
@@ -200,7 +200,7 @@ def test_index_and_all_referenced_static_files_exist(client):
     js = (STATIC_DIR / "js" / "beastborn.js").read_text(encoding="utf-8")
     referenced = set(re.findall(r'(?:src|href)="/static/([^"]+)"', html))
     referenced |= set(re.findall(r"url\(/static/([^)]+)\)", html + css))
-    referenced |= {f"img/units/{name}.svg" for name in re.findall(r'"(boss|big_rat|peasant)"', js)}
+    referenced |= {f"img/units/{name}.svg" for name in re.findall(r'"(boss|big_rat|peasant|archer)"', js)}
     assert referenced, "nothing found - regexes broken?"
     for rel in sorted(referenced):
         assert (STATIC_DIR / rel).is_file(), rel

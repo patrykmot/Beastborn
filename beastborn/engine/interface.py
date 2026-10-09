@@ -41,15 +41,19 @@ class CalculationEngine(ABC):
     # ---------- Combat ----------
     @abstractmethod
     def elevation_modifier(self, attacker_tile: Tile, defender_tile: Tile) -> int:
-        """EM - flat damage bonus/penalty from the elevation difference."""
+        """Elevation difference in levels (attacker - defender); drives Momentum and Effective RP."""
 
     @abstractmethod
     def current_defense(self, defense: int, tile: Tile) -> int:
-        """DEF after the terrain penalty (TDM)."""
+        """Effective DEF on the given terrain."""
+
+    @abstractmethod
+    def range_divisor(self, attacker: UnitStats, distance: int, elevation_modifier: int) -> int | None:
+        """Effective RP (damage divisor) for a hit ``distance`` tiles away; None if it cannot be made."""
 
     @abstractmethod
     def resolve_attack(self, attacker: CombatantSnapshot, defender: CombatantSnapshot) -> AttackResult:
-        """Full attack outcome: damage, block, armour shred and status effects on the defender."""
+        """Full attack outcome: damage, armour shred and status effects on the defender."""
 
     # ---------- Status effects ----------
     @abstractmethod

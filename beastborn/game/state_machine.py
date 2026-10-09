@@ -219,7 +219,8 @@ class GameStateMachine:
 
     # ------------------------------------------------------------------ helpers
     def _snapshot(self, unit: UnitState) -> CombatantSnapshot:
-        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, self._state.board.tile(unit.position))
+        tile = self._state.board.tile(unit.position)
+        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, tile, unit.position)
 
     def _own_unit(self, unit_id: int) -> UnitState | None:
         unit, error = self._own_unit_or_error(unit_id)

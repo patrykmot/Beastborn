@@ -12,11 +12,13 @@ class EffectKind(Enum):
 
 @dataclass(frozen=True)
 class EffectSpec:
-    """An on-hit effect a unit's attack carries (defined in unit data)."""
+    """An on-hit effect a unit's attack carries (defined in unit data).
+
+    Its strength scales with the attacker's ATK. That is a rule, so the numbers
+    live in ``engine.rules_config.RulesConfig`` (see docs/game_mechanics.md, section 6).
+    """
 
     kind: EffectKind
-    magnitude: int
-    duration: int = 0  # turns; 0 for instant effects such as Acid
 
 
 @dataclass(frozen=True)

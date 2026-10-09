@@ -33,3 +33,28 @@ def test_effects_and_log_limit():
     unit = next(u for u in state["units"] if u["id"] == 2)
     assert unit["effects"] == [{"kind": "venom", "magnitude": 1, "turns": 2}]
     assert len(state["log"]) == LOG_LINES and state["log"][-1] == "line 99"
+
+
+def test_attacks_are_listed_for_animation():
+    from beastborn.domain import Board
+    from beastborn.game import custom_game
+    from tests.conftest import ARCHER, KING, SOLDIER
+
+    board = Board.from_strings(["......", "......"])
+    gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (2, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
+    ui = Interaction(gsm)
+    assert render("x", ui)["actions"] == {"seq": 0, "attacks": []}
+
+    ui.handle(ClickTile(Position(0, 0)))
+    ui.handle(ClickTile(Position(2, 0)))  # shoot: 8 / RP 1 - DEF 1 = 7
+    state = render("x", ui)
+    assert state["actions"] == {"seq": 1, "attacks": [{
+        "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": "archer", "owner": 0,
+        "from": [0, 0], "to": [2, 0], "ranged": True, "damage": 7, "killed": False,
+    }]}
+    assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == 1
+    assert state["log"][-1].startswith("P1 Archer shot P2 Soldier for 7")
+
+    ui.handle(ClickTile(Position(2, 0)))  # 3 HP left -> killed; position comes from before the hit
+    attack = render("x", ui)["actions"]["attacks"][-1]
+    assert (attack["seq"], attack["to"], attack["killed"]) == (2, [2, 0], True)

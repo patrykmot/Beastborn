@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 
 from beastborn.control.controller import HumanController, PlayerController
 from beastborn.domain.position import Position
@@ -14,6 +15,17 @@ from beastborn.game.view import GameView, UnitView
 from beastborn.ui.interface import Cancel, ClickTile, EndTurn, HoverTile, Quit, UIIntent
 from beastborn.ui.text import describe
 
+RECENT_ACTIONS = 20
+
+
+@dataclass(frozen=True)
+class ActionRecord:
+    """One accepted command: its events and the view from just before it (for animations)."""
+
+    seq: int
+    events: tuple
+    before: GameView
+
 
 class Interaction:
     def __init__(self, gsm: GameStateMachine, controllers: dict[int, PlayerController] | None = None):
@@ -24,6 +36,8 @@ class Interaction:
         self.message: str = ""
         self.message_is_error = False
         self.log: deque[str] = deque(maxlen=200)
+        self.action_seq = 0  # number of accepted commands so far
+        self.actions: deque[ActionRecord] = deque(maxlen=RECENT_ACTIONS)
         self.quit_requested = False
         self._cache_key: tuple | None = None
         self._view: GameView = gsm.view()
@@ -136,6 +150,8 @@ class Interaction:
             self._say(result.error or "Not allowed", error=True)
             return False
         after = self.gsm.view()
+        self.action_seq += 1
+        self.actions.append(ActionRecord(self.action_seq, tuple(result.events), before))
         for event in result.events:
             line = describe(event, before, after)
             if line:

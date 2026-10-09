@@ -8,7 +8,7 @@ from beastborn.game import (
     AttackCommand, EndTurnCommand, GameConfig, MoveCommand, Phase, custom_game,
 )
 from beastborn.game import events as ev
-from tests.conftest import KING, SOLDIER
+from tests.conftest import ARCHER, KING, SOLDIER
 
 FLAT = Board.from_strings([".....", ".....", "....."])
 
@@ -105,7 +105,7 @@ def test_attack_damages_and_spends_energy():
     hit = result.events[0]
     assert isinstance(hit, ev.UnitAttacked)
     assert hit.result == preview  # deterministic: the preview is exactly the outcome
-    assert hit.result.damage == 3  # 2*2 - DEF 1
+    assert hit.result.damage == 3  # ATK 4 - DEF 1
     assert unit(gsm, 4).hp == 7
     assert unit(gsm, 2).energy == 4
 
@@ -143,9 +143,9 @@ def test_attack_targets_lists_only_valid_targets():
 
 
 def test_elevation_and_mud_in_a_real_fight():
-    """The design document example played through the GSM."""
+    """ATK 4 on a hill (x1.5 = 6) vs DEF 4 in mud (floor(4 / 2) = 2) -> 4 damage."""
     board = Board.from_strings(["...", ".m.", "..."], ["010", "000", "000"])
-    beast = replace(SOLDIER, atk=2, en_atk=2)
+    beast = replace(SOLDIER, atk=4)
     target = replace(SOLDIER, defense=4, hp=10)
     gsm = custom_game(board, [(0, beast, (1, 0)), (1, target, (1, 1)), (0, KING, (0, 2)), (1, KING, (2, 2))])
     result = gsm.submit(AttackCommand(1, 2))
@@ -153,19 +153,61 @@ def test_elevation_and_mud_in_a_real_fight():
     assert unit(gsm, 2).hp == 6
 
 
+# ---------------------------------------------------------------- archer (ranged)
+LONG = Board.from_strings(["......", "......"], ["000000", "100000"])
+
+
+def archer_game(target_x):
+    """P0 Archer at (0,0), P1 Soldier at (target_x, 0); Kings on the bottom row."""
+    return custom_game(LONG, [(0, ARCHER, (0, 0)), (1, SOLDIER, (target_x, 0)), (0, KING, (1, 1)), (1, KING, (5, 1))])
+
+
+@pytest.mark.parametrize("x, damage", [(1, 3), (2, 7), (3, 3), (4, 1)])  # 8 / RP(1,2,3,4 = 2,1,2,4) - DEF 1
+def test_archer_damage_depends_on_distance(x, damage):
+    gsm = archer_game(x)
+    assert set(gsm.attack_targets(1)) == {2}
+    result = gsm.submit(AttackCommand(1, 2))
+    assert result.ok and result.events[0].result.damage == damage
+    assert unit(gsm, 2).hp == 10 - damage
+    assert unit(gsm, 1).energy == 6 - 2
+
+
+def test_archer_cannot_shoot_beyond_four_tiles_and_keeps_energy():
+    gsm = archer_game(5)
+    assert gsm.attack_targets(1) == {}
+    result = gsm.submit(AttackCommand(1, 2))
+    assert not result.ok and "range" in result.error
+    assert unit(gsm, 1).energy == 6
+
+
+def test_archer_on_a_hill_shoots_harder():
+    board = Board.from_strings(["......", "......"], ["100000", "000000"])
+    gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (4, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
+    result = gsm.submit(AttackCommand(1, 2)).events[0].result
+    assert (result.momentum, result.range_divisor, result.damage) == (12, 3, 3)  # 12 / (4 - 1) - 1
+
+
+def test_archer_is_slow():
+    gsm = archer_game(5)
+    tiles = gsm.reachable_tiles(1)
+    assert tiles[Position(1, 0)].cost == 3  # 2 + move_penalty 1
+    assert tiles[Position(2, 0)].cost == 6
+    assert Position(3, 0) not in tiles  # a Soldier with 6 EN gets 3 tiles
+
+
 # ---------------------------------------------------------------- status effects
 def test_venom_ticks_at_start_of_victims_turn():
-    rat = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.VENOM, 1, 3),))
+    rat = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.VENOM),))  # ATK 4 -> 1 HP per round, 5 rounds
     gsm = two_player_game(p1_soldier=(2, 1))
     gsm._state.units[2].stats = rat  # P0 soldier becomes a rat
     gsm.submit(AttackCommand(2, 4))
     assert unit(gsm, 4).hp == 7
-    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 3),)
+    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 5),)
     result = gsm.submit(EndTurnCommand())
     ticks = [e for e in result.events if isinstance(e, ev.EffectTicked)]
     assert len(ticks) == 1 and ticks[0].unit_id == 4
     assert unit(gsm, 4).hp == 6
-    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 2),)
+    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 4),)
 
 
 def test_start_of_turn_order_regen_then_venom_then_death():
@@ -183,7 +225,7 @@ def test_start_of_turn_order_regen_then_venom_then_death():
 
 
 def test_acid_reduces_defense_permanently():
-    acid = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.ACID, 1),))
+    acid = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.ACID),))  # ATK 4 -> -1 DEF per hit
     gsm = two_player_game(p1_soldier=(2, 1))
     gsm._state.units[2].stats = acid
     gsm.submit(AttackCommand(2, 4))
