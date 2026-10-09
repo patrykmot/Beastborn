@@ -25,13 +25,13 @@ class RulesConfig:
     # --- Combat (docs/game_mechanics.md) ---
     # 2. Momentum = ATK + momentum_per_level * ATK * Elevation_Modifier
     momentum_per_level: Fraction = Fraction(1, 2)
-    # 3. Raw RP by distance, only for units with attack_range > 1. Farther = cannot attack.
-    range_dissipation: dict[int, int] = field(default_factory=lambda: {1: 2, 2: 1, 3: 2, 4: 4})
+    # 3. RP damage multiplier by distance, only for units with attack_range > 1. Farther = cannot attack.
+    range_dissipation: dict[int, float] = field(default_factory=lambda: {1: 0.5, 2: 1.0, 3: 0.8, 4: 0.8})
     # 4. Effective DEF = floor(DEF / divisor) on these terrains
     terrain_defense_divisor: dict[TerrainType, int] = field(default_factory=lambda: {TerrainType.MUD: 2})
-    # 5. Final damage = max(min_damage, floor(Base_Damage - Effective_DEF))
-    min_damage: int = 0
-    allow_block: bool = False  # if True, a hit that deals 0 damage applies no on-hit effects
+    # 5. Final damage = max(min_damage, floor(Base_Damage - Effective_DEF)); every hit deals at least 1
+    min_damage: int = 1
+    allow_block: bool = False  # if True, a hit with floor(Base_Damage - DEF) <= 0 deals 0 and applies no effects
     # 6. On-hit effects
     venom_duration: int = 5  # rounds; re-applying refreshes, never stacks
     venom_atk_divisor: int = 4  # Venom damage per round = max(1, floor(ATK / 4))

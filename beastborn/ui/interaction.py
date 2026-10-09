@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from beastborn.control.controller import HumanController, PlayerController
 from beastborn.domain.position import Position
 from beastborn.engine.results import AttackResult
+from beastborn.game import events as ev
 from beastborn.game.commands import AttackCommand, Command, EndTurnCommand, MoveCommand
 from beastborn.game.pathfinding import PathInfo
 from beastborn.game.state import Phase
@@ -15,16 +16,20 @@ from beastborn.game.view import GameView, UnitView
 from beastborn.ui.interface import Cancel, ClickTile, EndTurn, HoverTile, Quit, UIIntent
 from beastborn.ui.text import describe
 
-RECENT_ACTIONS = 20
-
-
 @dataclass(frozen=True)
-class ActionRecord:
-    """One accepted command: its events and the view from just before it (for animations)."""
+class AttackAnimation:
+    """What a frontend needs to animate one attack. Tiles are taken before the hit (a killed target is gone after)."""
 
-    seq: int
-    events: tuple
-    before: GameView
+    seq: int  # number of the command that made the attack
+    attacker_id: int
+    target_id: int
+    attacker_type: str
+    owner: int
+    source: Position
+    target: Position
+    ranged: bool
+    damage: int
+    killed: bool
 
 
 class Interaction:
@@ -37,7 +42,7 @@ class Interaction:
         self.message_is_error = False
         self.log: deque[str] = deque(maxlen=200)
         self.action_seq = 0  # number of accepted commands so far
-        self.actions: deque[ActionRecord] = deque(maxlen=RECENT_ACTIONS)
+        self.last_attacks: list[AttackAnimation] = []  # attacks since the last player input (incl. bot turns)
         self.quit_requested = False
         self._cache_key: tuple | None = None
         self._view: GameView = gsm.view()
@@ -101,6 +106,8 @@ class Interaction:
 
     # ------------------------------------------------------------------ input
     def handle(self, intent: UIIntent) -> None:
+        if not isinstance(intent, HoverTile):
+            self.last_attacks = []  # the frontend has shown them with the previous response
         if isinstance(intent, Quit):
             self.quit_requested = True
         elif isinstance(intent, HoverTile):
@@ -151,8 +158,9 @@ class Interaction:
             return False
         after = self.gsm.view()
         self.action_seq += 1
-        self.actions.append(ActionRecord(self.action_seq, tuple(result.events), before))
         for event in result.events:
+            if isinstance(event, ev.UnitAttacked):
+                self.last_attacks.append(self._animation(event, before))
             line = describe(event, before, after)
             if line:
                 self.log.append(line)
@@ -160,6 +168,14 @@ class Interaction:
         if isinstance(command, EndTurnCommand):
             self.selected = None
         return True
+
+    def _animation(self, event: ev.UnitAttacked, before: GameView) -> AttackAnimation:
+        attacker, target = before.unit(event.attacker_id), before.unit(event.target_id)
+        return AttackAnimation(
+            self.action_seq, attacker.id, target.id, attacker.stats.key, attacker.owner,
+            attacker.position, target.position, event.result.ranged, event.result.damage,
+            event.target_hp_after <= 0,
+        )
 
     def _say(self, text: str, error: bool = False) -> None:
         self.message, self.message_is_error = text, error

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from fractions import Fraction
 
 import pytest
 
@@ -162,7 +163,7 @@ def archer_game(target_x):
     return custom_game(LONG, [(0, ARCHER, (0, 0)), (1, SOLDIER, (target_x, 0)), (0, KING, (1, 1)), (1, KING, (5, 1))])
 
 
-@pytest.mark.parametrize("x, damage", [(1, 3), (2, 7), (3, 3), (4, 1)])  # 8 / RP(1,2,3,4 = 2,1,2,4) - DEF 1
+@pytest.mark.parametrize("x, damage", [(1, 3), (2, 7), (3, 5), (4, 5)])  # 8 * RP(0.5, 1, 0.8, 0.8) - DEF 1, rounded down
 def test_archer_damage_depends_on_distance(x, damage):
     gsm = archer_game(x)
     assert set(gsm.attack_targets(1)) == {2}
@@ -184,7 +185,7 @@ def test_archer_on_a_hill_shoots_harder():
     board = Board.from_strings(["......", "......"], ["100000", "000000"])
     gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (4, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
     result = gsm.submit(AttackCommand(1, 2)).events[0].result
-    assert (result.momentum, result.range_divisor, result.damage) == (12, 3, 3)  # 12 / (4 - 1) - 1
+    assert (result.momentum, result.base_damage, result.damage) == (12, Fraction(48, 5), 8)  # 12 * 0.8 - 1 = 8.6
 
 
 def test_archer_is_slow():

@@ -38,25 +38,25 @@ class AttackResult:
     momentum: Fraction  # ATK + 0.5 * ATK * EM
     distance: int  # Manhattan distance to the target
     ranged: bool  # attacker has attack_range > 1, so Range Dissipation applies
-    range_divisor: int  # Effective RP (1 for melee units)
-    base_damage: Fraction  # momentum / Effective RP
+    range_multiplier: Fraction  # RP by distance (1 for melee units)
+    base_damage: Fraction  # momentum * RP
     current_defense: int  # Effective DEF (after terrain)
     raw_damage: Fraction  # base_damage - Effective DEF, before rounding
     damage: int  # HP the defender loses
-    blocked: bool  # the hit has no effect at all (out of range, or allow_block and 0 damage)
+    blocked: bool  # the hit has no effect at all (out of range, or allow_block and no damage)
     defense_change: int  # <= 0, e.g. -1 from Acid (already clamped so DEF stays >= 0)
     defender_effects_after: tuple[StatusEffect, ...]
     out_of_range: bool = False
 
     def formula(self) -> str:
-        """E.g. '6 - 2 = 4', '6 x1.5 - 2 = 7', '7 x1.5 /3 - 2 = 1.5 -> 1'."""
+        """E.g. '6 - 2 = 4', '6 x1.5 height - 2 = 7', '7 x0.8 range - 2 = 3.6 -> 3'."""
         if self.out_of_range:
             return "out of range"
         text = str(self.atk)
         if self.elevation_modifier and self.atk:
-            text += f" x{fmt(self.momentum / self.atk)}"  # height bonus or penalty
+            text += f" x{fmt(self.momentum / self.atk)} height"
         if self.ranged:
-            text += f" /{self.range_divisor}"
+            text += f" x{fmt(self.range_multiplier)} range"
         text += f" - {self.current_defense} = {fmt(self.raw_damage)}"
         if self.blocked:
             return text + " -> blocked"

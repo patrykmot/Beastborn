@@ -1,5 +1,5 @@
 {
-  "_comment": "Stats for balancing. Damage rules: docs/game_mechanics.md (flat ground, melee: DMG = ATK - DEF). range > 1 = ranged unit (Range Dissipation applies, max 4 tiles). move_penalty = extra EN per step. on_hit effects scale with ATK: venom max(1, ATK//4) HP x 5 rounds, acid max(1, ATK//10) DEF per hit.",
+  "_comment": "Stats for balancing. Damage rules: docs/game_mechanics.md (flat ground, melee: DMG = ATK - DEF, at least 1). range > 1 = ranged unit (damage x0.5 / x1 / x0.8 / x0.8 at 1-4 tiles, max 4 tiles). move_penalty = extra EN per step. on_hit effects scale with ATK: venom max(1, ATK//4) HP x 5 rounds, acid max(1, ATK//10) DEF per hit.",
   "units": [
     {
       "key": "boss",

@@ -56,5 +56,9 @@ def test_attacks_are_listed_for_animation():
     assert state["log"][-1].startswith("P1 Archer shot P2 Soldier for 7")
 
     ui.handle(ClickTile(Position(2, 0)))  # 3 HP left -> killed; position comes from before the hit
-    attack = render("x", ui)["actions"]["attacks"][-1]
-    assert (attack["seq"], attack["to"], attack["killed"]) == (2, [2, 0], True)
+    attacks = render("x", ui)["actions"]["attacks"]
+    assert len(attacks) == 1  # only the attacks since the last input are kept and sent
+    assert (attacks[0]["seq"], attacks[0]["to"], attacks[0]["killed"]) == (2, [2, 0], True)
+
+    ui.handle(ClickTile(Position(0, 1)))  # select the King: no attack, list is cleared
+    assert render("x", ui)["actions"] == {"seq": 2, "attacks": []}

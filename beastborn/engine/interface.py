@@ -8,6 +8,7 @@ touching the Game State Machine or the UI.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from fractions import Fraction
 
 from beastborn.domain.effects import StatusEffect
 from beastborn.domain.terrain import Tile
@@ -41,15 +42,15 @@ class CalculationEngine(ABC):
     # ---------- Combat ----------
     @abstractmethod
     def elevation_modifier(self, attacker_tile: Tile, defender_tile: Tile) -> int:
-        """Elevation difference in levels (attacker - defender); drives Momentum and Effective RP."""
+        """Elevation difference in levels (attacker - defender); drives Momentum."""
 
     @abstractmethod
     def current_defense(self, defense: int, tile: Tile) -> int:
         """Effective DEF on the given terrain."""
 
     @abstractmethod
-    def range_divisor(self, attacker: UnitStats, distance: int, elevation_modifier: int) -> int | None:
-        """Effective RP (damage divisor) for a hit ``distance`` tiles away; None if it cannot be made."""
+    def range_multiplier(self, attacker: UnitStats, distance: int) -> Fraction | None:
+        """RP damage multiplier for a hit ``distance`` tiles away (1 for melee); None if it cannot be made."""
 
     @abstractmethod
     def resolve_attack(self, attacker: CombatantSnapshot, defender: CombatantSnapshot) -> AttackResult:

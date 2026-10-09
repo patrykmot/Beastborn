@@ -104,7 +104,7 @@ def test_elevation_modifier_is_level_difference(ce, att, dfn, expected):
 def test_momentum(ce, att, dfn, momentum):
     result = attack(ce, att_elev=att, def_elev=dfn)
     assert result.momentum == momentum
-    assert result.range_divisor == 1  # melee: no Range Dissipation
+    assert result.range_multiplier == 1  # melee: no Range Dissipation
 
 
 def test_momentum_with_odd_atk_is_exact(ce):
@@ -114,55 +114,52 @@ def test_momentum_with_odd_atk_is_exact(ce):
 
 
 # ---------------------------------------------------------------- 3. range dissipation
-@pytest.mark.parametrize("distance, raw_rp", [(1, 2), (2, 1), (3, 2), (4, 4)])
-def test_raw_rp_by_distance(ce, distance, raw_rp):
-    assert ce.range_divisor(BOW, distance, 0) == raw_rp
+@pytest.mark.parametrize("distance, rp", [(1, Fraction(1, 2)), (2, 1), (3, Fraction(4, 5)), (4, Fraction(4, 5))])
+def test_rp_multiplier_by_distance(ce, distance, rp):
+    assert ce.range_multiplier(BOW, distance) == rp
     result = attack(ce, BOW, replace(UNIT, defense=0), distance=distance)
-    assert result.base_damage == Fraction(8, raw_rp)
-    assert result.damage == 8 // raw_rp
+    assert result.base_damage == 8 * rp  # 3. Base_Damage = Momentum_Damage * RP
+    assert result.damage == int(8 * rp)
 
 
 def test_beyond_four_tiles_does_no_damage(ce):
-    assert ce.range_divisor(BOW, 5, 0) is None
+    assert ce.range_multiplier(BOW, 5) is None
     result = attack(ce, BOW, distance=5)
     assert result.out_of_range and result.blocked and result.damage == 0
     assert result.formula() == "out of range"
 
 
-@pytest.mark.parametrize(
-    "distance, em, effective_rp",
-    [
-        (4, 1, 3),  # 4 - 1
-        (4, 2, 2),  # 4 - 2
-        (3, 1, 1),  # 2 - 1
-        (3, 2, 1),  # never below 1
-        (2, 2, 1),
-        (1, 1, 1),
-        (4, -1, 4),  # shooting uphill gives no extra penalty to RP (only to Momentum)
-        (4, -2, 4),
-    ],
-)
-def test_elevation_mitigates_rp(ce, distance, em, effective_rp):
-    assert ce.range_divisor(BOW, distance, em) == effective_rp
+def test_height_does_not_change_rp(ce):
+    """Height only works through Momentum; RP depends on distance alone."""
+    flat = attack(ce, BOW, distance=4)
+    high = attack(ce, BOW, distance=4, att_elev=1)
+    assert flat.range_multiplier == high.range_multiplier == Fraction(4, 5)
+    assert (high.momentum, high.base_damage) == (12, Fraction(48, 5))  # 12 * 0.8 = 9.6
 
 
 def test_melee_units_ignore_range_dissipation(ce):
-    assert ce.range_divisor(UNIT, 1, 0) == 1
+    assert ce.range_multiplier(UNIT, 1) == 1
     assert attack(ce).formula() == "6 - 2 = 4"
 
 
 def test_ranged_example_from_a_hill(ce):
-    """ATK 8 from one level up, 4 tiles away: 12 / (4 - 1) = 4, minus DEF 2 = 2."""
+    """ATK 8 from one level up, 4 tiles away: 12 * 0.8 = 9.6, minus DEF 2 = 7.6 -> 7."""
     result = attack(ce, BOW, distance=4, att_elev=1)
-    assert (result.momentum, result.range_divisor, result.base_damage) == (12, 3, 4)
-    assert result.damage == 2
-    assert result.formula() == "8 x1.5 /3 - 2 = 2"
+    assert result.damage == 7
+    assert result.formula() == "8 x1.5 height x0.8 range - 2 = 7.6 -> 7"
 
 
 def test_ranged_unit_adjacent_is_weak(ce):
     result = attack(ce, BOW, distance=1)
     assert result.base_damage == 4 and result.damage == 2
-    assert result.formula() == "8 /2 - 2 = 2"
+    assert result.formula() == "8 x0.5 range - 2 = 2"
+
+
+def test_custom_range_table():
+    ce = StandardCalculationEngine(RulesConfig(range_dissipation={1: 1, 2: 0.25}))
+    assert ce.range_multiplier(BOW, 2) == Fraction(1, 4)
+    assert ce.range_multiplier(BOW, 3) is None
+    assert not ce.in_attack_range(BOW, 3)
 
 
 # ---------------------------------------------------------------- 4. defender effective DEF
@@ -177,31 +174,34 @@ def test_hill_and_mud_example(ce):
     result = attack(ce, defender=replace(UNIT, defense=4), att_elev=1, def_terrain=M)
     assert (result.momentum, result.current_defense) == (9, 2)
     assert result.damage == 7
-    assert result.formula() == "6 x1.5 - 2 = 7"
+    assert result.formula() == "6 x1.5 height - 2 = 7"
 
 
 def test_fractions_are_rounded_down_at_the_end(ce):
-    result = attack(ce, BOW, replace(UNIT, defense=1), distance=3, def_elev=1)  # 8 * 0.5 / 2 - 1 = 1
+    result = attack(ce, BOW, replace(UNIT, defense=1), distance=3, def_elev=1)  # 8 * 0.5 * 0.8 - 1 = 2.2
+    assert result.raw_damage == Fraction(11, 5) and result.damage == 2
+    result = attack(ce, replace(BOW, atk=7), distance=3)  # 7 * 0.8 - 2 = 3.6
+    assert result.damage == 3
+    assert result.formula() == "7 x0.8 range - 2 = 3.6 -> 3"
+
+
+@pytest.mark.parametrize("attacker, distance", [(UNIT, 1), (BOW, 1), (BOW, 4)])
+def test_every_hit_deals_at_least_one(ce, attacker, distance):
+    result = attack(ce, attacker, replace(UNIT, defense=10), distance=distance)
+    assert result.raw_damage < 0
     assert result.damage == 1
-    result = attack(ce, BOW, replace(UNIT, defense=0), distance=4)  # 8 / 4 = 2
-    assert result.damage == 2
-    result = attack(ce, replace(BOW, atk=7), distance=1)  # 3.5 - 2 = 1.5
-    assert result.raw_damage == Fraction(3, 2) and result.damage == 1
-    assert result.formula() == "7 /2 - 2 = 1.5 -> 1"
-
-
-def test_damage_never_below_zero(ce):
-    result = attack(ce, defender=replace(UNIT, defense=10))
-    assert result.raw_damage == -4
-    assert result.damage == 0
     assert not result.blocked
-    assert result.formula() == "6 - 10 = -4 -> 0"
 
 
-def test_zero_damage_hit_still_applies_effects(ce):
+def test_minimum_damage_formula(ce):
+    assert attack(ce, defender=replace(UNIT, defense=10)).formula() == "6 - 10 = -4 -> 1"
+    assert attack(ce, defender=replace(UNIT, defense=6)).formula() == "6 - 6 = 0 -> 1"
+
+
+def test_weak_hit_still_applies_effects(ce):
     venom = replace(UNIT, on_hit=(EffectSpec(EffectKind.VENOM),))
     result = attack(ce, venom, replace(UNIT, defense=10))
-    assert result.damage == 0
+    assert result.damage == 1
     assert result.defender_effects_after == (StatusEffect(EffectKind.VENOM, 1, 5),)
 
 
@@ -209,7 +209,7 @@ def test_block_when_enabled():
     ce = StandardCalculationEngine(RulesConfig(allow_block=True))
     venom = replace(UNIT, on_hit=(EffectSpec(EffectKind.VENOM),))
     result = attack(ce, venom, replace(UNIT, defense=10))
-    assert result.blocked and result.damage == 0
+    assert result.blocked and result.damage == 0  # optional rule: overrides the minimum of 1
     assert result.defender_effects_after == ()  # a blocked hit applies no effects
     assert not attack(ce, defender=replace(UNIT, defense=0)).blocked
 

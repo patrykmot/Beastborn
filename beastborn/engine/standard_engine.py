@@ -66,14 +66,12 @@ class StandardCalculationEngine(CalculationEngine):
         divisor = self.config.terrain_defense_divisor.get(tile.terrain, 1)
         return max(0, defense // divisor)
 
-    def range_divisor(self, attacker: UnitStats, distance: int, elevation_modifier: int) -> int | None:
-        # 3. Effective_RP = max(1, Raw_RP - max(0, Elevation_Modifier)); None = cannot attack that far
+    def range_multiplier(self, attacker: UnitStats, distance: int) -> Fraction | None:
+        # 3. RP multiplier by distance (ranged units only); None = cannot attack that far
         if not self._is_ranged(attacker):
-            return 1
-        raw_rp = self.config.range_dissipation.get(distance)
-        if raw_rp is None:
-            return None
-        return max(1, raw_rp - max(0, elevation_modifier))
+            return Fraction(1)
+        rp = self.config.range_dissipation.get(distance)
+        return None if rp is None else Fraction(str(rp))  # str: 0.8 -> exactly 4/5
 
     def resolve_attack(self, attacker: CombatantSnapshot, defender: CombatantSnapshot) -> AttackResult:
         c = self.config
@@ -85,16 +83,16 @@ class StandardCalculationEngine(CalculationEngine):
         momentum = max(Fraction(0), atk + Fraction(c.momentum_per_level) * atk * em)
         current_def = self.current_defense(defender.defense, defender.tile)
 
-        rp = self.range_divisor(attacker.stats, distance, em)
+        rp = self.range_multiplier(attacker.stats, distance)
         if rp is None:  # 3. "> 4 tiles": Damage = 0, the attack fails
-            return AttackResult(atk, em, momentum, distance, ranged, 0, Fraction(0), current_def, Fraction(0),
-                                0, True, 0, defender.effects, out_of_range=True)
+            return AttackResult(atk, em, momentum, distance, ranged, Fraction(0), Fraction(0), current_def,
+                                Fraction(0), 0, True, 0, defender.effects, out_of_range=True)
 
-        base = momentum / rp  # 3. Base_Damage = Momentum_Damage / Effective_RP
+        base = momentum * rp  # 3. Base_Damage = Momentum_Damage * RP
         raw = base - current_def
-        damage = max(c.min_damage, math.floor(raw))  # 5. Final_Damage, rounded down
+        damage = max(c.min_damage, math.floor(raw))  # 5. Final_Damage, rounded down, at least 1
 
-        if damage <= 0 and c.allow_block:
+        if math.floor(raw) <= 0 and c.allow_block:
             return AttackResult(atk, em, momentum, distance, ranged, rp, base, current_def, raw,
                                 0, True, 0, defender.effects)
 
@@ -105,7 +103,7 @@ class StandardCalculationEngine(CalculationEngine):
     def _apply_on_hit(
         self, attacker: UnitStats, defender: CombatantSnapshot
     ) -> tuple[int, tuple[StatusEffect, ...]]:
-        """6. On-hit effects. Applied whenever the attack resolves, even for 0 damage."""
+        """6. On-hit effects. Applied whenever the attack resolves."""
         c = self.config
         defense_change = 0
         effects = list(defender.effects)

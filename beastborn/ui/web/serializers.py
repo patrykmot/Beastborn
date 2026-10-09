@@ -5,9 +5,8 @@ from typing import Any
 
 from beastborn.domain.position import Position
 from beastborn.domain.terrain import Tile
-from beastborn.game import events as ev
 from beastborn.game.view import UnitView
-from beastborn.ui.interaction import Interaction
+from beastborn.ui.interaction import AttackAnimation, Interaction
 
 LOG_LINES = 50
 
@@ -71,7 +70,8 @@ def render(game_id: str, ui: Interaction) -> dict[str, Any]:
         ],
         "units": [unit_json(u) for u in view.units],
         "selection": {"unit_id": ui.selected, "reachable": reachable, "targets": targets},
-        "actions": {"seq": ui.action_seq, "attacks": _recent_attacks(ui)},
+        # attacks since the last intent, for animations; "seq" lets a reloaded page skip ones it already saw
+        "actions": {"seq": ui.action_seq, "attacks": [_attack_json(a) for a in ui.last_attacks]},
         "message": {"text": ui.message, "error": ui.message_is_error},
         "log": list(ui.log)[-LOG_LINES:],
     }
@@ -81,29 +81,16 @@ def _tile_json(tile: Tile) -> dict[str, Any]:
     return {"terrain": tile.terrain.value, "elevation": tile.elevation}
 
 
-def _recent_attacks(ui: Interaction) -> list[dict[str, Any]]:
-    """Attacks of the last few commands, so the browser can animate the ones it has not seen yet.
-
-    Positions come from the view before the command, because a killed target is gone afterwards.
-    """
-    attacks = []
-    for record in ui.actions:
-        for event in record.events:
-            if not isinstance(event, ev.UnitAttacked):
-                continue
-            attacker, target = record.before.unit(event.attacker_id), record.before.unit(event.target_id)
-            if attacker is None or target is None:
-                continue
-            attacks.append({
-                "seq": record.seq,
-                "attacker_id": attacker.id,
-                "target_id": target.id,
-                "attacker_type": attacker.stats.key,
-                "owner": attacker.owner,
-                "from": [attacker.position.x, attacker.position.y],
-                "to": [target.position.x, target.position.y],
-                "ranged": event.result.ranged,
-                "damage": event.result.damage,
-                "killed": event.target_hp_after <= 0,
-            })
-    return attacks
+def _attack_json(a: AttackAnimation) -> dict[str, Any]:
+    return {
+        "seq": a.seq,
+        "attacker_id": a.attacker_id,
+        "target_id": a.target_id,
+        "attacker_type": a.attacker_type,
+        "owner": a.owner,
+        "from": [a.source.x, a.source.y],
+        "to": [a.target.x, a.target.y],
+        "ranged": a.ranged,
+        "damage": a.damage,
+        "killed": a.killed,
+    }

@@ -64,12 +64,11 @@ python -m pytest
   | slow units (Archer) | +`move_penalty` EN per step |
 
 - **Attack** (costs `EN_ATK`, repeat while energy lasts; full rules in [docs/game_mechanics.md](docs/game_mechanics.md)):
-  `DMG = floor(ATK × (1 + 0.5 × EM) / RP − DEF)`, never below 0.
+  `DMG = floor(ATK × (1 + 0.5 × EM) × RP − DEF)`, minimum 1 for every hit.
   - `EM` = your level minus the target's level. Each level above adds +50 % ATK, each level below takes −50 %.
-  - `RP` only applies to ranged units (range > 1). By distance: 1 tile ÷2, 2 tiles ÷1, 3 tiles ÷2, 4 tiles ÷4, farther is impossible.
-    Each level of height advantage lowers RP by 1 (never below 1).
+  - `RP` only applies to ranged units (range > 1) and depends only on distance: 1 tile ×0.5, 2 tiles ×1, 3 tiles ×0.8, 4 tiles ×0.8, farther is impossible.
   - Units standing in mud have half DEF (rounded down).
-- **Effects** (applied on every hit, even for 0 damage): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds (re-applying refreshes it).
+- **Effects** (applied on every hit): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds (re-applying refreshes it).
   Acid = −`max(1, ATK ÷ 10)` DEF permanently per hit.
 
 | Unit | HP | ATK | EN_ATK | DEF | MAX_EN | REG_EN | Range | Special |
@@ -77,7 +76,7 @@ python -m pytest
 | Boss | 40 | 8 | 3 | 4 | 6 | 3 | 1 | slow, huge HP |
 | Big Rat | 12 | 5 | 2 | 1 | 10 | 6 | 1 | Venom |
 | Peasant | 16 | 6 | 3 | 2 | 8 | 5 | 1 | — |
-| Archer | 14 | 7 | 3 | 2 | 8 | 5 | 4 | ranged, +1 EN per step; best at 2 tiles or from a hill |
+| Archer | 14 | 7 | 3 | 2 | 8 | 5 | 4 | ranged, +1 EN per step; best at 2 tiles, weak next to the target |
 
 Stats are placeholders for balancing. Edit them in `beastborn/data/units.json`.
 

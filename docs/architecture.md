@@ -29,10 +29,10 @@ Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `
 - `CalculationEngine` (ABC) is the single interface for every rule calculation:
   - `step_cost`
   - `initial_energy`, `regenerate`, `attack_cost`, `in_attack_range`
-  - `elevation_modifier`, `current_defense`, `range_divisor`, `resolve_attack` (the rules in [game_mechanics.md](game_mechanics.md))
+  - `elevation_modifier`, `current_defense`, `range_multiplier`, `resolve_attack` (the rules in [game_mechanics.md](game_mechanics.md))
   - `tick_effects`
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
-- `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `7 x1.5 /3 - 2 = 1.5 -> 1`.
+- `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.5 height x0.8 range - 2 = 7.6 -> 7`.
 - `StandardCalculationEngine` implements the design document. All its numbers are in `RulesConfig`.
 
 **Change the rules:**
@@ -42,7 +42,7 @@ from beastborn.engine import RulesConfig, StandardCalculationEngine
 from beastborn.game import new_game
 
 # tweak numbers
-gsm = new_game(2, engine=StandardCalculationEngine(RulesConfig(min_damage=1, allow_block=True, range_dissipation={1: 2, 2: 1, 3: 1})))
+gsm = new_game(2, engine=StandardCalculationEngine(RulesConfig(allow_block=True, range_dissipation={1: 0.5, 2: 1.0, 3: 0.6})))
 
 # or write a new rule set
 class MyEngine(StandardCalculationEngine):
@@ -93,7 +93,7 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.
   - The browser redraws the whole board from every state response.
   - Hover previews (path, cost, damage) come from the last state, so they need no requests.
-  - Animations: the state has `actions: {seq, attacks: [...]}`, the attacks of the last commands (from/to tile, ranged, damage, killed). The browser plays the attacks newer than the last `seq` it saw (an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page load only remembers `seq`, so nothing is replayed.
+  - Animations: the state has `actions: {seq, attacks: [...]}`. `attacks` holds only the attacks since the last intent (usually 0 or 1, more if bots played), each with from/to tile, ranged, damage and killed. `Interaction` keeps just these small records (`AttackAnimation`), not game snapshots, and clears them on the next intent. The browser plays attacks newer than the last `seq` it saw (an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page reload only remembers `seq`, so nothing is replayed.
   - A unit's picture is `img/units/<unit key>.svg`. A unit type without a picture shows its letter `code`.
 
 **New frontend** (console, desktop): render `Interaction.view` and feed it intents. Game code does not change.
