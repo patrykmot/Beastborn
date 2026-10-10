@@ -1,40 +1,32 @@
-/* Beastborn web client */
 :root {
   --tile: 52px;
-  --grass-0: rgb(92 150 78);
-  --grass-1: rgb(128 176 96);
-  --grass-2: rgb(170 200 128);
-  --mud-0: rgb(104 80 54);
-  --mud-1: rgb(132 104 70);
-  --mud-2: rgb(160 128 88);
+  --tile-edge: inset 0 0 0 1px rgb(0 0 0 / 0.18);
   --selected: #ffec5a;
   --target: #ff463c;
   --hp: #5ad264;
   --en: #5aaaff;
 }
 
-/* ---------- sprites: SVG used as a mask, coloured by --team ---------- */
+/* Icons: an SVG (--sprite) used as a mask over a solid background colour */
+.sprite,
+.tile::before,
+.elev-pips i,
+.badge-effect {
+  -webkit-mask: var(--sprite) center / contain no-repeat;
+  mask: var(--sprite) center / contain no-repeat;
+}
 .sprite {
   display: inline-block;
   width: 1em;
   height: 1em;
   background-color: var(--team, #fff);
-  -webkit-mask: var(--sprite) center / contain no-repeat;
-  mask: var(--sprite) center / contain no-repeat;
 }
 .sprite-lg { font-size: 48px; }
 .sprite-xl { font-size: 72px; }
-.brand-icon {
-  display: inline-block;
-  width: 28px;
-  height: 28px;
-  background-color: #e2b830;
-  -webkit-mask: url(/static/img/units/boss.svg) center / contain no-repeat;
-  mask: url(/static/img/units/boss.svg) center / contain no-repeat;
-}
+.brand-icon { --sprite: url(/static/img/units/boss.svg); --team: #e2b830; font-size: 28px; }
 .start-art { display: flex; justify-content: center; align-items: flex-end; gap: 12px; }
 
-/* ---------- board ---------- */
+/* Board */
 #board-wrap { position: relative; width: 100%; overflow: auto; }
 #board {
   display: grid;
@@ -49,45 +41,41 @@
 
 .tile {
   position: relative;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18);
+  box-shadow: var(--tile-edge);
   cursor: pointer;
-  overflow: visible;
 }
-.tile.terrain-grass.elev-0 { background: var(--grass-0); }
-.tile.terrain-grass.elev-1 { background: var(--grass-1); }
-.tile.terrain-grass.elev-2 { background: var(--grass-2); }
-.tile.terrain-mud.elev-0 { background: var(--mud-0); }
-.tile.terrain-mud.elev-1 { background: var(--mud-1); }
-.tile.terrain-mud.elev-2 { background: var(--mud-2); }
+body.busy .tile { cursor: progress; }
+.tile.terrain-grass.elev-0 { background: rgb(92 150 78); }
+.tile.terrain-grass.elev-1 { background: rgb(128 176 96); }
+.tile.terrain-grass.elev-2 { background: rgb(170 200 128); }
+.tile.terrain-mud.elev-0 { background: rgb(104 80 54); }
+.tile.terrain-mud.elev-1 { background: rgb(132 104 70); }
+.tile.terrain-mud.elev-2 { background: rgb(160 128 88); }
+.tile:not(.elev-0) {
+  box-shadow: var(--tile-edge), inset 2px 2px 0 rgb(255 255 255 / 0.18), inset -2px -2px 0 rgb(0 0 0 / 0.18);
+}
 
-/* terrain decoration */
 .tile::before {
+  --sprite: url(/static/img/terrain/grass.svg);
   content: "";
   position: absolute;
   inset: 14%;
   background-color: rgb(0 0 0 / 0.12);
-  -webkit-mask: url(/static/img/terrain/grass.svg) center / contain no-repeat;
-  mask: url(/static/img/terrain/grass.svg) center / contain no-repeat;
   pointer-events: none;
 }
 .tile.terrain-mud::before {
+  --sprite: url(/static/img/terrain/swamp.svg);
   background-color: rgb(0 0 0 / 0.28);
-  -webkit-mask-image: url(/static/img/terrain/swamp.svg);
-  mask-image: url(/static/img/terrain/swamp.svg);
 }
-.tile.elev-1, .tile.elev-2 { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18), inset 2px 2px 0 rgb(255 255 255 / 0.18), inset -2px -2px 0 rgb(0 0 0 / 0.18); }
 
-/* elevation pips (hills icons) */
 .elev-pips { position: absolute; top: 2px; left: 3px; display: flex; gap: 1px; pointer-events: none; z-index: 1; }
 .elev-pips i {
+  --sprite: url(/static/img/terrain/hills.svg);
   width: calc(var(--tile) * 0.22);
   height: calc(var(--tile) * 0.22);
   background-color: rgb(30 40 25 / 0.75);
-  -webkit-mask: url(/static/img/terrain/hills.svg) center / contain no-repeat;
-  mask: url(/static/img/terrain/hills.svg) center / contain no-repeat;
 }
 
-/* highlights */
 .tile.reachable::after {
   content: "";
   position: absolute;
@@ -96,6 +84,7 @@
   pointer-events: none;
 }
 .tile.reachable:hover::after { background: rgb(255 255 255 / 0.45); }
+.tile.reachable.on-path::after { background: rgb(255 236 90 / 0.5); }
 .tile .cost {
   position: absolute;
   right: 3px;
@@ -106,12 +95,11 @@
   z-index: 3;
   pointer-events: none;
 }
-.tile.on-path::after { background: rgb(255 236 90 / 0.5) !important; }
 .tile.selected { box-shadow: inset 0 0 0 3px var(--selected); z-index: 2; }
 .tile.target { box-shadow: inset 0 0 0 3px var(--target); z-index: 2; }
-.tile.hovered:not(.selected):not(.target) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
+.tile.hovered:not(.selected, .target) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
 
-/* ---------- units ---------- */
+/* Units */
 .unit {
   position: absolute;
   inset: 0;
@@ -146,34 +134,46 @@
 .unit .bar.en > span { background: var(--en); }
 
 .unit .badge-effect {
+  --sprite: url(/static/img/effects/venom.svg);
   position: absolute;
   top: 1px;
   right: 2px;
   width: calc(var(--tile) * 0.28);
   height: calc(var(--tile) * 0.28);
   background-color: #8cf03c;
-  -webkit-mask: url(/static/img/effects/venom.svg) center / contain no-repeat;
-  mask: url(/static/img/effects/venom.svg) center / contain no-repeat;
   filter: drop-shadow(0 0 1px #000);
 }
 
+/* Damage numbers: static hover preview and animated hit */
+.dmg-pop,
+.fx-dmg {
+  background: var(--target);
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .dmg-pop {
   position: absolute;
   left: 50%;
   top: -10px;
   transform: translateX(-50%);
-  background: var(--target);
-  color: #fff;
   font-weight: 700;
   font-size: 13px;
   padding: 0 6px;
   border-radius: 4px;
   z-index: 5;
-  pointer-events: none;
-  white-space: nowrap;
 }
+.fx-dmg {
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1.3;
+  padding: 0 7px;
+  border-radius: 5px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
+}
+.fx-dmg.zero { background: #59606a; }
 
-/* ---------- side panel ---------- */
+/* Side panel */
 .player-chip {
   display: inline-flex;
   align-items: center;
@@ -194,9 +194,7 @@
 #log .list-group-item { padding: 2px 12px; border: 0; }
 #log .turn-line { color: var(--bs-secondary-color); font-weight: 600; padding-top: 6px; }
 
-body.busy #board { cursor: progress; }
-
-/* ---------- attack animations (overlay inside #board-wrap, survives board redraws) ---------- */
+/* Attack animations: overlay inside #board-wrap, so it survives board redraws */
 #fx { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 10; }
 #fx > * { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
 .fx-arrow { color: var(--team); filter: drop-shadow(0 2px 1px rgb(0 0 0 / 0.55)); }
@@ -206,15 +204,3 @@ body.busy #board { cursor: progress; }
   border: 3px solid #fff4b8;
   box-shadow: 0 0 12px 2px rgb(255 120 60 / 0.8), inset 0 0 10px rgb(255 220 120 / 0.8);
 }
-.fx-dmg {
-  background: var(--target);
-  color: #fff;
-  font-weight: 800;
-  font-size: 15px;
-  line-height: 1.3;
-  padding: 0 7px;
-  border-radius: 5px;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
-}
-.fx-dmg.zero { background: #59606a; }

@@ -13,7 +13,7 @@
 
 <nav class="navbar bg-body-tertiary border-bottom px-3">
   <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
-    <span class="brand-icon"></span> Beastborn
+    <span class="sprite brand-icon"></span> Beastborn
   </a>
   <div class="d-flex align-items-center gap-2">
     <span id="game-badge" class="badge text-bg-secondary d-none" title="Game id"></span>
@@ -26,7 +26,6 @@
 
 <main class="container-fluid py-3 flex-grow-1">
 
-  <!-- Start screen -->
   <section id="start-screen" class="row justify-content-center">
     <div class="col-sm-10 col-md-7 col-lg-5 col-xl-4">
       <div class="card shadow">
@@ -43,8 +42,8 @@
           </div>
 
           <form id="start-form" autocomplete="off">
-            <label class="form-label">Players</label>
-            <div class="btn-group w-100 mb-3" role="group">
+            <div class="form-label">Players</div>
+            <div class="btn-group w-100 mb-3" role="group" aria-label="Players">
               <input type="radio" class="btn-check" name="players" id="players-2" value="2" checked>
               <label class="btn btn-outline-primary" for="players-2">2</label>
               <input type="radio" class="btn-check" name="players" id="players-3" value="3">
@@ -77,7 +76,6 @@
     </div>
   </section>
 
-  <!-- Game screen -->
   <section id="game-screen" class="row g-3 d-none">
     <div class="col-lg-7 col-xl-8">
       <div id="board-wrap">
@@ -127,10 +125,8 @@
   jQuery · Bootstrap
 </footer>
 
-<!-- Toasts -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+<div id="toasts" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
-<!-- Game over -->
 <div class="modal fade" id="game-over-modal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content text-center">
