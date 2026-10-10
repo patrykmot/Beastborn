@@ -3,7 +3,7 @@ name: Deploy to PythonAnywhere
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   deploy:
@@ -13,16 +13,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Update code on PythonAnywhere
+    - name: Pull code and reload web app via console
       run: |
         curl -s -X POST \
-        "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/consoles/${{secrets.PA_CONSOLE_NUMBER}}/send_input/" \
+        "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/consoles/${{ secrets.PA_CONSOLE_NUMBER }}/send_input/" \
         -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
-        -d '{"input": "git pull origin master\n"}' \
+        -d '{"input": "cd /home/gercio/mysite && git pull origin main && touch /var/www/gercio_eu_pythonanywhere_com_wsgi.py\n"}' \
         -H "Content-Type: application/json"
-
-    - name: Reload PythonAnywhere Web App
-      run: |
-        curl -s -X POST \
-        "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/" \
-        -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}"
