@@ -24,22 +24,7 @@ Games live in server memory. They are lost when the server stops and expire afte
 Settings: `BEASTBORN_SESSION_TTL` (seconds, default 7200) and `BEASTBORN_MAX_GAMES` (default 500).
 
 ## Deploy on PythonAnywhere
-
-`gercio_eu_pythonanywhere_com_wsgi.py` is the production entry point. PythonAnywhere imports it and serves its `application`. You don't start it yourself.
-
-1. Locally: `python beast_build.py` creates `beast.zip`, which holds the game, the entry points, `requirements.txt` and the installer.
-2. Upload `beast.zip` to `/home/gercio` on the Files tab. The first time, also upload `beast_install.py`. After that, every install updates it from the zip.
-3. In a PythonAnywhere Bash console: `python3.10 beast_install.py`. Use the same Python version the Web tab shows.
-   It unpacks the zip, runs `pip install --user -r requirements.txt` and checks that the new version starts. Then it puts the new version into `/home/gercio/mysite`, keeps the previous one in `mysite_backup`, copies the WSGI file to `/var/www/` and reloads the site. If a step fails before the switch, the live site stays as it was.
-4. Something wrong? Run `python3.10 beast_install.py --rollback` to go back to the previous version. Run it again to go forward.
-
-Options: `--skip-pip` skips the pip step when the dependencies haven't changed. The project folder comes from `SERVER_PROJECT_HOME` in the WSGI file.
-If the `API_TOKEN` environment variable is set, the installer also checks the web app's Python version and reloads the site through the PythonAnywhere API. Without it, the changed WSGI file reloads the site within about a minute, or you can press **Reload** on the Web tab.
-Optional, but faster: Web tab → **Static files**: URL `/static/`, directory `/home/gercio/mysite/beastborn/ui/web/static`.
-
-Games are kept in the memory of one server process. If your plan runs more than one web worker, games will randomly show "not found", so ask PythonAnywhere support to set the app to 1 worker. A reload or worker restart drops all running games.
-
-To smoke-test the production entry point locally: `python gercio_eu_pythonanywhere_com_wsgi.py` (same options as `main.py`).
+Its automatically deployed from github actions (push to main branch). Look into file deploy.yml.
 
 ## Test
 
@@ -107,7 +92,6 @@ tools/       fetch_assets.py - re-downloads vendor libraries and icons
 docs/        architecture.md
 main.py      entry point (local web server)
 gercio_eu_pythonanywhere_com_wsgi.py   PythonAnywhere WSGI entry point (production)
-beast_build.py / beast_install.py      build beast.zip locally / install it on PythonAnywhere
 ```
 
 ## Web API

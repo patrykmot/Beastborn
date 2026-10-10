@@ -7,9 +7,6 @@ rules checked by tests/test_architecture.py.
 Rules numbers here are only the *defaults*. At runtime the game reads them through
 ``engine.rules_config.RulesConfig`` and ``game.config.GameConfig``, so a game can still be
 started with different values (``RulesConfig(allow_block=True)``, ``GameConfig(width=16)``...).
-
-The deployment scripts (beast_install.py, gercio_eu_pythonanywhere_com_wsgi.py) keep their own
-constants: they run on the server before this package is on ``sys.path``.
 """
 from __future__ import annotations
 

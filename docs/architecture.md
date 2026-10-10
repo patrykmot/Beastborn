@@ -24,7 +24,7 @@
 Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `ui`.
 `tests/test_architecture.py` fails if a layer imports something it must not. For example, Flask, Werkzeug and pydantic are only allowed in `ui/web`.
 
-All constants (default rule numbers, map and session limits, paths, asset URLs) live in `beastborn/constance.py`. It imports nothing from `beastborn`, so every layer can use it. `RulesConfig` and `GameConfig` take their defaults from it, and you can still override them per game. Only the deployment scripts (`beast_install.py` and the WSGI file) keep their own constants, because they run on the server before the package is unpacked.
+All constants (default rule numbers, map and session limits, paths, asset URLs) live in `beastborn/constance.py`.
 
 ## Calculation Engine (`beastborn/engine`)
 
