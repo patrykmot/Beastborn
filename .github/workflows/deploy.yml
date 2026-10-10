@@ -15,8 +15,8 @@ jobs:
 
     - name: Pull code and reload web app via console
       run: |
-        curl -s -X POST \
-        "https://www.eu.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/consoles/${{ secrets.PA_CONSOLE_NUMBER }}/send_input/" \
+        curl -s -L -X POST \
+        "https://eu.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/consoles/${{ secrets.PA_CONSOLE_NUMBER }}/send_input/" \
         -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
         -d '{"input": "cd /home/gercio/mysite && git pull origin main && touch /var/www/gercio_eu_pythonanywhere_com_wsgi.py\n"}' \
         -H "Content-Type: application/json"
