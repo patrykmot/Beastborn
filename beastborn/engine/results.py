@@ -52,7 +52,7 @@ class AttackResult:
         """E.g. '6 - 2 = 4', '6 x1.5 height - 2 = 7', '7 x0.8 range - 2 = 3.6 -> 3'."""
         if self.out_of_range:
             return "out of range"
-        text = str(self.atk)
+        text: str = str(self.atk)
         if self.elevation_modifier and self.atk:
             text += f" x{fmt(self.momentum / self.atk)} height"
         if self.ranged:

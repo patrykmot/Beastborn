@@ -53,3 +53,9 @@ def test_web_frameworks_only_in_ui_web():
 def test_no_fastapi_anywhere():
     for path in [*PACKAGE.rglob("*.py"), *PACKAGE.parent.joinpath("tests").rglob("*.py"), PACKAGE.parent / "main.py"]:
         assert not any(m.split(".")[0] in REMOVED_WEB for m in imported_modules(path)), path
+
+
+def test_constance_is_a_leaf_module():
+    """Every layer imports beastborn/constance.py, so it must not import beastborn itself (no cycles)."""
+    modules = imported_modules(PACKAGE / "constance.py")
+    assert not any(m.split(".")[0] == "beastborn" for m in modules), modules

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from beastborn.constance import DEFAULT_ATTACK_RANGE, DEFAULT_MOVE_PENALTY, MELEE_RANGE
 from beastborn.domain.effects import EffectSpec, StatusEffect
 from beastborn.domain.position import Position
 
@@ -20,10 +21,15 @@ class UnitStats:
     defense: int  # DEF
     max_en: int  # MAX_EN
     reg_en: int  # REG_EN
-    attack_range: int = 1
-    move_penalty: int = 0  # extra EN per step (slow units)
+    attack_range: int = DEFAULT_ATTACK_RANGE
+    move_penalty: int = DEFAULT_MOVE_PENALTY  # extra EN per step (slow units)
     is_boss: bool = False
     on_hit: tuple[EffectSpec, ...] = ()
+
+    @property
+    def is_ranged(self) -> bool:
+        """Ranged units suffer Range Dissipation (docs/game_mechanics.md, section 3)."""
+        return self.attack_range > MELEE_RANGE
 
 
 @dataclass

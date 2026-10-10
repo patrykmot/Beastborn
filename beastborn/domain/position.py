@@ -23,5 +23,9 @@ class Position:
     def manhattan(self, other: Position) -> int:
         return abs(self.x - other.x) + abs(self.y - other.y)
 
+    def inside(self, width: int, height: int) -> bool:
+        """True if the position lies on a ``width`` x ``height`` grid starting at (0,0)."""
+        return 0 <= self.x < width and 0 <= self.y < height
+
     def __str__(self) -> str:
         return f"({self.x},{self.y})"

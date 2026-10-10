@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from beastborn.domain.position import Position
+from beastborn.game.events import GameEvent
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ Command = MoveCommand | AttackCommand | EndTurnCommand
 @dataclass(frozen=True)
 class CommandResult:
     ok: bool
-    events: tuple = field(default_factory=tuple)
+    events: tuple[GameEvent, ...] = field(default_factory=tuple)
     error: str | None = None
 
     @classmethod

@@ -9,7 +9,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from beastborn.control.controller import PlayerController
 from beastborn.domain.position import Position
+from beastborn.game.state_machine import GameStateMachine
 
 
 # ------------------------------------------------------------------ intents
@@ -53,4 +55,4 @@ class Frontend(ABC):
     """Runs the game loop for one kind of display."""
 
     @abstractmethod
-    def run(self, gsm, controllers=None) -> None: ...
+    def run(self, gsm: GameStateMachine, controllers: dict[int, PlayerController] | None = None) -> None: ...

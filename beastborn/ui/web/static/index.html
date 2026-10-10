@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Beastborn</title>
+  <title>{{ game_title }}</title>
   <link rel="icon" href="/static/img/units/boss.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
@@ -13,7 +13,8 @@
 
 <nav class="navbar bg-body-tertiary border-bottom px-3">
   <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
-    <span class="sprite brand-icon"></span> Beastborn
+    <span class="sprite brand-icon"></span> {{ game_name }}
+    <span class="fw-normal text-secondary small">v{{ game_version }}</span>
   </a>
   <div class="d-flex align-items-center gap-2">
     <span id="game-badge" class="badge text-bg-secondary d-none" title="Game id"></span>

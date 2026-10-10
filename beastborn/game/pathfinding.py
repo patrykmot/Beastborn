@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from beastborn.domain.board import Board
 from beastborn.domain.position import Position
+from beastborn.domain.terrain import Tile
 from beastborn.domain.unit import UnitStats
 from beastborn.engine.interface import CalculationEngine
 
@@ -35,11 +36,11 @@ def reachable(
         cost, _, _, pos = heapq.heappop(queue)
         if cost > best.get(pos, cost):
             continue
-        src_tile = board.tile(pos)
+        src_tile: Tile = board.tile(pos)
         for nxt in board.neighbours(pos):
             if nxt in blocked:
                 continue
-            new_cost = cost + engine.step_cost(unit, src_tile, board.tile(nxt))
+            new_cost: int = cost + engine.step_cost(unit, src_tile, board.tile(nxt))
             if new_cost <= budget and new_cost < best.get(nxt, budget + 1):
                 best[nxt] = new_cost
                 parent[nxt] = pos
@@ -49,7 +50,7 @@ def reachable(
     for pos, cost in best.items():
         if pos == start:
             continue
-        path = [pos]
+        path: list[Position] = [pos]
         while path[-1] != start:
             path.append(parent[path[-1]])
         result[pos] = PathInfo(cost, tuple(reversed(path)))

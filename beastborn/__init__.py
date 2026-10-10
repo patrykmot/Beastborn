@@ -1,3 +1,5 @@
 """Beastborn - turn-based beast tactics with zero combat RNG."""
 
-__version__ = "0.1.0"
+from beastborn.constance import GAME_VERSION
+
+__version__: str = GAME_VERSION

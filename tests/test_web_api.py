@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from beastborn.constance import STATIC_DIR
 from beastborn.domain import Board
 from beastborn.game import custom_game
-from beastborn.ui.web.app import STATIC_DIR, create_app
+from beastborn.ui.web.app import create_app
 from beastborn.ui.web.sessions import SessionStore
 from tests.conftest import KING, SOLDIER
 
@@ -205,6 +206,15 @@ def test_index_and_all_referenced_static_files_exist(client):
     for rel in sorted(referenced):
         assert (STATIC_DIR / rel).is_file(), rel
         assert client.get(f"/static/{rel}").status_code == 200, rel
+
+
+def test_index_shows_name_and_version(client):
+    from beastborn.constance import GAME_NAME, GAME_TITLE, GAME_VERSION
+
+    html = client.get("/").text
+    assert f"<title>{GAME_TITLE}</title>" in html
+    assert GAME_NAME in html and f"v{GAME_VERSION}" in html
+    assert "{{" not in html, "a template placeholder was left unfilled"
 
 
 def test_every_roster_unit_has_a_sprite():

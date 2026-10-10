@@ -7,6 +7,8 @@
 $(function () {
   "use strict";
 
+  console.info(document.title);  // e.g. "Beastborn v0.1", filled in by the server (GAME_TITLE in constance.py)
+
   const PLAYER_COLORS = ["#d6483f", "#3e7cde", "#e2b830", "#a056cc"];
   const SPRITES = new Set(["boss", "big_rat", "peasant", "archer"]);
   const MIN_TILE = 28, MAX_TILE = 64;

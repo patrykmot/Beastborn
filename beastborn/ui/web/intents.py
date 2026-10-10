@@ -18,6 +18,7 @@ def to_intent(request: IntentRequest, board_width: int, board_height: int) -> UI
     # click
     if request.x is None or request.y is None:
         raise InvalidIntent("click needs x and y")
-    if request.x >= board_width or request.y >= board_height:
-        raise InvalidIntent(f"({request.x},{request.y}) is outside the {board_width}x{board_height} board")
-    return ClickTile(Position(request.x, request.y))
+    position: Position = Position(request.x, request.y)
+    if not position.inside(board_width, board_height):
+        raise InvalidIntent(f"{position} is outside the {board_width}x{board_height} board")
+    return ClickTile(position)

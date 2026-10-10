@@ -39,8 +39,12 @@ class GameState:
     def occupied(self) -> set[Position]:
         return {u.position for u in self.units.values()}
 
+    def sorted_units(self) -> list[UnitState]:
+        """All units, ordered by id (the order units act and are shown in)."""
+        return sorted(self.units.values(), key=lambda u: u.id)
+
     def units_of(self, player: int) -> list[UnitState]:
-        return sorted((u for u in self.units.values() if u.owner == player), key=lambda u: u.id)
+        return [u for u in self.sorted_units() if u.owner == player]
 
     def alive_players(self) -> list[Player]:
         return [p for p in self.players if not p.eliminated]

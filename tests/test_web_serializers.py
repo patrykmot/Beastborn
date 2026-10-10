@@ -1,10 +1,11 @@
 import json
 
+from beastborn.constance import LOG_LINES
 from beastborn.domain import EffectKind, Position, StatusEffect
 from beastborn.game import new_game
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.interface import ClickTile
-from beastborn.ui.web.serializers import LOG_LINES, render
+from beastborn.ui.web.serializers import render
 
 
 def test_render_is_json_and_matches_gsm():

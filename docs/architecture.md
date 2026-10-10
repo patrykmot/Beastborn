@@ -24,6 +24,8 @@
 Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `ui`.
 `tests/test_architecture.py` fails if a layer imports something it must not. For example, Flask, Werkzeug and pydantic are only allowed in `ui/web`.
 
+All constants (default rule numbers, map and session limits, paths, asset URLs) live in `beastborn/constance.py`. It imports nothing from `beastborn`, so every layer can use it. `RulesConfig` and `GameConfig` take their defaults from it, and you can still override them per game. Only the deployment scripts (`beast_install.py` and the WSGI file) keep their own constants, because they run on the server before the package is unpacked.
+
 ## Calculation Engine (`beastborn/engine`)
 
 - `CalculationEngine` (ABC) is the single interface for every rule calculation:
@@ -33,7 +35,7 @@ Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `
   - `tick_effects`
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
 - `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.5 height x0.8 range - 2 = 7.6 -> 7`.
-- `StandardCalculationEngine` implements the design document. All its numbers are in `RulesConfig`.
+- `StandardCalculationEngine` implements the design document. All its numbers are in `RulesConfig` (defaults in `beastborn/constance.py`).
 
 **Change the rules:**
 

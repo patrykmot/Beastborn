@@ -10,11 +10,9 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from beastborn.constance import DEFAULT_MAX_SESSIONS, DEFAULT_TTL_SECONDS
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.ui.interaction import Interaction
-
-DEFAULT_TTL_SECONDS = 30 * 60
-DEFAULT_MAX_SESSIONS = 100
 
 
 class TooManySessions(RuntimeError):
@@ -37,29 +35,29 @@ class SessionStore:
         max_sessions: int = DEFAULT_MAX_SESSIONS,
         clock: Callable[[], float] = time.monotonic,
     ):
-        self.ttl_seconds = ttl_seconds
-        self.max_sessions = max_sessions
-        self._clock = clock
+        self.ttl_seconds: float = ttl_seconds
+        self.max_sessions: int = max_sessions
+        self._clock: Callable[[], float] = clock
         self._sessions: dict[str, GameSession] = {}
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
 
     def create(self, gsm: GameStateMachine) -> GameSession:
         with self._lock:
-            self._purge_expired()
+            now: float = self._clock()
+            self._purge_expired(now)
             if len(self._sessions) >= self.max_sessions:
                 raise TooManySessions(f"Server already runs {self.max_sessions} games")
-            now = self._clock()
-            session = GameSession(uuid.uuid4().hex, Interaction(gsm), created_at=now, last_access=now)
+            session: GameSession = GameSession(uuid.uuid4().hex, Interaction(gsm), created_at=now, last_access=now)
             self._sessions[session.id] = session
             return session
 
     def get(self, game_id: str) -> GameSession | None:
         with self._lock:
-            session = self._sessions.get(game_id)
+            session: GameSession | None = self._sessions.get(game_id)
             if session is None:
                 return None
-            now = self._clock()
-            if now - session.last_access > self.ttl_seconds:
+            now: float = self._clock()
+            if self._expired(session, now):
                 del self._sessions[game_id]
                 return None
             session.last_access = now
@@ -73,8 +71,10 @@ class SessionStore:
         with self._lock:
             return len(self._sessions)
 
-    def _purge_expired(self) -> None:
-        now = self._clock()
-        expired = [k for k, s in self._sessions.items() if now - s.last_access > self.ttl_seconds]
+    def _expired(self, session: GameSession, now: float) -> bool:
+        return now - session.last_access > self.ttl_seconds
+
+    def _purge_expired(self, now: float) -> None:
+        expired: list[str] = [key for key, s in self._sessions.items() if self._expired(s, now)]
         for key in expired:
             del self._sessions[key]
