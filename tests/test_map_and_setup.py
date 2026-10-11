@@ -3,7 +3,7 @@ import random
 import pytest
 
 from beastborn.domain import Position, TerrainType
-from beastborn.game import GameConfig, Phase, new_game
+from beastborn.game import Phase, new_game
 from beastborn.game.map_generator import corner_positions, generate_board, spawn_zone
 
 
@@ -38,8 +38,7 @@ def test_two_players_start_in_opposite_corners():
 
 @pytest.mark.parametrize("seed", range(25))
 def test_generated_board_rules(seed):
-    config = GameConfig()
-    board = generate_board(config, 4, random.Random(seed))
+    board = generate_board(12, 12, 4, random.Random(seed))
     assert (board.width, board.height) == (12, 12)
     for pos in board.positions():
         tile = board.tile(pos)
@@ -52,7 +51,7 @@ def test_generated_board_rules(seed):
 
 
 def test_maps_have_hills_and_mud():
-    tiles = [generate_board(GameConfig(), 2, random.Random(s)) for s in range(10)]
+    tiles = [generate_board(12, 12, 2, random.Random(s)) for s in range(10)]
     all_tiles = [b.tile(p) for b in tiles for p in b.positions()]
     assert any(t.elevation == 2 for t in all_tiles)
     assert any(t.terrain is TerrainType.MUD for t in all_tiles)
@@ -67,7 +66,7 @@ def test_same_seed_same_game():
 
 
 def test_custom_map_size():
-    gsm = new_game(2, seed=1, config=GameConfig(width=16, height=10))
+    gsm = new_game(2, seed=1, width=16, height=10)
     assert (gsm.view().board.width, gsm.view().board.height) == (16, 10)
     with pytest.raises(ValueError):
-        GameConfig(width=4, height=4)
+        new_game(2, seed=1, width=4, height=4)

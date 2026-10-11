@@ -1,13 +1,12 @@
 """Calculation Engine tests: movement from the design document, combat from docs/game_mechanics.md."""
-import math
 from dataclasses import replace
 from fractions import Fraction
 
 import pytest
 
-from beastborn import constance as C
+from beastborn import constant as C
 from beastborn.domain import EffectKind, EffectSpec, Position, StatusEffect, TerrainType, Tile, UnitStats
-from beastborn.engine import CombatantSnapshot, RulesConfig, StandardCalculationEngine
+from beastborn.engine import CombatantSnapshot, StandardCalculationEngine
 
 G, M = TerrainType.GRASS, TerrainType.MUD
 
@@ -28,9 +27,10 @@ def ce():
 
 
 @pytest.fixture
-def ce_half():
+def ce_half(monkeypatch):
     """ELEVATION_COEF pinned to 0.5: worked examples about rounding / formula text stay valid after a rebalance."""
-    return StandardCalculationEngine(RulesConfig(elevation_coef=0.5))
+    monkeypatch.setattr(C, "ELEVATION_COEF", 0.5)
+    return StandardCalculationEngine()
 
 
 def snap(stats=UNIT, tile=Tile(), defense=None, hp=None, effects=(), at=(0, 0)):
@@ -88,8 +88,11 @@ def test_regeneration_caps_at_max(ce):
 def test_initial_energy_and_attack_cost(ce):
     assert ce.initial_energy(UNIT) == 0
     assert ce.attack_cost(UNIT) == 2  # 1. Energy_remaining = Energy_current - en_atk
-    custom = StandardCalculationEngine(RulesConfig(starting_energy=99))
-    assert custom.initial_energy(UNIT) == UNIT.max_en
+
+
+def test_starting_energy_is_capped_at_max_en(ce, monkeypatch):
+    monkeypatch.setattr(C, "STARTING_ENERGY", 99)
+    assert ce.initial_energy(UNIT) == UNIT.max_en
 
 
 def test_attack_range(ce):
@@ -119,19 +122,15 @@ def test_momentum(ce, att, dfn):
     assert result.range_multiplier == 1  # melee: no Range Dissipation
 
 
-def test_default_elevation_coef_comes_from_constance():
-    assert RulesConfig().elevation_coef == C.ELEVATION_COEF
-
-
 @pytest.mark.parametrize("coef, expected", [(0.3, Fraction(39, 5)), (0.5, 9), (Fraction(1, 3), 8), (0, 6)])
-def test_custom_elevation_coef(coef, expected):
+def test_custom_elevation_coef(ce, monkeypatch, coef, expected):
     """ATK 6, one level up: 6 + coef * 6 (0.3 -> 7.8, exact)."""
-    ce = StandardCalculationEngine(RulesConfig(elevation_coef=coef))
+    monkeypatch.setattr(C, "ELEVATION_COEF", coef)
     assert attack(ce, att_elev=1).momentum == expected
 
 
-def test_momentum_never_negative():
-    ce = StandardCalculationEngine(RulesConfig(elevation_coef=0.6))
+def test_momentum_never_negative(ce, monkeypatch):
+    monkeypatch.setattr(C, "ELEVATION_COEF", 0.6)
     result = attack(ce, def_elev=2)  # 6 - 0.6 * 6 * 2 = -1.2 -> 0
     assert result.momentum == 0
     assert result.damage == 1
@@ -185,8 +184,8 @@ def test_ranged_unit_adjacent_is_weak(ce):
     assert result.formula() == "8 x0.5 range - 2 = 2"
 
 
-def test_custom_range_table():
-    ce = StandardCalculationEngine(RulesConfig(range_dissipation={1: 1, 2: 0.25}))
+def test_custom_range_table(ce, monkeypatch):
+    monkeypatch.setattr(C, "RANGE_DISSIPATION", {1: 1, 2: 0.25})
     assert ce.range_multiplier(BOW, 2) == Fraction(1, 4)
     assert ce.range_multiplier(BOW, 3) is None
     assert not ce.in_attack_range(BOW, 3)
@@ -235,8 +234,8 @@ def test_weak_hit_still_applies_effects(ce):
     assert result.defender_effects_after == (StatusEffect(EffectKind.VENOM, 1, 5),)
 
 
-def test_block_when_enabled():
-    ce = StandardCalculationEngine(RulesConfig(allow_block=True))
+def test_block_when_enabled(ce, monkeypatch):
+    monkeypatch.setattr(C, "ALLOW_BLOCK", True)
     venom = replace(UNIT, on_hit=(EffectSpec(EffectKind.VENOM),))
     result = attack(ce, venom, replace(UNIT, defense=10))
     assert result.blocked and result.damage == 0  # optional rule: overrides the minimum of 1

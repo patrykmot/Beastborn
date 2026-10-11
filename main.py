@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from beastborn.constance import DEFAULT_HOST, DEFAULT_PORT, GAME_TITLE
+from beastborn.constant import DEFAULT_HOST, DEFAULT_PORT, GAME_TITLE
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

@@ -14,9 +14,8 @@ from flask import Flask, Response, abort, jsonify, render_template, request
 from pydantic import BaseModel, ValidationError
 from werkzeug.exceptions import HTTPException
 
-from beastborn import constance as C
+from beastborn import constant as C
 from beastborn.domain.board import Board
-from beastborn.game.config import GameConfig
 from beastborn.game.setup import new_game
 from beastborn.game.state import Phase
 from beastborn.game.state_machine import GameStateMachine
@@ -101,7 +100,7 @@ def create_app(store: SessionStore | None = None) -> Flask:
     def create_game() -> tuple[JSON, int]:
         body: NewGameRequest = parse_body(NewGameRequest)
         gsm: GameStateMachine = new_game(
-            body.players, seed=body.seed, config=GameConfig(width=body.size, height=body.size)
+            body.players, seed=body.seed, width=body.size, height=body.size
         )
         try:
             session: GameSession = sessions.create(gsm)

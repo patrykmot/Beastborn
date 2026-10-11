@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from beastborn.constance import LOG_LINES
+from beastborn.constant import LOG_LINES
 from beastborn.domain.board import Board
 from beastborn.domain.position import Position
 from beastborn.domain.terrain import Tile

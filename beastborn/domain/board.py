@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 
-from beastborn.constance import TERRAIN_SYMBOLS
+from beastborn.constant import TERRAIN_SYMBOLS
 from beastborn.domain.position import Position
 from beastborn.domain.terrain import TerrainType, Tile
 

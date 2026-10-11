@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from beastborn.constance import DEFAULT_ATTACK_RANGE, DEFAULT_MOVE_PENALTY, DEFAULT_UNITS_FILE
+from beastborn.constant import DEFAULT_ATTACK_RANGE, DEFAULT_MOVE_PENALTY, DEFAULT_UNITS_FILE
 from beastborn.domain.effects import EffectKind, EffectSpec
 from beastborn.domain.unit import UnitStats
 

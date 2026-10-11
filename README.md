@@ -87,7 +87,7 @@ The attacker stands still and hits while it has energy; the target does nothing.
 ```
 beastborn/
   domain/    pure data: Position, Tile, Board, UnitStats/UnitState, effects, roster loader
-  engine/    Calculation Engine (CE): interface + StandardCalculationEngine + RulesConfig
+  engine/    Calculation Engine (CE): interface + StandardCalculationEngine (numbers in constant.py)
   game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
   control/   player controllers (human now, bots later)
   ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)

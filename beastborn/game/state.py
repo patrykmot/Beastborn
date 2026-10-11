@@ -8,7 +8,6 @@ from beastborn.domain.board import Board
 from beastborn.domain.player import Player
 from beastborn.domain.position import Position
 from beastborn.domain.unit import UnitState
-from beastborn.game.config import GameConfig
 
 
 class Phase(Enum):
@@ -22,7 +21,6 @@ class GameState:
     board: Board
     players: list[Player]
     units: dict[int, UnitState]
-    config: GameConfig = field(default_factory=GameConfig)
     seed: int | None = None
     phase: Phase = Phase.SETUP
     active_player: int = 0

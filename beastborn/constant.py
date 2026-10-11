@@ -4,9 +4,10 @@ This module is a leaf: it imports nothing from ``beastborn``, so any layer (doma
 game, control, ui) may import it without creating an import cycle or breaking the layering
 rules checked by tests/test_architecture.py.
 
-Rules numbers here are only the *defaults*. At runtime the game reads them through
-``engine.rules_config.RulesConfig`` and ``game.config.GameConfig``, so a game can still be
-started with different values (``RulesConfig(allow_block=True)``, ``GameConfig(width=16)``...).
+The rule numbers (movement, combat, effects, energy) are read directly by the Calculation Engine
+(``engine.standard_engine``): change a value here and every game uses it.
+Map generation and turn settings are read directly too. Only the map size is chosen per game
+(``new_game(width=..., height=...)``, the browser picks one of MAP_SIZES); DEFAULT_MAP_SIZE is used otherwise.
 """
 from __future__ import annotations
 
@@ -36,17 +37,17 @@ MAX_PLAYERS: Final[int] = 4
 DEFAULT_PLAYERS: Final[int] = 2
 PLAYER_NAME_TEMPLATE: Final[str] = "Player {number}"  # number = index + 1
 
-# ====================================================================== game setup (GameConfig defaults)
+# ====================================================================== game setup
 MapSize = Literal[10, 12, 16]
 MAP_SIZES: Final[tuple[int, ...]] = get_args(MapSize)
-DEFAULT_MAP_SIZE: Final[MapSize] = 12
-DEFAULT_UNITS_PER_PLAYER: Final[int] = 4  # random recruits next to each Boss
-DEFAULT_MAX_ELEVATION: Final[int] = 2
-DEFAULT_SMOOTH_ELEVATION: Final[bool] = True  # neighbouring tiles differ by at most 1 level (D8)
-DEFAULT_HILLS_PER_100_TILES: Final[int] = 4
-DEFAULT_MUD_PATCHES_PER_100_TILES: Final[int] = 4
-DEFAULT_SPAWN_ZONE_SIZE: Final[int] = 3  # flat grass square in each starting corner
-DEFAULT_MAX_ATTACKS_PER_TURN: Final[int | None] = None  # None = limited only by energy (D3)
+DEFAULT_MAP_SIZE: Final[MapSize] = 12  # used when new_game() gets no width / height
+UNITS_PER_PLAYER: Final[int] = 4  # random recruits next to each Boss
+MAX_ELEVATION: Final[int] = 2
+SMOOTH_ELEVATION: Final[bool] = True  # neighbouring tiles differ by at most 1 level (D8)
+HILLS_PER_100_TILES: Final[int] = 4
+MUD_PATCHES_PER_100_TILES: Final[int] = 4
+SPAWN_ZONE_SIZE: Final[int] = 3  # flat grass square in each starting corner
+MAX_ATTACKS_PER_TURN: Final[int | None] = None  # None = limited only by energy (D3)
 
 # ====================================================================== seeds
 SEED_RANGE: Final[int] = 1_000_000  # random seeds are drawn from [0, SEED_RANGE)
@@ -58,20 +59,21 @@ MIN_HILLS: Final[int] = 1
 MIN_MUD_PATCHES: Final[int] = 1
 MUD_WALK_MIN_STEPS: Final[int] = 3
 MUD_WALK_MAX_STEPS: Final[int] = 6
-TILES_PER_DENSITY_UNIT: Final[int] = 100  # "hills_per_100_tiles" etc.
+TILES_PER_DENSITY_UNIT: Final[int] = 100  # "HILLS_PER_100_TILES" etc.
 
 # ====================================================================== unit data defaults (units.json)
 DEFAULT_ATTACK_RANGE: Final[int] = 1
 DEFAULT_MOVE_PENALTY: Final[int] = 0
 MELEE_RANGE: Final[int] = 1  # attack_range > MELEE_RANGE = ranged unit
 
-# ====================================================================== rules (RulesConfig defaults)
+# ====================================================================== rules (read by the Calculation Engine)
 # Movement: energy per tile; a unit's move_penalty is added to every step.
 EN_NT: Final[int] = 2  # normal terrain
 EN_DT: Final[int] = 3  # difficult terrain
 EN_MU: Final[int] = 2  # extra per elevation level gained (uphill)
 EN_MD_NORMAL: Final[int] = 2  # moving downhill into normal terrain
 EN_MD_DIFFICULT: Final[int] = 5  # moving downhill into difficult terrain (2 + 3 penalty)
+DIFFICULT_TERRAINS: Final[frozenset[str]] = frozenset({"mud"})  # TerrainType values that cost EN_DT / EN_MD_DIFFICULT
 
 # Combat (docs/game_mechanics.md, section numbers in brackets).
 # [2] Momentum = ATK + ELEVATION_COEF * ATK * Elevation_Modifier
@@ -80,7 +82,8 @@ EN_MD_DIFFICULT: Final[int] = 5  # moving downhill into difficult terrain (2 + 3
 ELEVATION_COEF: Final[float] = 0.3
 # [3] RP damage multiplier by distance, only for ranged units. Farther = cannot attack.
 RANGE_DISSIPATION: Final[Mapping[int, float]] = MappingProxyType({1: 0.5, 2: 1.0, 3: 0.8, 4: 0.8})
-MUD_DEFENSE_DIVISOR: Final[int] = 2  # [4] Effective DEF = floor(DEF / 2) on mud
+# [4] Effective DEF = floor(DEF / divisor) on these terrains (TerrainType value -> divisor); others: DEF
+TERRAIN_DEFENSE_DIVISOR: Final[Mapping[str, int]] = MappingProxyType({"mud": 2})
 MIN_DAMAGE: Final[int] = 1  # [5] every hit deals at least 1
 ALLOW_BLOCK: Final[bool] = False  # [5] if True, floor(Base_Damage - DEF) <= 0 deals 0 and applies no effects
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from beastborn.constance import LOG_HISTORY
+from beastborn.constant import LOG_HISTORY
 from beastborn.control.controller import HumanController, PlayerController
 from beastborn.domain.position import Position
 from beastborn.engine.results import AttackResult

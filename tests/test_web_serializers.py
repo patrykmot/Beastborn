@@ -1,6 +1,6 @@
 import json
 
-from beastborn.constance import LOG_LINES
+from beastborn.constant import LOG_LINES
 from beastborn.domain import EffectKind, Position, StatusEffect
 from beastborn.game import new_game
 from beastborn.ui.interaction import Interaction

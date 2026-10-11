@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from beastborn.constance import DEFAULT_MAX_SESSIONS, DEFAULT_TTL_SECONDS
+from beastborn.constant import DEFAULT_MAX_SESSIONS, DEFAULT_TTL_SECONDS
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.ui.interaction import Interaction
 

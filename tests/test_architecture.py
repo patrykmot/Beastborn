@@ -68,7 +68,7 @@ def test_tkinter_only_in_reports():
         assert not any(m.split(".")[0] == "tkinter" for m in imported_modules(path)), path
 
 
-def test_constance_is_a_leaf_module():
-    """Every layer imports beastborn/constance.py, so it must not import beastborn itself (no cycles)."""
-    modules = imported_modules(PACKAGE / "constance.py")
+def test_constant_is_a_leaf_module():
+    """Every layer imports beastborn/constant.py, so it must not import beastborn itself (no cycles)."""
+    modules = imported_modules(PACKAGE / "constant.py")
     assert not any(m.split(".")[0] == "beastborn" for m in modules), modules

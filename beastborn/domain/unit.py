@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from beastborn.constance import DEFAULT_ATTACK_RANGE, DEFAULT_MOVE_PENALTY, MELEE_RANGE
+from beastborn.constant import DEFAULT_ATTACK_RANGE, DEFAULT_MOVE_PENALTY, MELEE_RANGE
 from beastborn.domain.effects import EffectSpec, StatusEffect
 from beastborn.domain.position import Position
 

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from beastborn.constance import DEFAULT_MAP_SIZE, DEFAULT_PLAYERS, MAX_PLAYERS, MAX_SEED, MIN_PLAYERS, MapSize
+from beastborn.constant import DEFAULT_MAP_SIZE, DEFAULT_PLAYERS, MAX_PLAYERS, MAX_SEED, MIN_PLAYERS, MapSize
 
 IntentType = Literal["click", "end_turn", "cancel"]
 

@@ -4,11 +4,11 @@ from fractions import Fraction
 
 import pytest
 
-from beastborn import constance as C
+from beastborn import constant as C
 from beastborn.domain import Board, EffectKind, EffectSpec, Position, StatusEffect
 from beastborn.engine import StandardCalculationEngine
 from beastborn.game import (
-    AttackCommand, EndTurnCommand, GameConfig, MoveCommand, Phase, custom_game,
+    AttackCommand, EndTurnCommand, MoveCommand, Phase, custom_game,
 )
 from beastborn.game import events as ev
 from tests.conftest import ARCHER, KING, SOLDIER
@@ -123,8 +123,9 @@ def test_multiple_attacks_while_energy_lasts():
     assert unit(gsm, 4).hp == 1
 
 
-def test_attack_limit_from_config():
-    gsm = two_player_game(p1_soldier=(2, 1), config=GameConfig(max_attacks_per_turn=1))
+def test_attack_limit_from_constant(monkeypatch):
+    monkeypatch.setattr(C, "MAX_ATTACKS_PER_TURN", 1)
+    gsm = two_player_game(p1_soldier=(2, 1))
     assert gsm.submit(AttackCommand(2, 4)).ok
     assert not gsm.submit(AttackCommand(2, 4)).ok
 

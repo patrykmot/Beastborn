@@ -1,7 +1,7 @@
 """Terrain types and tiles.
 
 Only *names* live here. How a terrain affects movement cost or defence is a rule,
-so the numbers live in ``engine.rules_config.RulesConfig``.
+so the numbers live in ``beastborn/constant.py``.
 """
 from __future__ import annotations
 

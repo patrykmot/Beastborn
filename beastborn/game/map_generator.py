@@ -6,11 +6,10 @@ from __future__ import annotations
 
 import random
 
-from beastborn import constance as C
+from beastborn import constant as C
 from beastborn.domain.board import Board
 from beastborn.domain.position import Position
 from beastborn.domain.terrain import TerrainType, Tile
-from beastborn.game.config import GameConfig
 
 Grid = list[list[int]]
 
@@ -38,32 +37,40 @@ def spawn_zone(corner: Position, width: int, height: int, size: int) -> set[Posi
     return {Position(x, y) for x in xs for y in ys}
 
 
-def _density_count(config: GameConfig, per_100_tiles: int, minimum: int) -> int:
+def validate_map_size(width: int, height: int) -> None:
+    if width < 2 * C.SPAWN_ZONE_SIZE or height < 2 * C.SPAWN_ZONE_SIZE:
+        raise ValueError("Map too small for the spawn zones")
+    if C.UNITS_PER_PLAYER + 1 > C.SPAWN_ZONE_SIZE**2:
+        raise ValueError("Boss + units must fit in the spawn zone")
+
+
+def _density_count(width: int, height: int, per_100_tiles: int, minimum: int) -> int:
     """How many features (hills, mud patches) a map of this size gets."""
-    return max(minimum, config.width * config.height * per_100_tiles // C.TILES_PER_DENSITY_UNIT)
+    return max(minimum, width * height * per_100_tiles // C.TILES_PER_DENSITY_UNIT)
 
 
-def generate_board(config: GameConfig, num_players: int, rng: random.Random) -> Board:
-    w, h = config.width, config.height
+def generate_board(width: int, height: int, num_players: int, rng: random.Random) -> Board:
+    validate_map_size(width, height)
+    w, h = width, height
     terrain: list[list[TerrainType]] = [[TerrainType.GRASS] * w for _ in range(h)]
     elevation: Grid = [[0] * w for _ in range(h)]
 
     protected: set[Position] = set()
     for corner in corner_positions(w, h, C.MAX_PLAYERS):  # keep all corners fair, even unused ones
-        protected |= spawn_zone(corner, w, h, config.spawn_zone_size)
+        protected |= spawn_zone(corner, w, h, C.SPAWN_ZONE_SIZE)
     free: list[Position] = [Position(x, y) for y in range(h) for x in range(w) if Position(x, y) not in protected]
 
-    # Hills: a raised diamond (base level) with a peak (base level .. max_elevation) in the middle.
-    for _ in range(_density_count(config, config.hills_per_100_tiles, C.MIN_HILLS)):
+    # Hills: a raised diamond (base level) with a peak (base level .. MAX_ELEVATION) in the middle.
+    for _ in range(_density_count(w, h, C.HILLS_PER_100_TILES, C.MIN_HILLS)):
         centre: Position = rng.choice(free)
-        peak: int = rng.randint(C.HILL_BASE_ELEVATION, config.max_elevation)
+        peak: int = rng.randint(C.HILL_BASE_ELEVATION, C.MAX_ELEVATION)
         for p in (centre, *centre.neighbours()):
             if p.inside(w, h):
                 elevation[p.y][p.x] = max(elevation[p.y][p.x], C.HILL_BASE_ELEVATION)
         elevation[centre.y][centre.x] = max(elevation[centre.y][centre.x], peak)
 
     # Mud: short random walks.
-    for _ in range(_density_count(config, config.mud_patches_per_100_tiles, C.MIN_MUD_PATCHES)):
+    for _ in range(_density_count(w, h, C.MUD_PATCHES_PER_100_TILES, C.MIN_MUD_PATCHES)):
         pos: Position = rng.choice(free)
         for _ in range(rng.randint(C.MUD_WALK_MIN_STEPS, C.MUD_WALK_MAX_STEPS)):
             terrain[pos.y][pos.x] = TerrainType.MUD
@@ -78,9 +85,9 @@ def generate_board(config: GameConfig, num_players: int, rng: random.Random) -> 
 
     for row in elevation:
         for x, value in enumerate(row):
-            row[x] = max(0, min(config.max_elevation, value))
+            row[x] = max(0, min(C.MAX_ELEVATION, value))
 
-    if config.smooth_elevation:
+    if C.SMOOTH_ELEVATION:
         _smooth(elevation, w, h)
 
     return Board([[Tile(terrain[y][x], elevation[y][x]) for x in range(w)] for y in range(h)])

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from beastborn.constance import STATIC_DIR
+from beastborn.constant import STATIC_DIR
 from beastborn.domain import Board
 from beastborn.game import custom_game
 from beastborn.ui.web.app import create_app
@@ -209,7 +209,7 @@ def test_index_and_all_referenced_static_files_exist(client):
 
 
 def test_index_shows_name_and_version(client):
-    from beastborn.constance import GAME_NAME, GAME_TITLE, GAME_VERSION
+    from beastborn.constant import GAME_NAME, GAME_TITLE, GAME_VERSION
 
     html = client.get("/").text
     assert f"<title>{GAME_TITLE}</title>" in html

@@ -5,6 +5,7 @@ applies the results and emits events. It contains no formulas of its own.
 """
 from __future__ import annotations
 
+from beastborn import constant as C
 from beastborn.domain.effects import StatusEffect
 from beastborn.domain.player import Player
 from beastborn.domain.position import Position
@@ -268,7 +269,7 @@ class GameStateMachine:
             return "Target is out of range"
         if attacker.energy < self._engine.attack_cost(attacker.stats):
             return "Not enough energy to attack"
-        limit: int | None = self._state.config.max_attacks_per_turn
+        limit: int | None = C.MAX_ATTACKS_PER_TURN
         if limit is not None and self._attacks_made(attacker) >= limit:
             return "No attacks left this turn"
         return None

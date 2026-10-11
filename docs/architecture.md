@@ -24,7 +24,7 @@
 Dependencies only point down: `domain` ← `engine` ← `game` ← `control` / `ui`.
 `tests/test_architecture.py` fails if a layer imports something it must not. For example, Flask, Werkzeug and pydantic are only allowed in `ui/web`.
 
-All constants (default rule numbers, map and session limits, paths, asset URLs) live in `beastborn/constance.py`.
+All constants (default rule numbers, map and session limits, paths, asset URLs) live in `beastborn/constant.py`.
 
 ## Calculation Engine (`beastborn/engine`)
 
@@ -35,18 +35,18 @@ All constants (default rule numbers, map and session limits, paths, asset URLs) 
   - `tick_effects`
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
 - `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.3 height x0.8 range - 2 = 6.32 -> 6`.
-- `StandardCalculationEngine` implements the design document. All its numbers are in `RulesConfig` (defaults in `beastborn/constance.py`).
+- `StandardCalculationEngine` implements the design document. It reads all its numbers straight from `beastborn/constant.py`.
 
 **Change the rules:**
 
+Tweak numbers: edit `beastborn/constant.py` (e.g. `ELEVATION_COEF`, `RANGE_DISSIPATION`, `ALLOW_BLOCK`).
+
+Write a new rule set:
+
 ```python
-from beastborn.engine import RulesConfig, StandardCalculationEngine
+from beastborn.engine import StandardCalculationEngine
 from beastborn.game import new_game
 
-# tweak numbers
-gsm = new_game(2, engine=StandardCalculationEngine(RulesConfig(allow_block=True, range_dissipation={1: 0.5, 2: 1.0, 3: 0.6})))
-
-# or write a new rule set
 class MyEngine(StandardCalculationEngine):
     def step_cost(self, unit, src, dst):
         return 1
@@ -106,7 +106,7 @@ A tkinter desktop app in one file: `python -m beastborn.reports.report`. It sits
 
 - `simulate(Scenario)` builds a one-row board with `custom_game` (attacker tile, flat grass, target tile) and plays the fight through `GameStateMachine.submit`: the attacker sends `AttackCommand` until it runs out of energy, then `EndTurnCommand`; the target only ends its turn. Every hit and Venom tick becomes a `Step` with snapshots (`UnitView`) of both units, so no rule is copied into the report.
 - `attack_matrix()` runs every pair for the chosen terrain and height. Tab 1 shows it as a table plus a tree of all steps; tab 2 steps through one `Fight`.
-- It takes any `CalculationEngine`, so a different `RulesConfig` can be compared the same way.
+- It takes any `CalculationEngine`, so a different rule set can be compared the same way.
 
 ## Bots
 

@@ -36,7 +36,7 @@ from enum import Enum  # noqa: E402
 from tkinter import font as tkfont  # noqa: E402
 from tkinter import messagebox, ttk  # noqa: E402
 
-from beastborn.constance import DEFAULT_MAX_ELEVATION, DEFAULT_UNITS_FILE, GAME_TITLE  # noqa: E402
+from beastborn.constant import DEFAULT_UNITS_FILE, GAME_TITLE, MAX_ELEVATION  # noqa: E402
 from beastborn.domain import Board, Roster, TerrainType, Tile, UnitStats, load_roster  # noqa: E402
 from beastborn.engine import AttackResult, CalculationEngine, StandardCalculationEngine  # noqa: E402
 from beastborn.game import AttackCommand, EndTurnCommand, GameView, UnitView, custom_game  # noqa: E402
@@ -49,7 +49,7 @@ MIN_WINDOW_SIZE: tuple[int, int] = (1000, 700)
 MAX_ROUNDS: int = 100  # a fight stops here even if the target is still alive (only possible with allow_block)
 MAX_STEPS: int = 5000  # safety limit (e.g. a unit with en_atk 0 could attack forever)
 TERRAINS: tuple[str, ...] = tuple(t.value for t in TerrainType)  # grass, mud
-HEIGHTS: tuple[str, ...] = tuple(str(h) for h in range(DEFAULT_MAX_ELEVATION + 1))  # 0, 1, 2
+HEIGHTS: tuple[str, ...] = tuple(str(h) for h in range(MAX_ELEVATION + 1))  # 0, 1, 2
 BEST: str = "best"  # ranged distance with the highest damage multiplier
 ATTACKER_ID: int = 1  # custom_game numbers the placements from 1
 TARGET_ID: int = 2

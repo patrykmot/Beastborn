@@ -4,7 +4,7 @@ The files are committed, so this is only needed to refresh or verify them:
 
     python tools/fetch_assets.py
 
-Pinned versions and the file lists live in beastborn/constance.py (game-icons comes from
+Pinned versions and the file lists live in beastborn/constant.py (game-icons comes from
 the @iconify-json/game-icons npm package on jsDelivr).
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script from any folder
 
-from beastborn.constance import (  # noqa: E402
+from beastborn.constant import (  # noqa: E402
     DOWNLOAD_TIMEOUT_SECONDS,
     GAME_ICONS_DEFAULT_SIZE,
     GAME_ICONS_JSON,

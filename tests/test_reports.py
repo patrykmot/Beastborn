@@ -9,9 +9,9 @@ import pytest
 
 pytest.importorskip("tkinter")  # the report is a tkinter app; tkinter ships with the standard Windows Python
 
-from beastborn import constance as C  # noqa: E402
+from beastborn import constant as C  # noqa: E402
 from beastborn.domain import EffectKind, EffectSpec, TerrainType  # noqa: E402
-from beastborn.engine import RulesConfig, StandardCalculationEngine  # noqa: E402
+from beastborn.engine import StandardCalculationEngine  # noqa: E402
 from beastborn.engine.results import fmt  # noqa: E402
 from beastborn.reports import report  # noqa: E402
 from beastborn.reports.report import (  # noqa: E402
@@ -99,23 +99,23 @@ def test_matrix_uses_tab1_conditions(roster):
         assert hit.damage <= flat_hit.damage, pair
 
 
-def test_distances(roster):
+def test_distances(roster, monkeypatch):
     assert legal_distances(roster["peasant"], CE) == [1]
     assert legal_distances(roster["archer"], CE) == [1, 2, 3, 4]
     assert best_distance(roster["peasant"], CE) == 1
     assert best_distance(roster["archer"], CE) == 2
-    tie = StandardCalculationEngine(RulesConfig(range_dissipation={1: 0.5, 2: 1.0, 3: 1.0, 4: 0.8}))
-    assert best_distance(ARCHER, tie) == 2
     short_bow = replace(ARCHER, attack_range=2)
     assert pick_distance(short_bow, CE, 4) == 2 and pick_distance(short_bow, CE, None) == 2
     with pytest.raises(ValueError):
         simulate(Scenario(Side(SOLDIER), Side(SOLDIER), distance=2))
+    monkeypatch.setattr(C, "RANGE_DISSIPATION", {1: 0.5, 2: 1.0, 3: 1.0, 4: 0.8})  # tie: the nearer distance wins
+    assert best_distance(ARCHER, CE) == 2
 
 
-def test_round_cap():
-    engine = StandardCalculationEngine(RulesConfig(allow_block=True))
+def test_round_cap(monkeypatch):
+    monkeypatch.setattr(C, "ALLOW_BLOCK", True)
     weak = replace(SOLDIER, atk=1)
-    fight = simulate(Scenario(Side(weak), Side(KING)), engine, max_rounds=5)
+    fight = simulate(Scenario(Side(weak), Side(KING)), CE, max_rounds=5)
     assert not fight.killed
     assert fight.rounds == 5
     assert fight.hp_left == KING.hp
@@ -134,10 +134,10 @@ def test_matrix_has_every_pair(roster):
 # Update this table when you rebalance beastborn/data/units.json: it is what the report shows today
 # (both units on grass, height 0, Archer at 2 tiles). (rounds, hits) per attacker -> target.
 CURRENT_BALANCE = {
-    "boss": {"boss": (10, 10), "big_rat": (2, 2), "peasant": (3, 3), "archer": (3, 3)},
-    "big_rat": {"boss": (10, 30), "big_rat": (1, 3), "peasant": (2, 5), "archer": (2, 5)},
-    "peasant": {"boss": (12, 20), "big_rat": (2, 3), "peasant": (3, 4), "archer": (3, 4)},
-    "archer": {"boss": (9, 14), "big_rat": (2, 2), "peasant": (3, 4), "archer": (2, 3)},
+    "boss": {"boss": (40, 40), "big_rat": (5, 5), "peasant": (6, 6), "archer": (5, 5)},
+    "big_rat": {"boss": (10, 30), "big_rat": (2, 5), "peasant": (2, 5), "archer": (2, 5)},
+    "peasant": {"boss": (12, 20), "big_rat": (3, 4), "peasant": (3, 4), "archer": (3, 4)},
+    "archer": {"boss": (9, 14), "big_rat": (3, 4), "peasant": (3, 4), "archer": (2, 3)},
 }
 
 
@@ -188,7 +188,7 @@ def test_gui_report_tab(app):
     assert tab.cells[("big_rat", "boss")].cget("text") == "10 (30)"
     assert len(tab.tree.get_children()) == 16
     tab.target_terrain.set("mud")  # recalculates every pair
-    assert tab.cells[("boss", "boss")].cget("text") == "7 (7)"  # 8 - 2 = 6 per hit, 40 HP
+    assert tab.cells[("boss", "boss")].cget("text") == "14 (14)"  # 5 - floor(4 / 2) = 3 per hit, 40 HP, 1 hit per round
     tab.select(("big_rat", "boss"), scroll=True, open_pair=True)
     assert tab.chart.fight is tab.fights[("big_rat", "boss")]
     tab.ranged.set("1")
