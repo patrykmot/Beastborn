@@ -9,11 +9,15 @@ PACKAGE = Path(__file__).resolve().parent.parent / "beastborn"
 WEB = ("flask", "werkzeug", "pydantic")
 REMOVED_WEB = ("fastapi", "starlette", "uvicorn", "httpx")
 
+REPORTS = "beastborn.reports"  # the balance report sits on top: nothing may depend on it
+
 FORBIDDEN = {
-    "domain": ("pygame", *WEB, "beastborn.engine", "beastborn.game", "beastborn.control", "beastborn.ui"),
-    "engine": ("pygame", *WEB, "beastborn.game", "beastborn.control", "beastborn.ui"),
-    "game": ("pygame", *WEB, "beastborn.control", "beastborn.ui"),
-    "control": ("pygame", *WEB, "beastborn.ui"),
+    "domain": ("pygame", *WEB, "beastborn.engine", "beastborn.game", "beastborn.control", "beastborn.ui", REPORTS),
+    "engine": ("pygame", *WEB, "beastborn.game", "beastborn.control", "beastborn.ui", REPORTS),
+    "game": ("pygame", *WEB, "beastborn.control", "beastborn.ui", REPORTS),
+    "control": ("pygame", *WEB, "beastborn.ui", REPORTS),
+    "ui": ("pygame", REPORTS),
+    "reports": ("pygame", *WEB, "beastborn.ui", "beastborn.control"),
 }
 
 
@@ -53,6 +57,15 @@ def test_web_frameworks_only_in_ui_web():
 def test_no_fastapi_anywhere():
     for path in [*PACKAGE.rglob("*.py"), *PACKAGE.parent.joinpath("tests").rglob("*.py"), PACKAGE.parent / "main.py"]:
         assert not any(m.split(".")[0] in REMOVED_WEB for m in imported_modules(path)), path
+
+
+def test_tkinter_only_in_reports():
+    """The desktop balance report is the only place with a GUI toolkit."""
+    report = PACKAGE / "reports" / "report.py"
+    for path in PACKAGE.rglob("*.py"):
+        if path == report:
+            continue
+        assert not any(m.split(".")[0] == "tkinter" for m in imported_modules(path)), path
 
 
 def test_constance_is_a_leaf_module():

@@ -17,7 +17,7 @@ from typing import Final, Literal, get_args
 
 # ====================================================================== application
 GAME_NAME: Final[str] = "Beastborn"
-GAME_VERSION: Final[str] = "0.2"
+GAME_VERSION: Final[str] = "0.3"
 GAME_TITLE: Final[str] = f"{GAME_NAME} v{GAME_VERSION}"  # shown in the browser and the server console
 
 # ====================================================================== paths

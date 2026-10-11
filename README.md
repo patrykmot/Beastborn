@@ -32,6 +32,21 @@ Its automatically deployed from github actions (push to main branch). Look into 
 python -m pytest
 ```
 
+## Balance report
+
+A desktop app (tkinter, nothing to install) that shows how the attack mechanic plays out between units.
+
+```bash
+python -m beastborn.reports.report   # or run beastborn/reports/report.py in PyCharm
+```
+
+- **Attack report:** every unit attacks every unit. A table shows rounds (and hits) to kill for each pair, and a list
+  shows the target's HP after every hit and Venom tick. Choose the attacker's and defender's terrain and height on top.
+- **Attack simulation:** one unit against another, step by step, with both units' stats, the next hit and an HP chart.
+- **Refresh** (F5) reloads `beastborn/data/units.json`: change a stat, press Refresh, see the new balance.
+
+The attacker stands still and hits while it has energy; the target does nothing. Fights run on the real game engine.
+
 ## Rules in short
 
 - **Win:** kill every enemy Boss. If your Boss dies, your whole army leaves the battlefield.
@@ -78,7 +93,8 @@ beastborn/
   ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
     web/     Flask backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
   data/      units.json
-tests/       pytest suite (engine, GSM, map, UI, web API, architecture rules)
+  reports/   report.py - desktop balance report (tkinter)
+tests/       pytest suite (engine, GSM, map, UI, web API, balance report, architecture rules)
 tools/       fetch_assets.py - re-downloads vendor libraries and icons
 docs/        architecture.md
 main.py      entry point (local web server)

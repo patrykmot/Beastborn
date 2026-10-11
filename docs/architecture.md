@@ -100,6 +100,14 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 
 **New frontend** (console, desktop): render `Interaction.view` and feed it intents. Game code does not change.
 
+## Balance report (`beastborn/reports/report.py`)
+
+A tkinter desktop app in one file: `python -m beastborn.reports.report`. It sits on top like `ui`: it imports `domain`, `engine` and `game`, and nothing imports it. It is the only module that imports `tkinter` (`tests/test_architecture.py` checks both).
+
+- `simulate(Scenario)` builds a one-row board with `custom_game` (attacker tile, flat grass, target tile) and plays the fight through `GameStateMachine.submit`: the attacker sends `AttackCommand` until it runs out of energy, then `EndTurnCommand`; the target only ends its turn. Every hit and Venom tick becomes a `Step` with snapshots (`UnitView`) of both units, so no rule is copied into the report.
+- `attack_matrix()` runs every pair for the chosen terrain and height. Tab 1 shows it as a table plus a tree of all steps; tab 2 steps through one `Fight`.
+- It takes any `CalculationEngine`, so a different `RulesConfig` can be compared the same way.
+
 ## Bots
 
 Implement `PlayerController.choose_command(gsm)` using `reachable_tiles` / `attack_targets` / `preview_attack`, then give the session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`). After every intent the web backend calls `run_bots()`, which lets bots act until a human is to move.
