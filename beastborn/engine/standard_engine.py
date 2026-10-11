@@ -84,8 +84,9 @@ class StandardCalculationEngine(CalculationEngine):
         atk: int = attacker.stats.atk
         em: int = self.elevation_modifier(attacker.tile, defender.tile)
         distance: int = attacker.position.manhattan(defender.position)
-        # 2. Momentum_Damage = ATK + 0.5 * ATK * Elevation_Modifier (never negative)
-        momentum: Fraction = max(_ZERO, atk + Fraction(c.momentum_per_level) * atk * em)
+        # 2. Momentum_Damage = ATK + ELEVATION_COEF * ATK * Elevation_Modifier (never negative)
+        coef: Fraction = Fraction(str(c.elevation_coef))  # str: 0.3 -> exactly 3/10
+        momentum: Fraction = max(_ZERO, atk + coef * atk * em)
         current_def: int = self.current_defense(defender.defense, defender.tile)
         result: Callable[..., AttackResult] = partial(
             AttackResult,

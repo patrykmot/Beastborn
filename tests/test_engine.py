@@ -1,9 +1,11 @@
 """Calculation Engine tests: movement from the design document, combat from docs/game_mechanics.md."""
+import math
 from dataclasses import replace
 from fractions import Fraction
 
 import pytest
 
+from beastborn import constance as C
 from beastborn.domain import EffectKind, EffectSpec, Position, StatusEffect, TerrainType, Tile, UnitStats
 from beastborn.engine import CombatantSnapshot, RulesConfig, StandardCalculationEngine
 
@@ -12,10 +14,23 @@ G, M = TerrainType.GRASS, TerrainType.MUD
 UNIT = UnitStats(key="u", name="Unit", code="U", hp=10, atk=6, en_atk=2, defense=2, max_en=10, reg_en=4)
 BOW = replace(UNIT, key="bow", atk=8, attack_range=4)
 
+K = Fraction(str(C.ELEVATION_COEF))  # 2. ELEVATION_COEF, exact (0.3 -> 3/10)
+
+
+def momentum(atk, em):
+    """2. Momentum_Damage = ATK + ELEVATION_COEF * ATK * Elevation_Modifier (never negative)."""
+    return max(Fraction(0), atk + K * atk * em)
+
 
 @pytest.fixture
 def ce():
     return StandardCalculationEngine()
+
+
+@pytest.fixture
+def ce_half():
+    """ELEVATION_COEF pinned to 0.5: worked examples about rounding / formula text stay valid after a rebalance."""
+    return StandardCalculationEngine(RulesConfig(elevation_coef=0.5))
 
 
 def snap(stats=UNIT, tile=Tile(), defense=None, hp=None, effects=(), at=(0, 0)):
@@ -97,18 +112,33 @@ def test_elevation_modifier_is_level_difference(ce, att, dfn, expected):
     assert ce.elevation_modifier(Tile(G, att), Tile(G, dfn)) == expected
 
 
-@pytest.mark.parametrize(
-    "att, dfn, momentum",
-    [(0, 0, 6), (1, 0, 9), (2, 0, 12), (0, 1, 3), (0, 2, 0)],  # ATK 6 + 0.5 * 6 * EM
-)
-def test_momentum(ce, att, dfn, momentum):
+@pytest.mark.parametrize("att, dfn", [(0, 0), (1, 0), (2, 0), (0, 1), (0, 2)])
+def test_momentum(ce, att, dfn):
     result = attack(ce, att_elev=att, def_elev=dfn)
-    assert result.momentum == momentum
+    assert result.momentum == momentum(6, att - dfn)  # ATK 6 + ELEVATION_COEF * 6 * EM
     assert result.range_multiplier == 1  # melee: no Range Dissipation
 
 
-def test_momentum_with_odd_atk_is_exact(ce):
-    result = attack(ce, replace(UNIT, atk=5), replace(UNIT, defense=0), att_elev=1)
+def test_default_elevation_coef_comes_from_constance():
+    assert RulesConfig().elevation_coef == C.ELEVATION_COEF
+
+
+@pytest.mark.parametrize("coef, expected", [(0.3, Fraction(39, 5)), (0.5, 9), (Fraction(1, 3), 8), (0, 6)])
+def test_custom_elevation_coef(coef, expected):
+    """ATK 6, one level up: 6 + coef * 6 (0.3 -> 7.8, exact)."""
+    ce = StandardCalculationEngine(RulesConfig(elevation_coef=coef))
+    assert attack(ce, att_elev=1).momentum == expected
+
+
+def test_momentum_never_negative():
+    ce = StandardCalculationEngine(RulesConfig(elevation_coef=0.6))
+    result = attack(ce, def_elev=2)  # 6 - 0.6 * 6 * 2 = -1.2 -> 0
+    assert result.momentum == 0
+    assert result.damage == 1
+
+
+def test_momentum_with_odd_atk_is_exact(ce_half):
+    result = attack(ce_half, replace(UNIT, atk=5), replace(UNIT, defense=0), att_elev=1)
     assert result.momentum == Fraction(15, 2)  # 7.5, not rounded yet
     assert result.damage == 7  # rounded down only at the end
 
@@ -134,7 +164,7 @@ def test_height_does_not_change_rp(ce):
     flat = attack(ce, BOW, distance=4)
     high = attack(ce, BOW, distance=4, att_elev=1)
     assert flat.range_multiplier == high.range_multiplier == Fraction(4, 5)
-    assert (high.momentum, high.base_damage) == (12, Fraction(48, 5))  # 12 * 0.8 = 9.6
+    assert (high.momentum, high.base_damage) == (momentum(8, 1), momentum(8, 1) * Fraction(4, 5))
 
 
 def test_melee_units_ignore_range_dissipation(ce):
@@ -142,9 +172,9 @@ def test_melee_units_ignore_range_dissipation(ce):
     assert attack(ce).formula() == "6 - 2 = 4"
 
 
-def test_ranged_example_from_a_hill(ce):
-    """ATK 8 from one level up, 4 tiles away: 12 * 0.8 = 9.6, minus DEF 2 = 7.6 -> 7."""
-    result = attack(ce, BOW, distance=4, att_elev=1)
+def test_ranged_example_from_a_hill(ce_half):
+    """ATK 8 from one level up (coef 0.5), 4 tiles away: 12 * 0.8 = 9.6, minus DEF 2 = 7.6 -> 7."""
+    result = attack(ce_half, BOW, distance=4, att_elev=1)
     assert result.damage == 7
     assert result.formula() == "8 x1.5 height x0.8 range - 2 = 7.6 -> 7"
 
@@ -169,18 +199,18 @@ def test_current_defense(ce, defense, terrain, expected):
 
 
 # ---------------------------------------------------------------- 5. final damage
-def test_hill_and_mud_example(ce):
-    """ATK 6 on a hill (+1) vs DEF 4 standing in mud: 9 - floor(4 / 2) = 7."""
-    result = attack(ce, defender=replace(UNIT, defense=4), att_elev=1, def_terrain=M)
+def test_hill_and_mud_example(ce_half):
+    """ATK 6 on a hill (+1, coef 0.5) vs DEF 4 standing in mud: 9 - floor(4 / 2) = 7."""
+    result = attack(ce_half, defender=replace(UNIT, defense=4), att_elev=1, def_terrain=M)
     assert (result.momentum, result.current_defense) == (9, 2)
     assert result.damage == 7
     assert result.formula() == "6 x1.5 height - 2 = 7"
 
 
-def test_fractions_are_rounded_down_at_the_end(ce):
-    result = attack(ce, BOW, replace(UNIT, defense=1), distance=3, def_elev=1)  # 8 * 0.5 * 0.8 - 1 = 2.2
+def test_fractions_are_rounded_down_at_the_end(ce_half):
+    result = attack(ce_half, BOW, replace(UNIT, defense=1), distance=3, def_elev=1)  # 8 * 0.5 * 0.8 - 1 = 2.2
     assert result.raw_damage == Fraction(11, 5) and result.damage == 2
-    result = attack(ce, replace(BOW, atk=7), distance=3)  # 7 * 0.8 - 2 = 3.6
+    result = attack(ce_half, replace(BOW, atk=7), distance=3)  # 7 * 0.8 - 2 = 3.6
     assert result.damage == 3
     assert result.formula() == "7 x0.8 range - 2 = 3.6 -> 3"
 

@@ -25,8 +25,8 @@ class RulesConfig:
     difficult_terrains: frozenset[TerrainType] = frozenset({TerrainType.MUD})
 
     # --- Combat (docs/game_mechanics.md) ---
-    # 2. Momentum = ATK + momentum_per_level * ATK * Elevation_Modifier
-    momentum_per_level: Fraction = Fraction(C.MOMENTUM_PER_LEVEL_NUMERATOR, C.MOMENTUM_PER_LEVEL_DENOMINATOR)
+    # 2. Momentum = ATK + elevation_coef * ATK * Elevation_Modifier (ELEVATION_COEF in docs/game_mechanics.md)
+    elevation_coef: float | Fraction = C.ELEVATION_COEF
     # 3. RP damage multiplier by distance, only for units with attack_range > 1. Farther = cannot attack.
     range_dissipation: dict[int, float] = field(default_factory=lambda: dict(C.RANGE_DISSIPATION))
     # 4. Effective DEF = floor(DEF / divisor) on these terrains

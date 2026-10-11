@@ -1,14 +1,18 @@
 """Balance report (beastborn/reports/report.py): fight simulation, matrix and a GUI smoke test."""
 import json
+import math
 import shutil
 from dataclasses import replace
+from fractions import Fraction
 
 import pytest
 
 pytest.importorskip("tkinter")  # the report is a tkinter app; tkinter ships with the standard Windows Python
 
+from beastborn import constance as C  # noqa: E402
 from beastborn.domain import EffectKind, EffectSpec, TerrainType  # noqa: E402
 from beastborn.engine import RulesConfig, StandardCalculationEngine  # noqa: E402
+from beastborn.engine.results import fmt  # noqa: E402
 from beastborn.reports import report  # noqa: E402
 from beastborn.reports.report import (  # noqa: E402
     Scenario, Side, StepKind, attack_matrix, best_distance, legal_distances, pick_distance, simulate,
@@ -16,6 +20,7 @@ from beastborn.reports.report import (  # noqa: E402
 from tests.conftest import ARCHER, KING, SOLDIER  # noqa: E402
 
 CE = StandardCalculationEngine()
+K = Fraction(str(C.ELEVATION_COEF))  # damage bonus per elevation level
 
 
 def hp_trace(fight):
@@ -72,7 +77,9 @@ def test_terrain_and_height_change_damage(roster):
     scenario = Scenario(Side(roster["archer"], elevation=1), Side(roster["boss"], TerrainType.MUD), distance=3)
     fight = simulate(scenario)
     hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
-    assert hit.calculation == "7 x1.5 height x0.8 range - 2 = 6.4 -> 6"
+    raw = roster["archer"].atk * (1 + K) * Fraction(4, 5) - 2  # 0.3: 7 x1.3 x0.8 - 2 = 5.28 -> 5
+    assert hit.calculation.startswith(f"{roster['archer'].atk} x{fmt(1 + K)} height x0.8 range - 2 = {fmt(raw)}")
+    assert hit.damage == max(1, math.floor(raw))
     assert hit.result.formula() == hit.calculation
     assert hit.target.current_defense == 2
 
@@ -84,8 +91,12 @@ def test_matrix_uses_tab1_conditions(roster):
         first_hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
         first_hit_mud = next(s for s in mud[pair].steps if s.kind is StepKind.HIT)
         assert first_hit_mud.damage > first_hit.damage, pair
-    uphill = attack_matrix(roster, target_elevation=2)  # 2 levels up: momentum 0, every hit deals the minimum 1
-    assert all(s.damage == 1 for f in uphill.values() for s in f.steps if s.kind is StepKind.HIT)
+    uphill = attack_matrix(roster, target_elevation=2)  # 2 levels up: momentum = ATK * (1 - 2 * ELEVATION_COEF)
+    for pair, fight in uphill.items():
+        hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
+        flat_hit = next(s for s in grass[pair].steps if s.kind is StepKind.HIT)
+        assert hit.result.momentum == max(0, hit.result.atk * (1 - 2 * K)), pair
+        assert hit.damage <= flat_hit.damage, pair
 
 
 def test_distances(roster):
@@ -197,7 +208,9 @@ def test_gui_simulation_tab_stepping(app):
     tab.buttons["step"].invoke()
     tab.buttons["step"].invoke()
     assert tab.index == 2
-    assert tab.target_panel.values["HP"].cget("text").startswith("34 / 40")
+    first_hit = tab.fight.steps[2]  # start, turn start, hit
+    assert first_hit.kind is StepKind.HIT
+    assert tab.target_panel.values["HP"].cget("text").startswith(f"{first_hit.target_hp_after} / 40")
     tab.buttons["back"].invoke()
     assert tab.index == 1
     tab.buttons["end"].invoke()

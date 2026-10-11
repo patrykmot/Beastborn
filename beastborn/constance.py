@@ -17,7 +17,7 @@ from typing import Final, Literal, get_args
 
 # ====================================================================== application
 GAME_NAME: Final[str] = "Beastborn"
-GAME_VERSION: Final[str] = "0.3"
+GAME_VERSION: Final[str] = "0.4"
 GAME_TITLE: Final[str] = f"{GAME_NAME} v{GAME_VERSION}"  # shown in the browser and the server console
 
 # ====================================================================== paths
@@ -74,8 +74,10 @@ EN_MD_NORMAL: Final[int] = 2  # moving downhill into normal terrain
 EN_MD_DIFFICULT: Final[int] = 5  # moving downhill into difficult terrain (2 + 3 penalty)
 
 # Combat (docs/game_mechanics.md, section numbers in brackets).
-MOMENTUM_PER_LEVEL_NUMERATOR: Final[int] = 1  # [2] Momentum = ATK + 1/2 * ATK * Elevation_Modifier
-MOMENTUM_PER_LEVEL_DENOMINATOR: Final[int] = 2
+# [2] Momentum = ATK + ELEVATION_COEF * ATK * Elevation_Modifier
+# Damage bonus per elevation level: 0.3 = +30% ATK per level above the target, -30% per level below.
+# Change this one number to rebalance height. Used exactly (0.3 -> 3/10), so no float rounding errors.
+ELEVATION_COEF: Final[float] = 0.3
 # [3] RP damage multiplier by distance, only for ranged units. Farther = cannot attack.
 RANGE_DISSIPATION: Final[Mapping[int, float]] = MappingProxyType({1: 0.5, 2: 1.0, 3: 0.8, 4: 0.8})
 MUD_DEFENSE_DIVISOR: Final[int] = 2  # [4] Effective DEF = floor(DEF / 2) on mud

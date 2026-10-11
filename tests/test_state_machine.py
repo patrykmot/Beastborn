@@ -1,8 +1,10 @@
+import math
 from dataclasses import replace
 from fractions import Fraction
 
 import pytest
 
+from beastborn import constance as C
 from beastborn.domain import Board, EffectKind, EffectSpec, Position, StatusEffect
 from beastborn.engine import StandardCalculationEngine
 from beastborn.game import (
@@ -144,14 +146,15 @@ def test_attack_targets_lists_only_valid_targets():
 
 
 def test_elevation_and_mud_in_a_real_fight():
-    """ATK 4 on a hill (x1.5 = 6) vs DEF 4 in mud (floor(4 / 2) = 2) -> 4 damage."""
+    """ATK 4 on a hill (x(1 + ELEVATION_COEF)) vs DEF 4 in mud (floor(4 / 2) = 2); 0.3: 5.2 - 2 -> 3 damage."""
     board = Board.from_strings(["...", ".m.", "..."], ["010", "000", "000"])
     beast = replace(SOLDIER, atk=4)
     target = replace(SOLDIER, defense=4, hp=10)
     gsm = custom_game(board, [(0, beast, (1, 0)), (1, target, (1, 1)), (0, KING, (0, 2)), (1, KING, (2, 2))])
     result = gsm.submit(AttackCommand(1, 2))
-    assert result.events[0].result.damage == 4
-    assert unit(gsm, 2).hp == 6
+    expected = max(1, math.floor(4 * (1 + Fraction(str(C.ELEVATION_COEF))) - 2))
+    assert result.events[0].result.damage == expected
+    assert unit(gsm, 2).hp == 10 - expected
 
 
 # ---------------------------------------------------------------- archer (ranged)
@@ -185,7 +188,10 @@ def test_archer_on_a_hill_shoots_harder():
     board = Board.from_strings(["......", "......"], ["100000", "000000"])
     gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (4, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
     result = gsm.submit(AttackCommand(1, 2)).events[0].result
-    assert (result.momentum, result.base_damage, result.damage) == (12, Fraction(48, 5), 8)  # 12 * 0.8 - 1 = 8.6
+    momentum = 8 * (1 + Fraction(str(C.ELEVATION_COEF)))  # ATK 8, one level up; 0.3: 10.4
+    base = momentum * Fraction(4, 5)  # 4 tiles: RP 0.8; 0.3: 8.32
+    assert (result.momentum, result.base_damage, result.damage) == (momentum, base, math.floor(base - 1))
+    assert result.damage > math.floor(8 * Fraction(4, 5) - 1)  # harder than from flat ground
 
 
 def test_archer_is_slow():

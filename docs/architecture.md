@@ -34,7 +34,7 @@ All constants (default rule numbers, map and session limits, paths, asset URLs) 
   - `elevation_modifier`, `current_defense`, `range_multiplier`, `resolve_attack` (the rules in [game_mechanics.md](game_mechanics.md))
   - `tick_effects`
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
-- `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.5 height x0.8 range - 2 = 7.6 -> 7`.
+- `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.3 height x0.8 range - 2 = 6.32 -> 6`.
 - `StandardCalculationEngine` implements the design document. All its numbers are in `RulesConfig` (defaults in `beastborn/constance.py`).
 
 **Change the rules:**

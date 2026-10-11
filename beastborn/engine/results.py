@@ -35,7 +35,7 @@ class AttackResult:
 
     atk: int  # attacker ATK
     elevation_modifier: int  # EM = attacker elevation - defender elevation (levels)
-    momentum: Fraction  # ATK + 0.5 * ATK * EM
+    momentum: Fraction  # ATK + ELEVATION_COEF * ATK * EM
     distance: int  # Manhattan distance to the target
     ranged: bool  # attacker has attack_range > 1, so Range Dissipation applies
     range_multiplier: Fraction  # RP by distance (1 for melee units)
@@ -49,7 +49,7 @@ class AttackResult:
     out_of_range: bool = False
 
     def formula(self) -> str:
-        """E.g. '6 - 2 = 4', '6 x1.5 height - 2 = 7', '7 x0.8 range - 2 = 3.6 -> 3'."""
+        """E.g. '6 - 2 = 4', '6 x1.3 height - 2 = 5.8 -> 5', '7 x0.8 range - 2 = 3.6 -> 3'."""
         if self.out_of_range:
             return "out of range"
         text: str = str(self.atk)

@@ -7,7 +7,8 @@
 ## 2. Elevation Momentum
 Calculates raw kinetic power based on height difference.
 * `Elevation_Modifier = Elev_attacker - Elev_defender`
-* `Momentum_Damage = ATK + (0.5 * ATK * Elevation_Modifier)`
+* `ELEVATION_COEF` (constant `ELEVATION_COEF` in `beastborn/constance.py`)
+* `Momentum_Damage = ATK + (ELEVATION_COEF * ATK * Elevation_Modifier)`
 
 ## 3. Range Dissipation (RP Factor)
 For units with `attack_range > 1`. RP is a damage **multiplier** that depends only on the distance (height does not change it).
@@ -41,7 +42,7 @@ For units with `attack_range > 1`. RP is a damage **multiplier** that depends on
 ## Implementation notes
 Decisions taken while implementing (`beastborn/engine/standard_engine.py`, numbers in `RulesConfig`):
 * **Rounding:** everything is calculated exactly (fractions, so `0.8` is exactly 4/5); only `Final_Damage` is rounded down. Example: `7 * 0.8 - 2 = 3.6` -> 3.
-* **Momentum** never goes below 0 (attacking 2 levels up gives `ATK - ATK = 0`); the hit still deals the minimum 1.
+* **Momentum** never goes below 0. Note the `ELEVATION_COEF`.
 * **Every performed hit** spends energy and applies Venom / Acid.
 * **Out of range** (> 4 tiles, or more than the unit's own range): the attack is rejected and costs no energy.
 * **Acid / Venom amounts** use whole-number division (`ATK // 10`, `ATK // 4`), which equals the floor in the formulas.
