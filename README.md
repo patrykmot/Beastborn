@@ -55,16 +55,7 @@ python -m pytest
   - Units standing in mud have half DEF (rounded down).
 - **Effects** (applied on every hit): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds (re-applying refreshes it).
   Acid = −`max(1, ATK ÷ 10)` DEF permanently per hit.
-
-| Unit | HP | ATK | EN_ATK | DEF | MAX_EN | REG_EN | Range | Special |
-|---|---|---|---|---|---|---|---|---|
-| Boss | 40 | 8 | 3 | 4 | 6 | 3 | 1 | slow, huge HP |
-| Big Rat | 12 | 5 | 2 | 1 | 10 | 6 | 1 | Venom |
-| Peasant | 16 | 6 | 3 | 2 | 8 | 5 | 1 | — |
-| Archer | 14 | 7 | 3 | 2 | 8 | 5 | 4 | ranged, +1 EN per step; best at 2 tiles, weak next to the target |
-
-Stats are placeholders for balancing. Edit them in `beastborn/data/units.json`.
-
+- 
 ## Controls (browser)
 
 | Action | Input |
