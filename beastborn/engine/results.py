@@ -20,6 +20,7 @@ class CombatantSnapshot:
     effects: tuple[StatusEffect, ...]
     tile: Tile
     position: Position
+    unit_id: int | None = None  # becomes StatusEffect.source_id of the effects this unit applies
 
 
 def fmt(value: Fraction | int) -> str:

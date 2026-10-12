@@ -33,7 +33,8 @@ For units with `attack_range > 1`. RP is a damage **multiplier** that depends on
 ## 6. On-Hit Effects (Applied if attack resolves)
 ### VENOM
 * **Damage:** `max(1, floor(ATK / 4))` DoT for 5 rounds.
-* **Stacking:** Does not stack. Refreshes duration to 5 rounds if already present.
+* **Stacking:** One stack per attacker. A hit from a unit whose Venom is already on the target refreshes that stack to 5 rounds.
+  A hit from another unit adds a new stack. Every stack ticks separately: two rats = two Venom ticks per turn.
 ### ACID
 * **Effect:** Permanently reduces target's current DEF.
 * **Reduction Amount:** `max(1, floor(0.1 * ATK))` 

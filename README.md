@@ -68,7 +68,7 @@ The attacker stands still and hits while it has energy; the target does nothing.
   - `EM` = your level minus the target's level. Each level above adds +50 % ATK, each level below takes −50 %.
   - `RP` only applies to ranged units (range > 1) and depends only on distance: 1 tile ×0.5, 2 tiles ×1, 3 tiles ×0.8, 4 tiles ×0.8, farther is impossible.
   - Units standing in mud have half DEF (rounded down).
-- **Effects** (applied on every hit): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds (re-applying refreshes it).
+- **Effects** (applied on every hit): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds. Venom from different units stacks (each stack ticks every turn); the same unit only refreshes its own stack.
   Acid = −`max(1, ATK ÷ 10)` DEF permanently per hit.
 - 
 ## Controls (browser)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import replace
 from fractions import Fraction
 from functools import partial
 
@@ -113,28 +114,39 @@ class StandardCalculationEngine(CalculationEngine):
             )
 
         damage: int = max(C.MIN_DAMAGE, math.floor(raw))  # 5. Final_Damage, rounded down, at least 1
-        defense_change, effects_after = self._apply_on_hit(attacker.stats, defender)
+        defense_change, effects_after = self._apply_on_hit(attacker, defender)
         return result(
             range_multiplier=rp, base_damage=base, raw_damage=raw, damage=damage, blocked=False,
             defense_change=defense_change, defender_effects_after=effects_after,
         )
 
     def _apply_on_hit(
-        self, attacker: UnitStats, defender: CombatantSnapshot
+        self, attacker: CombatantSnapshot, defender: CombatantSnapshot
     ) -> tuple[int, tuple[StatusEffect, ...]]:
         """6. On-hit effects. Applied whenever the attack resolves."""
+        stats: UnitStats = attacker.stats
         defense_change: int = 0
         effects: list[StatusEffect] = list(defender.effects)
-        for spec in attacker.on_hit:
+        for spec in stats.on_hit:
             if spec.kind is EffectKind.ACID:
-                shred: int = self._effect_magnitude(attacker.atk, C.ACID_ATK_DIVISOR)
+                shred: int = self._effect_magnitude(stats.atk, C.ACID_ATK_DIVISOR)
                 remaining_def: int = defender.defense + defense_change
                 defense_change -= min(shred, remaining_def)  # DEF never below 0
             elif spec.kind is EffectKind.VENOM:
-                # Does not stack: re-applying refreshes the duration.
-                venom: int = self._effect_magnitude(attacker.atk, C.VENOM_ATK_DIVISOR)
-                effects = [e for e in effects if e.kind is not EffectKind.VENOM]
-                effects.append(StatusEffect(EffectKind.VENOM, venom, C.VENOM_DURATION))
+                # One stack per attacker: the same attacker refreshes its own stack, another one adds a stack.
+                venom: StatusEffect = StatusEffect(
+                    EffectKind.VENOM,
+                    self._effect_magnitude(stats.atk, C.VENOM_ATK_DIVISOR),
+                    C.VENOM_DURATION,
+                    attacker.unit_id,
+                )
+                own: list[int] = [
+                    i for i, e in enumerate(effects) if e.kind is EffectKind.VENOM and e.source_id == attacker.unit_id
+                ]
+                if own:
+                    effects[own[0]] = venom  # keeps the order of the stacks
+                else:
+                    effects.append(venom)
         return defense_change, tuple(effects)
 
     # ---------- Status effects ----------
@@ -148,7 +160,7 @@ class StandardCalculationEngine(CalculationEngine):
                 ticks.append(EffectTick(EffectKind.VENOM, effect.magnitude))
                 turns_left: int = effect.remaining_turns - 1
                 if turns_left > 0:
-                    remaining.append(StatusEffect(effect.kind, effect.magnitude, turns_left))
+                    remaining.append(replace(effect, remaining_turns=turns_left))
             else:
                 remaining.append(effect)
         return TickResult(hp_change, 0, tuple(remaining), tuple(ticks))

@@ -23,8 +23,13 @@ class EffectSpec:
 
 @dataclass(frozen=True)
 class StatusEffect:
-    """An effect currently active on a unit."""
+    """An effect currently active on a unit.
+
+    ``source_id`` is the unit that applied it. Venom stacks once per source: a second attacker adds
+    its own stack (both tick every turn), the same attacker only refreshes its stack.
+    """
 
     kind: EffectKind
     magnitude: int
     remaining_turns: int
+    source_id: int | None = None

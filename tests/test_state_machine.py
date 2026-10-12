@@ -210,12 +210,33 @@ def test_venom_ticks_at_start_of_victims_turn():
     gsm._state.units[2].stats = rat  # P0 soldier becomes a rat
     gsm.submit(AttackCommand(2, 4))
     assert unit(gsm, 4).hp == 7
-    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 5),)
+    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 5, source_id=2),)
     result = gsm.submit(EndTurnCommand())
     ticks = [e for e in result.events if isinstance(e, ev.EffectTicked)]
     assert len(ticks) == 1 and ticks[0].unit_id == 4
     assert unit(gsm, 4).hp == 6
-    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 4),)
+    assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 4, source_id=2),)
+
+
+def test_venom_from_two_rats_stacks_and_ticks_twice():
+    rat = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.VENOM),))  # 4 - 1 = 3 damage, Venom 1 HP x 5 rounds
+    gsm = custom_game(
+        FLAT,
+        [(0, KING, (0, 0)), (0, rat, (2, 1)), (0, rat, (3, 0)),
+         (1, KING, (4, 2)), (1, replace(SOLDIER, hp=20), (3, 1))],
+    )
+    for _ in range(2):  # the second hit of the same rat refreshes its stack, it does not add one
+        assert gsm.submit(AttackCommand(2, 5)).ok
+    assert gsm.submit(AttackCommand(3, 5)).ok
+    assert unit(gsm, 5).hp == 20 - 3 * 3
+    assert unit(gsm, 5).effects == (
+        StatusEffect(EffectKind.VENOM, 1, 5, source_id=2), StatusEffect(EffectKind.VENOM, 1, 5, source_id=3),
+    )
+    result = gsm.submit(EndTurnCommand())
+    ticks = [e for e in result.events if isinstance(e, ev.EffectTicked)]
+    assert [(t.unit_id, t.amount, t.hp_after) for t in ticks] == [(5, 1, 10), (5, 1, 9)]
+    assert unit(gsm, 5).hp == 9
+    assert [e.remaining_turns for e in unit(gsm, 5).effects] == [4, 4]
 
 
 def test_start_of_turn_order_regen_then_venom_then_death():

@@ -187,8 +187,11 @@ class GameStateMachine:
             events.append(ev.EnergyRegenerated(unit.id, before, unit.energy))
 
         tick: TickResult = self._engine.tick_effects(unit.effects, unit.hp, unit.defense)
+        hp: int = unit.hp
+        for t in tick.ticks:  # one event per stack, each with the HP left after it
+            hp -= t.amount
+            events.append(ev.EffectTicked(unit.id, t.kind, t.amount, max(0, hp)))
         self._apply_change(unit, tick.hp_change, tick.defense_change, tick.remaining_effects)
-        events += [ev.EffectTicked(unit.id, t.kind, t.amount, max(0, unit.hp)) for t in tick.ticks]
         if not unit.alive:
             events += self._kill(unit)
         return events
@@ -242,7 +245,7 @@ class GameStateMachine:
 
     def _snapshot(self, unit: UnitState) -> CombatantSnapshot:
         tile: Tile = self._state.board.tile(unit.position)
-        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, tile, unit.position)
+        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, tile, unit.position, unit.id)
 
     def _attacks_made(self, unit: UnitState) -> int:
         return self._state.attacks_this_turn.get(unit.id, 0)

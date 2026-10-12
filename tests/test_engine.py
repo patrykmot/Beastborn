@@ -33,7 +33,7 @@ def ce_half(monkeypatch):
     return StandardCalculationEngine()
 
 
-def snap(stats=UNIT, tile=Tile(), defense=None, hp=None, effects=(), at=(0, 0)):
+def snap(stats=UNIT, tile=Tile(), defense=None, hp=None, effects=(), at=(0, 0), unit_id=None):
     return CombatantSnapshot(
         stats=stats,
         hp=stats.hp if hp is None else hp,
@@ -41,6 +41,7 @@ def snap(stats=UNIT, tile=Tile(), defense=None, hp=None, effects=(), at=(0, 0)):
         effects=effects,
         tile=tile,
         position=Position(*at),
+        unit_id=unit_id,
     )
 
 
@@ -257,11 +258,37 @@ def test_venom_damage_scales_with_atk(ce, atk, per_round):
     assert result.defender_effects_after == (StatusEffect(EffectKind.VENOM, per_round, 5),)
 
 
-def test_venom_refreshes_instead_of_stacking(ce):
+def test_venom_from_the_same_attacker_refreshes(ce):
     rat = replace(UNIT, atk=8, on_hit=(EffectSpec(EffectKind.VENOM),))
     already = (StatusEffect(EffectKind.VENOM, 2, 1),)
     result = attack(ce, rat, effects=already)
     assert result.defender_effects_after == (StatusEffect(EffectKind.VENOM, 2, 5),)
+
+
+def venom_hit(ce, attacker_id, atk, effects):
+    rat = replace(UNIT, atk=atk, on_hit=(EffectSpec(EffectKind.VENOM),))
+    defender = snap(UNIT, at=(1, 0), effects=effects, unit_id=99)
+    return ce.resolve_attack(snap(rat, unit_id=attacker_id), defender).defender_effects_after
+
+
+def test_venom_from_different_attackers_stacks(ce):
+    effects = venom_hit(ce, 1, 8, ())
+    effects = venom_hit(ce, 2, 12, effects)
+    assert effects == (StatusEffect(EffectKind.VENOM, 2, 5, 1), StatusEffect(EffectKind.VENOM, 3, 5, 2))
+
+
+def test_venom_refreshes_only_the_attackers_own_stack(ce):
+    effects = (StatusEffect(EffectKind.VENOM, 2, 1, 1), StatusEffect(EffectKind.VENOM, 3, 2, 2))
+    assert venom_hit(ce, 1, 8, effects) == (StatusEffect(EffectKind.VENOM, 2, 5, 1), effects[1])
+    assert venom_hit(ce, 2, 12, effects) == (effects[0], StatusEffect(EffectKind.VENOM, 3, 5, 2))
+
+
+def test_every_venom_stack_ticks(ce):
+    effects = (StatusEffect(EffectKind.VENOM, 2, 1, 1), StatusEffect(EffectKind.VENOM, 3, 2, 2))
+    tick = ce.tick_effects(effects, hp=10, defense=3)
+    assert tick.hp_change == -5
+    assert [t.amount for t in tick.ticks] == [2, 3]
+    assert tick.remaining_effects == (StatusEffect(EffectKind.VENOM, 3, 1, 2),)  # source kept, stack 1 expired
 
 
 def test_venom_ticks_and_expires(ce):
