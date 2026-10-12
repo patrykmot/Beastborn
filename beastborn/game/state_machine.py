@@ -84,6 +84,10 @@ class GameStateMachine:
             return None
         return self._resolve(attacker, target)
 
+    def score(self, player: int) -> int:
+        """How good the current board is for ``player`` (Calculation Engine score)."""
+        return self._engine.score(self._state, player)
+
     def attack_targets(self, unit_id: int) -> dict[int, AttackResult]:
         """Enemies the active player's unit can attack right now, with the exact outcome."""
         unit: UnitState | None = self._own_unit(unit_id)

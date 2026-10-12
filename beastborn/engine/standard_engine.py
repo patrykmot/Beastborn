@@ -17,7 +17,7 @@ from beastborn import constant as C
 from beastborn.domain.effects import EffectKind, StatusEffect
 from beastborn.domain.terrain import Tile
 from beastborn.domain.unit import UnitStats
-from beastborn.engine.interface import CalculationEngine
+from beastborn.engine.interface import BoardState, CalculationEngine
 from beastborn.engine.results import AttackResult, CombatantSnapshot, EffectTick, TickResult
 
 _ZERO: Fraction = Fraction(0)
@@ -164,3 +164,15 @@ class StandardCalculationEngine(CalculationEngine):
             else:
                 remaining.append(effect)
         return TickResult(hp_change, 0, tuple(remaining), tuple(ticks))
+
+    # ---------- Score ----------
+    def score(self, state: BoardState, player: int) -> int:
+        """Points for ``player``: HP the opponents' units have lost (Bosses count more) + height of own units."""
+        points: int = 0
+        for unit in state.units.values():
+            if unit.owner == player:
+                points += C.SCORE_PER_ELEVATION_LEVEL * state.board.tile(unit.position).elevation
+            else:
+                per_hp: int = C.SCORE_PER_MISSING_BOSS_HP if unit.is_boss else C.SCORE_PER_MISSING_HP
+                points += per_hp * max(0, unit.stats.hp - unit.hp)
+        return points

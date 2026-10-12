@@ -8,12 +8,28 @@ touching the Game State Machine or the UI.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from fractions import Fraction
+from typing import Protocol
 
+from beastborn.domain.board import Board
 from beastborn.domain.effects import StatusEffect
 from beastborn.domain.terrain import Tile
-from beastborn.domain.unit import UnitStats
+from beastborn.domain.unit import UnitState, UnitStats
 from beastborn.engine.results import AttackResult, CombatantSnapshot, TickResult
+
+
+class BoardState(Protocol):
+    """What the CE reads from a game state. ``game.state.GameState`` matches it.
+
+    The CE must not import ``beastborn.game`` (tests/test_architecture.py), so it names only the fields it needs.
+    """
+
+    @property
+    def board(self) -> Board: ...
+
+    @property
+    def units(self) -> Mapping[int, UnitState]: ...
 
 
 class CalculationEngine(ABC):
@@ -60,3 +76,8 @@ class CalculationEngine(ABC):
     @abstractmethod
     def tick_effects(self, effects: tuple[StatusEffect, ...], hp: int, defense: int) -> TickResult:
         """Start-of-turn processing of status effects (e.g. Venom damage)."""
+
+    # ---------- Score ----------
+    @abstractmethod
+    def score(self, state: BoardState, player: int) -> int:
+        """How good the board is for ``player`` (a ``GameState``); higher is better. Used by bots to compare moves."""

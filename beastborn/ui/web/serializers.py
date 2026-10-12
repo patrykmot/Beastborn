@@ -55,6 +55,7 @@ def render(game_id: str, ui: Interaction) -> JSON:
         "active_player": view.active_player,
         "winner": view.winner,
         "human_turn": ui.human_turn,
+        "score": ui.score,  # of the active player
         "board": {"width": board.width, "height": board.height, "tiles": _tiles_json(board)},
         "players": [
             {"index": p.index, "name": p.name, "eliminated": p.eliminated, "units": len(view.units_of(p.index))}

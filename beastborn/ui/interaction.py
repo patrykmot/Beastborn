@@ -52,6 +52,7 @@ class Interaction:
         self._view: GameView = gsm.view()
         self._reachable: dict[Position, PathInfo] = {}
         self._targets: dict[int, AttackResult] = {}
+        self._score: int = gsm.score(self._view.active_player)
         self.log.append(f"Seed {self._view.seed}" if self._view.seed is not None else "Custom game")
         self.log.append(round_header(self._view.round, self._view.players[self._view.active_player].name))
 
@@ -62,6 +63,7 @@ class Interaction:
             return
         self._cache_key = key
         self._view = self.gsm.view()
+        self._score = self.gsm.score(self._view.active_player)
         if self.selected is not None and self._view.unit(self.selected) is None:
             self.selected = None
         if self.selected is None:
@@ -84,6 +86,12 @@ class Interaction:
     def targets(self) -> dict[int, AttackResult]:
         self._refresh()
         return self._targets
+
+    @property
+    def score(self) -> int:
+        """Board score of the active player, refreshed after every accepted command."""
+        self._refresh()
+        return self._score
 
     @property
     def selected_unit(self) -> UnitView | None:

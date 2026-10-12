@@ -231,7 +231,9 @@ $(function () {
   function renderTurn() {
     const active = state.players[state.active_player];
     $("#turn-info").html(
-      chipHtml(active.index, esc(active.name), "active") + ` <span class="ms-1">Round ${state.round}</span>`
+      chipHtml(active.index, esc(active.name), "active") + ` <span class="ms-1">Round ${state.round}</span>` +
+      ` <span class="badge text-bg-dark border ms-1" title="Score of ${esc(active.name)}: enemy HP lost (Boss HP x10) + height of own units">` +
+      `<i class="bi bi-trophy-fill text-warning"></i> ${state.score}</span>`
     );
     $("#seed-info").text(state.seed === null ? "" : `seed ${state.seed}`);
     $("#players").html(state.players.map((p) => chipHtml(

@@ -5,8 +5,11 @@ from fractions import Fraction
 import pytest
 
 from beastborn import constant as C
-from beastborn.domain import EffectKind, EffectSpec, Position, StatusEffect, TerrainType, Tile, UnitStats
+from beastborn.domain import (
+    Board, EffectKind, EffectSpec, Player, Position, StatusEffect, TerrainType, Tile, UnitState, UnitStats,
+)
 from beastborn.engine import CombatantSnapshot, StandardCalculationEngine
+from beastborn.game import GameState
 
 G, M = TerrainType.GRASS, TerrainType.MUD
 
@@ -318,3 +321,25 @@ def test_acid_applies_after_damage(ce):
     plain = attack(ce, UNIT, defense=2)
     with_acid = attack(ce, acid, defense=2)
     assert plain.damage == with_acid.damage == 4
+
+
+# ---------------------------------------------------------------- score
+def test_score(ce):
+    """Enemy HP lost: 1 point per HP (x10 for a Boss). Own units: 5 points per level above the ground."""
+    boss = replace(UNIT, key="boss", hp=20, is_boss=True)
+    board = Board.from_strings(["...", "..."], ["012", "000"])
+
+    def unit(unit_id, owner, stats, at, hp):
+        return UnitState(unit_id, owner, stats, Position(*at), hp=hp, energy=0, defense=stats.defense)
+
+    units = [
+        unit(1, 0, UNIT, (1, 0), hp=10),  # mine, level 1: 5
+        unit(2, 0, boss, (2, 0), hp=5),  # mine, level 2: 10 (my own lost HP does not count)
+        unit(3, 1, UNIT, (0, 0), hp=7),  # enemy lost 3 HP: 3
+        unit(4, 1, boss, (0, 1), hp=18),  # enemy Boss lost 2 HP: 20
+        unit(5, 2, UNIT, (1, 1), hp=9),  # second enemy lost 1 HP: 1
+    ]
+    state = GameState(board, [Player(i, f"P{i + 1}") for i in range(3)], {u.id: u for u in units})
+
+    assert ce.score(state, 0) == 5 + 10 + 3 + 20 + 1
+    assert ce.score(state, 1) == 0 + 10 * 15 + 1  # P1 own units on the ground; P0 Boss lost 15 HP, P2 unit 1 HP

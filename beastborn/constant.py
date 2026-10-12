@@ -18,7 +18,7 @@ from typing import Final, Literal, get_args
 
 # ====================================================================== application
 GAME_NAME: Final[str] = "Beastborn"
-GAME_VERSION: Final[str] = "0.5"
+GAME_VERSION: Final[str] = "0.6"
 GAME_TITLE: Final[str] = f"{GAME_NAME} v{GAME_VERSION}"  # shown in the browser and the server console
 
 # ====================================================================== paths
@@ -105,6 +105,11 @@ MIN_EFFECT_MAGNITUDE: Final[int] = 1  # the "max(1, ...)" above
 
 # Energy.
 STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn start
+
+# Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
+SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
+SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
+SCORE_PER_ELEVATION_LEVEL: Final[int] = 5  # per level above the ground each of my units stands on
 
 # ====================================================================== ui
 LOG_HISTORY: Final[int] = 200  # log lines kept by Interaction
