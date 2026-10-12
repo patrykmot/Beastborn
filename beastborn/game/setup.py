@@ -44,6 +44,7 @@ def new_game(
         [roster.boss] + [rng.choice(roster.recruits) for _ in range(C.UNITS_PER_PLAYER)]
         for _ in range(num_players)
     ]
+
     units: dict[int, UnitState] = place_armies(board, corners, armies, engine)
     state: GameState = GameState(
         board=board, players=make_players(num_players, player_names), units=units, seed=seed
