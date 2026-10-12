@@ -72,7 +72,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - Commands: `submit(MoveCommand | AttackCommand | EndTurnCommand)` returns a `CommandResult(ok, events, error)`.
   - A rejected command never changes state.
   - Accepted commands are stored in `command_log`. Seed + log is enough to replay a game.
-- Map generation (`map_generator.py`) and the army draw are the only random parts. Both use `random.Random(seed)`.
+- Map generation (`map_generator.py`) is the only random part. It uses `random.Random(seed)`.
+  Every army is the same: a Boss + `BIG_RATS_PER_PLAYER` / `PEASANTS_PER_PLAYER` / `ARCHERS_PER_PLAYER` (`constant.py`).
 
 ## UI (`beastborn/ui`)
 

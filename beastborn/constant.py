@@ -41,7 +41,11 @@ PLAYER_NAME_TEMPLATE: Final[str] = "Player {number}"  # number = index + 1
 MapSize = Literal[10, 12, 16]
 MAP_SIZES: Final[tuple[int, ...]] = get_args(MapSize)
 DEFAULT_MAP_SIZE: Final[MapSize] = 12  # used when new_game() gets no width / height
-UNITS_PER_PLAYER: Final[int] = 4  # random recruits next to each Boss
+# Every army: one Boss (the unit with "boss": true) + these units next to it, same for every player.
+BIG_RATS_PER_PLAYER: Final[int] = 2
+PEASANTS_PER_PLAYER: Final[int] = 2
+ARCHERS_PER_PLAYER: Final[int] = 2
+UNITS_PER_PLAYER: Final[int] = BIG_RATS_PER_PLAYER + PEASANTS_PER_PLAYER + ARCHERS_PER_PLAYER  # without the Boss
 MAX_ELEVATION: Final[int] = 2
 SMOOTH_ELEVATION: Final[bool] = True  # neighbouring tiles differ by at most 1 level (D8)
 HILLS_PER_100_TILES: Final[int] = 4
@@ -60,6 +64,12 @@ MIN_MUD_PATCHES: Final[int] = 1
 MUD_WALK_MIN_STEPS: Final[int] = 3
 MUD_WALK_MAX_STEPS: Final[int] = 6
 TILES_PER_DENSITY_UNIT: Final[int] = 100  # "HILLS_PER_100_TILES" etc.
+
+# ====================================================================== unit keys ("key" in units.json)
+UNIT_BOSS: Final[str] = "boss"
+UNIT_BIG_RAT: Final[str] = "big_rat"
+UNIT_PEASANT: Final[str] = "peasant"
+UNIT_ARCHER: Final[str] = "archer"
 
 # ====================================================================== unit data defaults (units.json)
 DEFAULT_ATTACK_RANGE: Final[int] = 1
@@ -138,10 +148,10 @@ DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 60
 
 # target file (relative to STATIC_DIR) -> (game-icons name, author); licence CC BY 3.0, see static/CREDITS.md
 ICON_FILES: Final[Mapping[str, tuple[str, str]]] = MappingProxyType({
-    "img/units/boss.svg": ("ogre", "Delapouite"),
-    "img/units/big_rat.svg": ("rat", "Delapouite"),
-    "img/units/peasant.svg": ("farmer", "Delapouite"),
-    "img/units/archer.svg": ("archer", "Delapouite"),
+    f"img/units/{UNIT_BOSS}.svg": ("ogre", "Delapouite"),
+    f"img/units/{UNIT_BIG_RAT}.svg": ("rat", "Delapouite"),
+    f"img/units/{UNIT_PEASANT}.svg": ("farmer", "Delapouite"),
+    f"img/units/{UNIT_ARCHER}.svg": ("archer", "Delapouite"),
     "img/terrain/grass.svg": ("grass", "Delapouite"),
     "img/terrain/swamp.svg": ("swamp", "Delapouite"),
     "img/terrain/hills.svg": ("hills", "Delapouite"),

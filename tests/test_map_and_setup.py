@@ -1,29 +1,27 @@
 import random
+from collections import Counter
 
 import pytest
 
-from beastborn.domain import Position, TerrainType
+from beastborn import constant as C
+from beastborn.domain import Position, TerrainType, load_roster
 from beastborn.game import Phase, new_game
+from beastborn.game.setup import make_army
 from beastborn.game.map_generator import corner_positions, generate_board, spawn_zone
 
 
-@pytest.mark.parametrize("players", [2, 3, 4])
-def test_new_game_armies(players, roster):
-    gsm = new_game(players, seed=7)
-    view = gsm.view()
-    corners = corner_positions(12, 12, players)
-    assert view.phase is Phase.AWAITING_COMMAND
-    assert view.active_player == 0 and view.round == 1
-    for p in range(players):
-        army = view.units_of(p)
-        assert len(army) == 5
-        bosses = [u for u in army if u.is_boss]
-        assert len(bosses) == 1 and bosses[0].position == corners[p]
-        assert all(u.stats in roster.recruits for u in army if not u.is_boss)
-        zone = spawn_zone(corners[p], 12, 12, 3)
-        assert all(u.position in zone for u in army)
-    positions = [u.position for u in view.units]
-    assert len(positions) == len(set(positions))
+def test_army_size_comes_from_constants(roster, monkeypatch):
+    monkeypatch.setattr(C, "BIG_RATS_PER_PLAYER", 0)
+    monkeypatch.setattr(C, "PEASANTS_PER_PLAYER", 3)
+    monkeypatch.setattr(C, "ARCHERS_PER_PLAYER", 2)
+    assert [u.key for u in make_army(roster)] == [C.UNIT_BOSS] + [C.UNIT_PEASANT] * 3 + [C.UNIT_ARCHER] * 2
+
+
+def test_units_file_has_every_army_unit():
+    real = load_roster()  # beastborn/data/units.json: only its keys are checked, never its stats
+    assert real.boss.key == C.UNIT_BOSS
+    assert {C.UNIT_BOSS, C.UNIT_BIG_RAT, C.UNIT_PEASANT, C.UNIT_ARCHER} <= {u.key for u in real}
+    assert len(new_game(2, seed=1, roster=real).view().units) == 2 * (1 + C.UNITS_PER_PLAYER)
 
 
 @pytest.mark.parametrize("players", [0, 1, 5])

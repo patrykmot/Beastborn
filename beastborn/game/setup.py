@@ -28,9 +28,9 @@ def new_game(
     player_names: list[str] | None = None,
     start: bool = True,
 ) -> GameStateMachine:
-    """Random ``width`` x ``height`` map + Boss in each corner + ``UNITS_PER_PLAYER`` random recruits per Boss.
+    """Random ``width`` x ``height`` map + the same army (see ``make_army``) in each corner.
 
-    The same seed always produces the same map and armies.
+    The same seed always produces the same map.
     """
     engine = engine or StandardCalculationEngine()
     roster = roster or load_roster()
@@ -40,10 +40,7 @@ def new_game(
 
     corners: list[Position] = corner_positions(width, height, num_players)  # validates player count
     board: Board = generate_board(width, height, num_players, rng)
-    armies: list[list[UnitStats]] = [
-        [roster.boss] + [rng.choice(roster.recruits) for _ in range(C.UNITS_PER_PLAYER)]
-        for _ in range(num_players)
-    ]
+    armies: list[list[UnitStats]] = [make_army(roster) for _ in range(num_players)]
 
     units: dict[int, UnitState] = place_armies(board, corners, armies, engine)
     state: GameState = GameState(
@@ -69,6 +66,16 @@ def custom_game(
         board=board, players=make_players(num_players), units=units
     )
     return _create_machine(state, engine, start)
+
+
+def make_army(roster: Roster) -> list[UnitStats]:
+    """Boss first (it gets the corner), then ``*_PER_PLAYER`` units of each kind (constant.py)."""
+    counts: list[tuple[str, int]] = [
+        (C.UNIT_BIG_RAT, C.BIG_RATS_PER_PLAYER),
+        (C.UNIT_PEASANT, C.PEASANTS_PER_PLAYER),
+        (C.UNIT_ARCHER, C.ARCHERS_PER_PLAYER),
+    ]
+    return [roster.boss] + [roster[key] for key, count in counts for _ in range(count)]
 
 
 def make_players(num_players: int, names: list[str] | None = None) -> list[Player]:

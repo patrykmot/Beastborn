@@ -50,7 +50,7 @@ def test_attacks_are_listed_for_animation():
     ui.handle(ClickTile(Position(2, 0)))  # shoot: 8 / RP 1 - DEF 1 = 7
     state = render("x", ui)
     assert state["actions"] == {"seq": 1, "attacks": [{
-        "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": "archer", "owner": 0,
+        "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": ARCHER.key, "owner": 0,
         "from": [0, 0], "to": [2, 0], "ranged": True, "damage": 7, "killed": False,
     }]}
     assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == 1

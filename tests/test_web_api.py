@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from beastborn.constant import STATIC_DIR
+from beastborn.constant import STATIC_DIR, UNITS_PER_PLAYER
 from beastborn.domain import Board
 from beastborn.game import custom_game
 from beastborn.ui.web.app import create_app
@@ -54,7 +54,7 @@ def test_create_game_state_shape(client):
     assert state["active_player"] == 0 and state["round"] == 1 and state["seed"] == 42
     assert state["board"]["width"] == 12 and len(state["board"]["tiles"]) == 12
     assert state["board"]["tiles"][0][0] == {"terrain": "grass", "elevation": 0}
-    assert len(state["units"]) == 10
+    assert len(state["units"]) == 2 * (1 + UNITS_PER_PLAYER)
     assert {"id", "owner", "type", "x", "y", "hp", "max_hp", "energy", "current_def", "effects"} <= set(state["units"][0])
     assert state["selection"] == {"unit_id": None, "reachable": [], "targets": []}
     assert state["message"] == {"text": "", "error": False}
@@ -63,7 +63,7 @@ def test_create_game_state_shape(client):
 def test_options_players_and_size(client):
     state = new(client, players=4, size=16)
     assert state["board"]["width"] == 16
-    assert len(state["players"]) == 4 and len(state["units"]) == 20
+    assert len(state["players"]) == 4 and len(state["units"]) == 4 * (1 + UNITS_PER_PLAYER)
 
 
 def test_many_games_at_once(client):

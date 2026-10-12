@@ -38,11 +38,6 @@ class Roster:
             raise ValueError(f"Roster must contain exactly one boss, found {len(bosses)}")
         return bosses[0]
 
-    @property
-    def recruits(self) -> list[UnitStats]:
-        """Non-boss units, sorted by key so random draws are deterministic for a seed."""
-        return sorted((u for u in self if not u.is_boss), key=lambda u: u.key)
-
 
 def _parse_unit(raw: dict[str, Any]) -> UnitStats:
     effects: tuple[EffectSpec, ...] = tuple(EffectSpec(EffectKind(e["kind"])) for e in raw.get("on_hit", []))

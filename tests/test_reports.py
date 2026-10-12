@@ -1,7 +1,6 @@
 """Balance report (beastborn/reports/report.py): fight simulation, matrix and a GUI smoke test."""
 import json
 import math
-import shutil
 from dataclasses import replace
 from fractions import Fraction
 
@@ -17,7 +16,9 @@ from beastborn.reports import report  # noqa: E402
 from beastborn.reports.report import (  # noqa: E402
     Scenario, Side, StepKind, attack_matrix, best_distance, legal_distances, pick_distance, simulate,
 )
-from tests.conftest import ARCHER, KING, SOLDIER  # noqa: E402
+from tests.conftest import (  # noqa: E402
+    ARCHER, FIXED_ARCHER, FIXED_BIG_RAT, FIXED_BOSS, FIXED_PEASANT, FIXED_UNITS, KING, SOLDIER, write_units_file,
+)
 
 CE = StandardCalculationEngine()
 K = Fraction(str(C.ELEVATION_COEF))  # damage bonus per elevation level
@@ -41,8 +42,8 @@ def test_melee_fight_hand_calculated():
 
 
 def test_regen_limits_hits_per_round(roster):
-    boss_fight = simulate(Scenario(Side(roster["boss"]), Side(roster["boss"])))
-    rat_fight = simulate(Scenario(Side(roster["big_rat"]), Side(roster["boss"])))
+    boss_fight = simulate(Scenario(Side(roster[C.UNIT_BOSS]), Side(roster[C.UNIT_BOSS])))
+    rat_fight = simulate(Scenario(Side(roster[C.UNIT_BIG_RAT]), Side(roster[C.UNIT_BOSS])))
 
     def hits_in_round(fight, round_):
         return sum(1 for s in fight.steps if s.kind is StepKind.HIT and s.round == round_)
@@ -55,11 +56,11 @@ def test_regen_limits_hits_per_round(roster):
 
 
 def test_venom_ticks_at_target_turn_start(roster):
-    fight = simulate(Scenario(Side(roster["big_rat"]), Side(roster["boss"])))
+    fight = simulate(Scenario(Side(roster[C.UNIT_BIG_RAT]), Side(roster[C.UNIT_BOSS])))
     kinds = [s.kind for s in fight.steps if s.round == 1]
     assert kinds == [StepKind.REGEN, StepKind.HIT, StepKind.HIT, StepKind.HIT, StepKind.VENOM]
     venom = next(s for s in fight.steps if s.kind is StepKind.VENOM)
-    assert venom.damage == max(1, roster["big_rat"].atk // 4)
+    assert venom.damage == max(1, roster[C.UNIT_BIG_RAT].atk // 4)
     assert venom.target.effects[0].kind is EffectKind.VENOM
     assert (fight.rounds, fight.hits, fight.venom_damage) == (10, 30, 10)
 
@@ -74,11 +75,13 @@ def test_acid_lowers_target_def():
 
 
 def test_terrain_and_height_change_damage(roster):
-    scenario = Scenario(Side(roster["archer"], elevation=1), Side(roster["boss"], TerrainType.MUD), distance=3)
+    scenario = Scenario(
+        Side(roster[C.UNIT_ARCHER], elevation=1), Side(roster[C.UNIT_BOSS], TerrainType.MUD), distance=3
+    )
     fight = simulate(scenario)
     hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
-    raw = roster["archer"].atk * (1 + K) * Fraction(4, 5) - 2  # 0.3: 7 x1.3 x0.8 - 2 = 5.28 -> 5
-    assert hit.calculation.startswith(f"{roster['archer'].atk} x{fmt(1 + K)} height x0.8 range - 2 = {fmt(raw)}")
+    raw = roster[C.UNIT_ARCHER].atk * (1 + K) * Fraction(4, 5) - 2  # 0.3: 7 x1.3 x0.8 - 2 = 5.28 -> 5
+    assert hit.calculation.startswith(f"{roster[C.UNIT_ARCHER].atk} x{fmt(1 + K)} height x0.8 range - 2 = {fmt(raw)}")
     assert hit.damage == max(1, math.floor(raw))
     assert hit.result.formula() == hit.calculation
     assert hit.target.current_defense == 2
@@ -100,10 +103,10 @@ def test_matrix_uses_tab1_conditions(roster):
 
 
 def test_distances(roster, monkeypatch):
-    assert legal_distances(roster["peasant"], CE) == [1]
-    assert legal_distances(roster["archer"], CE) == [1, 2, 3, 4]
-    assert best_distance(roster["peasant"], CE) == 1
-    assert best_distance(roster["archer"], CE) == 2
+    assert legal_distances(roster[C.UNIT_PEASANT], CE) == [1]
+    assert legal_distances(roster[C.UNIT_ARCHER], CE) == [1, 2, 3, 4]
+    assert best_distance(roster[C.UNIT_PEASANT], CE) == 1
+    assert best_distance(roster[C.UNIT_ARCHER], CE) == 2
     short_bow = replace(ARCHER, attack_range=2)
     assert pick_distance(short_bow, CE, 4) == 2 and pick_distance(short_bow, CE, None) == 2
     with pytest.raises(ValueError):
@@ -126,25 +129,25 @@ def test_matrix_has_every_pair(roster):
     fights = attack_matrix(roster)
     assert len(fights) == len(roster) ** 2
     assert all(f.killed for f in fights.values())
-    assert fights[("archer", "boss")].scenario.distance == 2
-    assert fights[("boss", "archer")].scenario.distance == 1
-    assert attack_matrix(roster, ranged_distance=1)[("archer", "boss")].scenario.distance == 1
+    assert fights[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == 2
+    assert fights[(C.UNIT_BOSS, C.UNIT_ARCHER)].scenario.distance == 1
+    assert attack_matrix(roster, ranged_distance=1)[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == 1
 
 
-# Update this table when you rebalance beastborn/data/units.json: it is what the report shows today
-# (both units on grass, height 0, Archer at 2 tiles). (rounds, hits) per attacker -> target.
-CURRENT_BALANCE = {
-    "boss": {"boss": (40, 40), "big_rat": (5, 5), "peasant": (6, 6), "archer": (5, 5)},
-    "big_rat": {"boss": (10, 30), "big_rat": (2, 5), "peasant": (2, 5), "archer": (2, 5)},
-    "peasant": {"boss": (12, 20), "big_rat": (3, 4), "peasant": (3, 4), "archer": (3, 4)},
-    "archer": {"boss": (9, 14), "big_rat": (3, 4), "peasant": (3, 4), "archer": (2, 3)},
+# The matrix for the FIXED_* test units (tests/conftest.py), not for units.json: rebalancing the game does not
+# change it. Both units on grass, height 0, Archer at 2 tiles. (rounds, hits) per attacker -> target.
+EXPECTED_MATRIX = {
+    C.UNIT_BOSS: {C.UNIT_BOSS: (40, 40), C.UNIT_BIG_RAT: (5, 5), C.UNIT_PEASANT: (6, 6), C.UNIT_ARCHER: (5, 5)},
+    C.UNIT_BIG_RAT: {C.UNIT_BOSS: (10, 30), C.UNIT_BIG_RAT: (2, 5), C.UNIT_PEASANT: (2, 5), C.UNIT_ARCHER: (2, 5)},
+    C.UNIT_PEASANT: {C.UNIT_BOSS: (12, 20), C.UNIT_BIG_RAT: (3, 4), C.UNIT_PEASANT: (3, 4), C.UNIT_ARCHER: (3, 4)},
+    C.UNIT_ARCHER: {C.UNIT_BOSS: (9, 14), C.UNIT_BIG_RAT: (3, 4), C.UNIT_PEASANT: (3, 4), C.UNIT_ARCHER: (2, 3)},
 }
 
 
-def test_matrix_matches_current_balance(roster):
+def test_matrix_rounds_and_hits(roster):
     fights = attack_matrix(roster)
-    actual = {a: {t: (fights[a, t].rounds, fights[a, t].hits) for t in row} for a, row in CURRENT_BALANCE.items()}
-    assert actual == CURRENT_BALANCE
+    actual = {a: {t: (fights[a, t].rounds, fights[a, t].hits) for t in row} for a, row in EXPECTED_MATRIX.items()}
+    assert actual == EXPECTED_MATRIX
 
 
 def test_step_rows_for_the_tables():
@@ -166,8 +169,7 @@ def test_heat_colour():
 def app(tmp_path, monkeypatch):
     import tkinter as tk
 
-    units_file = tmp_path / "units.json"
-    shutil.copy(report.DEFAULT_UNITS_FILE, units_file)
+    units_file = write_units_file(tmp_path / "units.json")
     errors = []
     monkeypatch.setattr(report.messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
     try:
@@ -184,23 +186,23 @@ def app(tmp_path, monkeypatch):
 def test_gui_report_tab(app):
     tab = app.report_tab
     app.update()
-    assert len(tab.fights) == 16
-    assert tab.cells[("big_rat", "boss")].cget("text") == "10 (30)"
-    assert len(tab.tree.get_children()) == 16
+    assert len(tab.fights) == len(FIXED_UNITS) ** 2
+    assert tab.cells[(C.UNIT_BIG_RAT, C.UNIT_BOSS)].cget("text") == "10 (30)"
+    assert len(tab.tree.get_children()) == len(FIXED_UNITS) ** 2
     tab.target_terrain.set("mud")  # recalculates every pair
-    assert tab.cells[("boss", "boss")].cget("text") == "14 (14)"  # 5 - floor(4 / 2) = 3 per hit, 40 HP, 1 hit per round
-    tab.select(("big_rat", "boss"), scroll=True, open_pair=True)
-    assert tab.chart.fight is tab.fights[("big_rat", "boss")]
+    assert tab.cells[(C.UNIT_BOSS, C.UNIT_BOSS)].cget("text") == "14 (14)"  # 5 - floor(4 / 2) = 3 per hit, 40 HP, 1 hit per round
+    tab.select((C.UNIT_BIG_RAT, C.UNIT_BOSS), scroll=True, open_pair=True)
+    assert tab.chart.fight is tab.fights[(C.UNIT_BIG_RAT, C.UNIT_BOSS)]
     tab.ranged.set("1")
-    assert tab.fights[("archer", "boss")].scenario.distance == 1
+    assert tab.fights[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == 1
 
 
 def test_gui_simulation_tab_stepping(app):
     tab = app.simulation_tab
     app.notebook.select(tab)
-    tab.attacker.set("Archer")
+    tab.attacker.set(FIXED_ARCHER.name)
     tab.attacker_height.set("1")
-    tab.target.set("Boss")
+    tab.target.set(FIXED_BOSS.name)
     tab.target_terrain.set("mud")
     tab.distance.set("3")
     assert tab.fight.scenario.distance == 3
@@ -210,7 +212,7 @@ def test_gui_simulation_tab_stepping(app):
     assert tab.index == 2
     first_hit = tab.fight.steps[2]  # start, turn start, hit
     assert first_hit.kind is StepKind.HIT
-    assert tab.target_panel.values["HP"].cget("text").startswith(f"{first_hit.target_hp_after} / 40")
+    assert tab.target_panel.values["HP"].cget("text").startswith(f"{first_hit.target_hp_after} / {FIXED_BOSS.hp}")
     tab.buttons["back"].invoke()
     assert tab.index == 1
     tab.buttons["end"].invoke()
@@ -218,22 +220,22 @@ def test_gui_simulation_tab_stepping(app):
     assert tab.buttons["step"].instate(["disabled"])
     tab.buttons["reset"].invoke()
     assert tab.index == 0
-    tab.attacker.set("Peasant")  # melee: only distance 1
+    tab.attacker.set(FIXED_PEASANT.name)  # melee: only distance 1
     assert tab.distance.get() == "1"
     assert list(tab.distance_box.cget("values")) == ["1"]
 
 
 def test_gui_refresh_reloads_units_and_keeps_old_data_on_error(app):
     data = json.loads(app.units_file_path.read_text(encoding="utf-8"))
-    next(u for u in data["units"] if u["key"] == "big_rat")["atk"] = 6
+    next(u for u in data["units"] if u["key"] == C.UNIT_BIG_RAT)["atk"] = 6
     app.units_file_path.write_text(json.dumps(data), encoding="utf-8")
-    app.simulation_tab.attacker.set("Big Rat")
+    app.simulation_tab.attacker.set(FIXED_BIG_RAT.name)
     assert app.refresh()
-    assert app.report_tab.roster["big_rat"].atk == 6
-    assert app.simulation_tab.attacker.get() == "Big Rat"  # the choice survives a refresh
+    assert app.report_tab.roster[C.UNIT_BIG_RAT].atk == 6
+    assert app.simulation_tab.attacker.get() == FIXED_BIG_RAT.name  # the choice survives a refresh
     assert app.simulation_tab.fight.scenario.attacker.stats.atk == 6
 
     app.units_file_path.write_text("{ broken", encoding="utf-8")
     assert not app.refresh()
     assert len(app.errors) == 1
-    assert app.report_tab.roster["big_rat"].atk == 6  # old data kept
+    assert app.report_tab.roster[C.UNIT_BIG_RAT].atk == 6  # old data kept
