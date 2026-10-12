@@ -167,12 +167,21 @@ class StandardCalculationEngine(CalculationEngine):
 
     # ---------- Score ----------
     def score(self, state: BoardState, player: int) -> int:
-        """Points for ``player``: HP the opponents' units have lost (Bosses count more) + height of own units."""
+        """Points for ``player``: HP the opponents' units have lost (Bosses count more) + height of own units.
+
+        A fallen opponent (killed, or its Boss died) counts with all of its HP missing.
+        """
         points: int = 0
         for unit in state.units.values():
             if unit.owner == player:
                 points += C.SCORE_PER_ELEVATION_LEVEL * state.board.tile(unit.position).elevation
             else:
-                per_hp: int = C.SCORE_PER_MISSING_BOSS_HP if unit.is_boss else C.SCORE_PER_MISSING_HP
-                points += per_hp * max(0, unit.stats.hp - unit.hp)
+                points += self._missing_hp_points(unit.stats, max(0, unit.stats.hp - unit.hp))
+        for unit in state.fallen:
+            if unit.owner != player:
+                points += self._missing_hp_points(unit.stats, unit.stats.hp)
         return points
+
+    def _missing_hp_points(self, stats: UnitStats, missing_hp: int) -> int:
+        per_hp: int = C.SCORE_PER_MISSING_BOSS_HP if stats.is_boss else C.SCORE_PER_MISSING_HP
+        return per_hp * missing_hp

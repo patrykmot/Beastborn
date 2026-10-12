@@ -9,7 +9,8 @@ from beastborn.domain import (
     Board, EffectKind, EffectSpec, Player, Position, StatusEffect, TerrainType, Tile, UnitState, UnitStats,
 )
 from beastborn.engine import CombatantSnapshot, StandardCalculationEngine
-from beastborn.game import GameState
+from beastborn.game import AttackCommand, GameState, custom_game
+from tests.conftest import ARCHER, KING, SOLDIER
 
 G, M = TerrainType.GRASS, TerrainType.MUD
 
@@ -339,7 +340,21 @@ def test_score(ce):
         unit(4, 1, boss, (0, 1), hp=18),  # enemy Boss lost 2 HP: 20
         unit(5, 2, UNIT, (1, 1), hp=9),  # second enemy lost 1 HP: 1
     ]
-    state = GameState(board, [Player(i, f"P{i + 1}") for i in range(3)], {u.id: u for u in units})
+    fallen = [
+        unit(6, 1, UNIT, (2, 1), hp=-2),  # dead enemy: all 10 HP missing
+        unit(7, 0, UNIT, (2, 1), hp=0),  # my dead unit: nothing for me
+    ]
+    state = GameState(board, [Player(i, f"P{i + 1}") for i in range(3)], {u.id: u for u in units}, fallen=fallen)
 
-    assert ce.score(state, 0) == 5 + 10 + 3 + 20 + 1
-    assert ce.score(state, 1) == 0 + 10 * 15 + 1  # P1 own units on the ground; P0 Boss lost 15 HP, P2 unit 1 HP
+    assert ce.score(state, 0) == 5 + 10 + 3 + 20 + 1 + 10
+    assert ce.score(state, 1) == 0 + 10 * 15 + 1 + 10  # P0 Boss lost 15 HP, P2 unit 1 HP, P0 dead unit 10 HP
+
+
+def test_score_counts_killed_units():
+    """Killing a unit adds its remaining HP to the score, it does not drop out of it."""
+    board = Board.from_strings(["......", "......"])
+    gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (2, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
+    gsm.submit(AttackCommand(1, 2))  # 8 - DEF 1 = 7: Soldier 10 -> 3 HP
+    assert gsm.score(0) == 7
+    gsm.submit(AttackCommand(1, 2))  # killed
+    assert gsm.view().unit(2) is None and gsm.score(0) == SOLDIER.hp

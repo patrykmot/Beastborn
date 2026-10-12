@@ -27,6 +27,7 @@ class GameState:
     round: int = 0
     winner: int | None = None
     attacks_this_turn: dict[int, int] = field(default_factory=dict)
+    fallen: list[UnitState] = field(default_factory=list)  # units removed from the board (killed, or their Boss died)
 
     def unit_at(self, pos: Position) -> UnitState | None:
         for unit in self.units.values():

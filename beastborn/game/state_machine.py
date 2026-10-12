@@ -233,6 +233,7 @@ class GameStateMachine:
     # ------------------------------------------------------------------ helpers
     def _remove(self, unit: UnitState) -> ev.UnitDied:
         del self._state.units[unit.id]
+        self._state.fallen.append(unit)
         return ev.UnitDied(unit.id, unit.owner, unit.stats.name)
 
     @staticmethod

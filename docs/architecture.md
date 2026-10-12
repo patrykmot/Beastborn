@@ -33,7 +33,7 @@ All constants (default rule numbers, map and session limits, paths, asset URLs) 
   - `initial_energy`, `regenerate`, `attack_cost`, `in_attack_range`
   - `elevation_modifier`, `current_defense`, `range_multiplier`, `resolve_attack` (the rules in [game_mechanics.md](game_mechanics.md))
   - `tick_effects`
-  - `score(state, player)`: how good a `GameState` is for a player (enemy HP lost, Boss HP ×10, + 5 per level of height of own units; numbers in `constant.py`). For bots; the browser shows it for the active player.
+  - `score(state, player)`: how good a `GameState` is for a player (enemy HP lost, Boss HP ×10, killed enemies count with all their HP lost, + 5 per level of height of own units; numbers in `constant.py`). For bots; the browser shows it for the active player.
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
 - `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.3 height x0.8 range - 2 = 6.32 -> 6`.
 - `StandardCalculationEngine` implements the design document. It reads all its numbers straight from `beastborn/constant.py`.

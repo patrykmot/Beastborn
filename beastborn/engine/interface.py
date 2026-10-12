@@ -8,7 +8,7 @@ touching the Game State Machine or the UI.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from fractions import Fraction
 from typing import Protocol
 
@@ -30,6 +30,9 @@ class BoardState(Protocol):
 
     @property
     def units(self) -> Mapping[int, UnitState]: ...
+
+    @property
+    def fallen(self) -> Sequence[UnitState]: ...  # units no longer on the board
 
 
 class CalculationEngine(ABC):
