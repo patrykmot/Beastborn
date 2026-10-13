@@ -54,6 +54,8 @@ The attacker stands still and hits while it has energy; the target does nothing.
 - **Movement** (4 directions, units block tiles):
 
 - **Attack** (costs `EN_ATK`, repeat while energy lasts; full rules in [docs/game_mechanics.md](docs/game_mechanics.md)).
+  An enemy out of range can still be attacked if the unit has the energy to walk to a tile in range **and** attack:
+  it moves there first (cheapest move; on a tie more damage, then not mud), then attacks. A unit already in range never moves.
 - **Effects** (applied on every hit): Venom HP at the start of each of your turns. Acid  DEF permanently per hit (not yet used).
 - 
 ## Controls (browser)
@@ -63,6 +65,7 @@ The attacker stands still and hits while it has energy; the target does nothing.
 | Select own unit | Left click |
 | Move | Left click a highlighted tile (number = EN cost) |
 | Attack | Left click an enemy with a red frame (hover shows exact damage). Arrows and melee hits are animated |
+| Move + attack | Left click an enemy with a dashed red frame: the unit walks to the marked tile, then attacks (hover shows the path, move cost and damage) |
 | Deselect | Right click / Esc |
 | Preview | Hover: path + move cost, or exact damage on a target |
 | End turn | E / Space / button |

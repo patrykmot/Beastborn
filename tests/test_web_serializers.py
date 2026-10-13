@@ -51,7 +51,7 @@ def test_attacks_are_listed_for_animation():
     state = render("x", ui)
     assert state["actions"] == {"seq": 1, "attacks": [{
         "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": ARCHER.key, "owner": 0,
-        "from": [0, 0], "to": [2, 0], "ranged": True, "damage": 7, "killed": False,
+        "from": [0, 0], "to": [2, 0], "approach": [], "ranged": True, "damage": 7, "killed": False,
     }]}
     assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == 1
     assert state["log"][-1].startswith("P1 Archer shot P2 Soldier for 7")
@@ -63,3 +63,22 @@ def test_attacks_are_listed_for_animation():
 
     ui.handle(ClickTile(Position(0, 1)))  # select the King: no attack, list is cleared
     assert render("x", ui)["actions"] == {"seq": 2, "attacks": []}
+
+
+def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
+    from beastborn.domain import Board
+    from beastborn.game import custom_game
+    from tests.conftest import KING, SOLDIER
+
+    board = Board.from_strings([".....", ".....", "....."])
+    gsm = custom_game(board, [(0, KING, (0, 0)), (0, SOLDIER, (0, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 1))])
+    ui = Interaction(gsm)
+    ui.handle(ClickTile(Position(0, 1)))
+    assert render("x", ui)["selection"]["targets"] == [{
+        "unit_id": 4, "damage": 3, "formula": "4 - 1 = 3", "blocked": False,
+        "move": {"x": 2, "y": 1, "cost": 4, "path": [[0, 1], [1, 1], [2, 1]]},
+    }]
+    ui.handle(ClickTile(Position(3, 1)))  # walks to (2,1), then hits
+    (attack,) = render("x", ui)["actions"]["attacks"]
+    assert (attack["from"], attack["to"]) == ([2, 1], [3, 1])
+    assert attack["approach"] == [[0, 1], [1, 1], [2, 1]]

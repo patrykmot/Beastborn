@@ -2,7 +2,7 @@
  *
  * The server owns all game state, including the current selection. This file only sends
  * intents, draws the state JSON it gets back, shows hover previews from that state and
- * animates new attacks before drawing the new state.
+ * animates new attacks (with the walk before a move + attack) before drawing the new state.
  */
 $(function () {
   "use strict";
@@ -186,7 +186,7 @@ $(function () {
     const { width, height, tiles } = state.board;
     const unitsAt = new Map(state.units.map((u) => [key(u.x, u.y), u]));
     const reach = new Map(state.selection.reachable.map((r) => [key(r.x, r.y), r]));
-    const targets = new Set(state.selection.targets.map((t) => t.unit_id));
+    const targets = new Map(state.selection.targets.map((t) => [t.unit_id, t]));
 
     const html = [];
     for (let y = 0; y < height; y++) {
@@ -197,7 +197,8 @@ $(function () {
         const classes = ["tile", `terrain-${tile.terrain}`, `elev-${tile.elevation}`];
         if (r) classes.push("reachable");
         if (unit && unit.id === state.selection.unit_id) classes.push("selected");
-        if (unit && targets.has(unit.id)) classes.push("target");
+        const target = unit && targets.get(unit.id);
+        if (target) classes.push(target.move ? "target-move" : "target");
 
         let inner = "";
         if (tile.elevation > 0) inner += `<span class="elev-pips">${"<i></i>".repeat(tile.elevation)}</span>`;
@@ -291,9 +292,11 @@ $(function () {
       return;
     }
     const moves = state.selection.reachable.length;
-    const targets = plural(state.selection.targets.length, "target");
+    const inRange = state.selection.targets.filter((t) => !t.move).length;
+    const afterMove = state.selection.targets.length - inRange;
+    const targets = `${plural(inRange, "target")} in range` + (afterMove ? ` · ${afterMove} after a move` : "");
     $("#selected-info").html(
-      unitCard(u) + `<div class="small text-secondary mt-1">${moves} reachable tiles · ${targets} in range</div>`
+      unitCard(u) + `<div class="small text-secondary mt-1">${moves} reachable tiles · ${targets}</div>`
     );
   }
 
@@ -305,6 +308,10 @@ $(function () {
     }
     let html = `<div class="text-secondary">Tile (${h.x},${h.y}) · ${esc(h.tile.terrain)} · elevation ${h.tile.elevation}</div>`;
     if (h.reach) html += `<div><i class="bi bi-signpost-2"></i> Move cost <strong>${h.reach.cost} EN</strong></div>`;
+    if (h.target && h.target.move) {
+      const m = h.target.move;
+      html += `<div><i class="bi bi-signpost-2"></i> Moves to (${m.x},${m.y}) for <strong>${m.cost} EN</strong>, then attacks</div>`;
+    }
     if (h.target) {
       const hpAfter = Math.max(0, h.unit.hp - h.target.damage);
       html += `<div class="text-danger"><i class="bi bi-crosshair"></i> Attack: ${esc(h.target.formula)} → <strong>${h.target.damage}</strong> dmg, HP ${h.unit.hp} → ${hpAfter}</div>`;
@@ -325,6 +332,7 @@ $(function () {
   /** Hover effects without a full re-render: path highlight + damage popup. */
   function applyHover() {
     $("#board .on-path").removeClass("on-path");
+    $("#board .attack-from").removeClass("attack-from");
     $("#board .hovered").removeClass("hovered");
     $("#board .dmg-pop").remove();
     const h = hovered();
@@ -332,6 +340,11 @@ $(function () {
 
     const $hovered = $tile(h.x, h.y).addClass("hovered");
     if (h.reach) h.reach.path.slice(1).forEach(([x, y]) => $tile(x, y).addClass("on-path"));
+    if (h.target && h.target.move) {
+      const m = h.target.move;
+      m.path.slice(1).forEach(([x, y]) => $tile(x, y).addClass("on-path"));
+      $tile(m.x, m.y).addClass("attack-from");
+    }
     if (h.target) $hovered.append(`<span class="dmg-pop">-${h.target.damage}</span>`);
   }
 
@@ -383,11 +396,29 @@ $(function () {
     $("#board .dmg-pop").remove();
     for (const a of attacks) {
       try {
+        if ((a.approach || []).length > 1) await walk(a.approach);
         await (a.ranged ? shoot(a) : strike(a));
       } catch (err) {
         console.warn("animation skipped", err);
       }
     }
+  }
+
+  /** Move + attack: the unit walks its path on the old board and then stands on the last tile, ready to hit. */
+  async function walk(path) {
+    const first = path[0], last = path[path.length - 1];
+    const start = tileCenter(first);
+    const $from = $tile(first[0], first[1]);
+    const $unit = $from.children(".unit");
+    if (!start || !$unit.length) return;
+    const frames = path.map((p, i) => {
+      const c = tileCenter(p) || start;
+      return { transform: `translate(${c.x - start.x}px, ${c.y - start.y}px)`, offset: i / (path.length - 1) };
+    });
+    $from.css("z-index", 7); // above the tiles it walks over
+    await run($unit[0], frames, { duration: speed(150 * (path.length - 1)), easing: "linear" });
+    $from.css("z-index", "");
+    $unit.appendTo($tile(last[0], last[1])); // shoot / strike find the attacker on its new tile
   }
 
   /** Ranged: the shooter draws, an arrow flies along an arc and sticks in the target. */

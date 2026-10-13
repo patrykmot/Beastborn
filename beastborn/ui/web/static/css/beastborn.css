@@ -97,7 +97,10 @@ body.busy .tile { cursor: progress; }
 }
 .tile.selected { box-shadow: inset 0 0 0 3px var(--selected); z-index: 2; }
 .tile.target { box-shadow: inset 0 0 0 3px var(--target); z-index: 2; }
-.tile.hovered:not(.selected, .target) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
+/* enemy the selected unit can attack after moving: dashed frame; hover marks the tile it will attack from */
+.tile.target-move { outline: 3px dashed var(--target); outline-offset: -3px; z-index: 2; }
+.tile.attack-from { box-shadow: inset 0 0 0 3px var(--target); z-index: 2; }
+.tile.hovered:not(.selected, .target, .target-move) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
 
 /* Units */
 .unit {

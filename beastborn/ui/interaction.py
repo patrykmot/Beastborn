@@ -9,6 +9,7 @@ from beastborn.control.controller import HumanController, PlayerController
 from beastborn.domain.position import Position
 from beastborn.engine.results import AttackResult
 from beastborn.game import events as ev
+from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.commands import AttackCommand, Command, CommandResult, EndTurnCommand, MoveCommand
 from beastborn.game.pathfinding import PathInfo
 from beastborn.game.state import Phase
@@ -29,8 +30,9 @@ class AttackAnimation:
     target_id: int
     attacker_type: str
     owner: int
-    source: Position
+    source: Position  # where the attacker hit from
     target: Position
+    approach: tuple[Position, ...]  # path walked just before the hit by the same command (empty: no move)
     ranged: bool
     damage: int
     killed: bool
@@ -52,6 +54,7 @@ class Interaction:
         self._view: GameView = gsm.view()
         self._reachable: dict[Position, PathInfo] = {}
         self._targets: dict[int, AttackResult] = {}
+        self._plans: dict[int, AttackPlan] = {}
         self._score: int = gsm.score(self._view.active_player)
         self.log.append(f"Seed {self._view.seed}" if self._view.seed is not None else "Custom game")
         self.log.append(round_header(self._view.round, self._view.players[self._view.active_player].name))
@@ -67,10 +70,11 @@ class Interaction:
         if self.selected is not None and self._view.unit(self.selected) is None:
             self.selected = None
         if self.selected is None:
-            self._reachable, self._targets = {}, {}
+            self._reachable, self._targets, self._plans = {}, {}, {}
         else:
             self._reachable = self.gsm.reachable_tiles(self.selected)
             self._targets = self.gsm.attack_targets(self.selected)
+            self._plans = self.gsm.attack_plans(self.selected)
 
     @property
     def view(self) -> GameView:
@@ -84,8 +88,15 @@ class Interaction:
 
     @property
     def targets(self) -> dict[int, AttackResult]:
+        """Enemies in range of the selected unit right now."""
         self._refresh()
         return self._targets
+
+    @property
+    def attack_plans(self) -> dict[int, AttackPlan]:
+        """Every enemy a click can attack, including those the selected unit first has to move to."""
+        self._refresh()
+        return self._plans
 
     @property
     def score(self) -> int:
@@ -104,12 +115,21 @@ class Interaction:
     def hover_path(self) -> PathInfo | None:
         return self.reachable.get(self.hovered) if self.hovered is not None else None
 
+    def hover_plan(self) -> AttackPlan | None:
+        """What a click on the hovered enemy would do (None if it would be rejected)."""
+        target: UnitView | None = self.hovered_unit
+        return self.attack_plans.get(target.id) if target is not None else None
+
     def hover_attack(self) -> AttackResult | None:
-        """Exact attack outcome if the selected unit attacks the hovered enemy (even if out of range)."""
+        """Exact attack outcome if the selected unit attacks the hovered enemy.
+
+        From the tile it would move to first, if any; otherwise from where it stands (even if out of range).
+        """
         target: UnitView | None = self.hovered_unit
         if self.selected is None or target is None or target.owner == self.view.active_player:
             return None
-        return self.gsm.preview_attack(self.selected, target.id)
+        plan: AttackPlan | None = self.hover_plan()
+        return plan.result if plan is not None else self.gsm.preview_attack(self.selected, target.id)
 
     @property
     def human_turn(self) -> bool:
@@ -171,9 +191,12 @@ class Interaction:
             return False
         after: GameView = self.gsm.view()
         self.action_seq += 1
+        walked: dict[int, tuple[Position, ...]] = {}  # unit id -> path moved by this command
         for event in result.events:
+            if isinstance(event, ev.UnitMoved):
+                walked[event.unit_id] = event.path
             if isinstance(event, ev.UnitAttacked):
-                self.last_attacks.append(self._animation(event, before))
+                self.last_attacks.append(self._animation(event, before, walked.pop(event.attacker_id, ())))
             line: str | None = describe(event, before, after)
             if line:
                 self.log.append(line)
@@ -182,7 +205,9 @@ class Interaction:
             self.selected = None
         return True
 
-    def _animation(self, event: ev.UnitAttacked, before: GameView) -> AttackAnimation:
+    def _animation(
+        self, event: ev.UnitAttacked, before: GameView, approach: tuple[Position, ...] = ()
+    ) -> AttackAnimation:
         attacker: UnitView | None = before.unit(event.attacker_id)
         target: UnitView | None = before.unit(event.target_id)
         assert attacker is not None and target is not None, "an attack always involves two existing units"
@@ -192,8 +217,9 @@ class Interaction:
             target_id=target.id,
             attacker_type=attacker.stats.key,
             owner=attacker.owner,
-            source=attacker.position,
-            target=target.position,
+            source=event.source,  # the attacker may have moved first, so not its tile in ``before``
+            target=event.target,
+            approach=approach,
             ranged=event.result.ranged,
             damage=event.result.damage,
             killed=event.target_hp_after <= 0,

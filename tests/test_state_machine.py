@@ -131,7 +131,7 @@ def test_attack_limit_from_constant(monkeypatch):
 
 
 def test_attack_rejections():
-    gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(3, 1))
+    gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(4, 1))  # 6 EN: 2 steps + 1 attack, the target needs 3 steps
     assert "out of range" in gsm.submit(AttackCommand(2, 4)).error
     assert "own unit" in gsm.submit(AttackCommand(2, 1)).error
     assert "another player" in gsm.submit(AttackCommand(4, 2)).error
@@ -177,12 +177,22 @@ def test_archer_damage_depends_on_distance(x, damage):
     assert unit(gsm, 1).energy == 6 - 2
 
 
-def test_archer_cannot_shoot_beyond_four_tiles_and_keeps_energy():
+def test_archer_cannot_shoot_beyond_four_tiles_and_keeps_energy(monkeypatch):
+    monkeypatch.setattr(C, "AUTO_MOVE_TO_ATTACK", False)
     gsm = archer_game(5)
     assert gsm.attack_targets(1) == {}
     result = gsm.submit(AttackCommand(1, 2))
     assert not result.ok and "range" in result.error
     assert unit(gsm, 1).energy == 6
+
+
+def test_archer_beyond_four_tiles_steps_closer_and_shoots():
+    gsm = archer_game(5)
+    result = gsm.submit(AttackCommand(1, 2))
+    moved, hit = result.events
+    assert isinstance(moved, ev.UnitMoved) and moved.path == (Position(0, 0), Position(1, 0))
+    assert hit.result.distance == 4 and hit.result.damage == 5  # 8 x0.8 - 1 = 5.4 -> 5
+    assert unit(gsm, 1).energy == 6 - 3 - 2  # step 2 + move_penalty 1, then the attack
 
 
 def test_archer_on_a_hill_shoots_harder():
@@ -349,3 +359,145 @@ def test_cannot_start_twice():
     gsm = two_player_game()
     with pytest.raises(RuntimeError):
         gsm.start()
+
+
+# ---------------------------------------------------------------- move, then attack
+def far_game(**kwargs):
+    """P0 Soldier (0,1) with 6 EN; P1 Soldier (3,1). Only (2,1) is in reach (4 EN) and next to the target."""
+    return two_player_game(p0_soldier=(0, 1), p1_soldier=(3, 1), **kwargs)
+
+
+def test_attack_out_of_range_moves_first_then_attacks():
+    gsm = far_game()
+    result = gsm.submit(AttackCommand(2, 4))
+    assert result.ok
+    moved, hit = result.events
+    assert isinstance(moved, ev.UnitMoved) and isinstance(hit, ev.UnitAttacked)
+    assert moved.path[0] == Position(0, 1) and moved.path[-1] == Position(2, 1)
+    assert moved.cost == 4 and moved.energy_after == 2
+    assert (hit.source, hit.target) == (Position(2, 1), Position(3, 1))
+    assert hit.result.damage == 3 and hit.energy_after == 0
+    assert unit(gsm, 2).position == Position(2, 1) and unit(gsm, 4).hp == 7
+
+
+def test_move_attack_is_logged_with_the_tile_it_was_made_from():
+    gsm = far_game()
+    gsm.submit(AttackCommand(2, 4))
+    assert gsm.command_log == [AttackCommand(2, 4, Position(2, 1))]
+
+
+def test_attack_in_range_never_moves():
+    gsm = two_player_game(p1_soldier=(2, 1))
+    result = gsm.submit(AttackCommand(2, 4))
+    assert [type(e) for e in result.events] == [ev.UnitAttacked]
+    assert unit(gsm, 2).position == Position(1, 1)
+    assert gsm.command_log == [AttackCommand(2, 4)]
+
+
+def test_ranged_unit_next_to_its_target_does_not_step_back():
+    gsm = archer_game(1)
+    plan = gsm.plan_attack(1, 2)
+    assert not plan.needs_move and plan.result.range_multiplier == Fraction(1, 2)
+
+
+def test_plan_is_exactly_what_happens():
+    gsm = far_game()
+    plan = gsm.plan_attack(2, 4)
+    assert plan.needs_move and plan.origin == Position(2, 1) and plan.move_cost == 4
+    hit = gsm.submit(AttackCommand(2, 4)).events[1]
+    assert hit.result == plan.result
+
+
+def test_rejected_move_attack_changes_nothing():
+    gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(4, 1))
+    before = gsm.view()
+    assert gsm.plan_attack(2, 4) is None
+    result = gsm.submit(AttackCommand(2, 4))
+    assert not result.ok and "cannot be reached" in result.error
+    assert gsm.view() == before and gsm.command_log == []
+
+
+def test_attack_limit_is_checked_before_moving(monkeypatch):
+    monkeypatch.setattr(C, "MAX_ATTACKS_PER_TURN", 0)
+    gsm = far_game()
+    result = gsm.submit(AttackCommand(2, 4))
+    assert not result.ok and "No attacks left" in result.error
+    assert unit(gsm, 2).position == Position(0, 1) and unit(gsm, 2).energy == 6
+
+
+def test_move_must_leave_energy_for_the_attack():
+    gsm = far_game()
+    gsm._state.units[2].energy = 5  # 4 EN move + 2 EN attack = 6
+    result = gsm.submit(AttackCommand(2, 4))
+    assert not result.ok and "cannot be reached" in result.error
+    assert unit(gsm, 2).position == Position(0, 1) and unit(gsm, 2).energy == 5
+
+
+def test_auto_move_can_be_switched_off(monkeypatch):
+    monkeypatch.setattr(C, "AUTO_MOVE_TO_ATTACK", False)
+    gsm = far_game()
+    assert gsm.submit(AttackCommand(2, 4)).error == "Target is out of range"
+    assert gsm.attack_plans(2) == {}
+
+
+def test_explicit_tile_to_attack_from():
+    gsm = far_game()
+    assert "out of range from that tile" in gsm.submit(AttackCommand(2, 4, Position(1, 1))).error
+    assert "Not enough energy" in gsm.submit(AttackCommand(2, 4, Position(3, 0))).error
+    assert gsm.submit(AttackCommand(2, 4, Position(0, 1))).error == "Target is out of range"  # own tile = no move
+    assert gsm.command_log == []
+    result = gsm.submit(AttackCommand(2, 4, Position(2, 1)))
+    assert result.ok and unit(gsm, 2).position == Position(2, 1)
+
+
+def test_attack_plans_include_targets_after_a_move():
+    gsm = far_game()
+    assert gsm.attack_targets(2) == {}  # nothing in range from where it stands
+    plans = gsm.attack_plans(2)
+    assert set(plans) == {4} and plans[4].origin == Position(2, 1)  # the King at (4,2) is too far
+    assert gsm.attack_plans(4) == {}  # not this player's turn
+
+
+def test_picks_the_cheapest_tile_even_if_another_hits_harder():
+    # Target (2,1) on flat ground. (2,0) is a hill: more damage, but climbing costs 2 more EN.
+    board = Board.from_strings([".....", ".....", "....."], ["00100", "00000", "00000"])
+    gsm = custom_game(board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (1, KING, (4, 2)), (1, SOLDIER, (2, 1))])
+    plan = gsm.plan_attack(2, 4)
+    assert plan.origin == Position(1, 1) and plan.move_cost == 2
+
+
+def test_equal_cost_picks_the_tile_with_more_damage():
+    # From the hill at (1,0): stay high on (1,1) or walk down to (2,0). Both cost 2 EN; the high tile hits harder.
+    board = Board.from_strings([".....", ".....", "....."], ["01000", "01000", "00000"])
+    gsm = custom_game(board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (1, KING, (4, 2)), (1, SOLDIER, (2, 1))])
+    plan = gsm.plan_attack(2, 4)
+    assert plan.origin == Position(1, 1) and plan.result.elevation_modifier == 1
+    assert plan.result.damage > gsm._resolve(gsm._state.units[2], gsm._state.units[4], Position(2, 0)).damage
+
+
+def test_equal_cost_and_damage_avoids_mud_then_goes_top_left():
+    # Every step costs 1 and every hit 1 damage: (2,0) and (3,1) are equally good, but (2,0) is mud (half DEF).
+    board = Board.from_strings(["..m..", ".....", "....."])
+    gsm = custom_game(
+        board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 0))],
+        engine=CheapMovesEngine(),
+    )
+    assert gsm.plan_attack(2, 4).origin == Position(3, 1)
+    flat = custom_game(
+        FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 0))],
+        engine=CheapMovesEngine(),
+    )
+    assert flat.plan_attack(2, 4).origin == Position(2, 0)  # full tie: top row first
+
+
+def test_replaying_the_command_log_gives_the_same_game():
+    gsm = far_game()
+    gsm.submit(AttackCommand(2, 4))
+    gsm.submit(EndTurnCommand())
+    gsm.submit(AttackCommand(4, 2))  # P1 hits back in place
+    gsm.submit(EndTurnCommand())
+    gsm.submit(AttackCommand(2, 4))
+    replay = far_game()
+    for command in gsm.command_log:
+        assert replay.submit(command).ok
+    assert replay.view() == gsm.view()

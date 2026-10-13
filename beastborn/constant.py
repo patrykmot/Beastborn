@@ -52,6 +52,9 @@ HILLS_PER_100_TILES: Final[int] = 4
 MUD_PATCHES_PER_100_TILES: Final[int] = 4
 SPAWN_ZONE_SIZE: Final[int] = 3  # flat grass square in each starting corner
 MAX_ATTACKS_PER_TURN: Final[int | None] = None  # None = limited only by energy (D3)
+# An attack on an enemy out of range first moves the attacker to a tile it can hit from, if its energy pays for
+# the move and the attack. The tile: cheapest move, then most damage, then best own DEF there, then top-left first.
+AUTO_MOVE_TO_ATTACK: Final[bool] = True
 
 # ====================================================================== seeds
 SEED_RANGE: Final[int] = 1_000_000  # random seeds are drawn from [0, SEED_RANGE)

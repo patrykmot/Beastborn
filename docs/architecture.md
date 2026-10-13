@@ -68,12 +68,20 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - Queries:
   - `view()` returns a read-only `GameView`.
   - `reachable_tiles(unit_id)` returns cost and path for every tile the unit can reach.
-  - `attack_targets(unit_id)` lists enemies the unit can attack now.
+  - `attack_targets(unit_id)` lists enemies the unit can attack now, from where it stands.
+  - `attack_plans(unit_id)` lists every enemy one `AttackCommand` can hit, including those it first has to move to,
+    as `AttackPlan`s (tile it attacks from, the move, the exact result). `plan_attack(a, t, move_to=None)` returns one.
   - `preview_attack(a, t)` returns the exact result, because combat has no RNG.
   - `score(player)` returns the CE score of the current board for that player.
 - Commands: `submit(MoveCommand | AttackCommand | EndTurnCommand)` returns a `CommandResult(ok, events, error)`.
   - A rejected command never changes state.
   - Accepted commands are stored in `command_log`. Seed + log is enough to replay a game.
+  - `AttackCommand(attacker, target, move_to=None)`: in range, the unit attacks where it stands and never moves.
+    Out of range (and `AUTO_MOVE_TO_ATTACK` in `constant.py` is on), the GSM picks a reachable tile in range that still
+    leaves energy for the attack: cheapest move, then most damage, then best own DEF there, then top-left first.
+    It moves (`UnitMoved`) and attacks (`UnitAttacked`) in one command. The whole plan is checked before anything
+    changes. The log keeps the tile used (`move_to`), so a replay does not depend on how the tile was picked.
+    `move_to` can also be given explicitly (e.g. by a bot); the own tile means "attack without moving".
 - Map generation (`map_generator.py`) is the only random part. It uses `random.Random(seed)`.
   Every army is the same: a Boss + `BIG_RATS_PER_PLAYER` / `PEASANTS_PER_PLAYER` / `ARCHERS_PER_PLAYER` (`constant.py`).
 
@@ -98,7 +106,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.
   - The browser redraws the whole board from every state response.
   - Hover previews (path, cost, damage) come from the last state, so they need no requests.
-  - Animations: the state has `actions: {seq, attacks: [...]}`. `attacks` holds only the attacks since the last intent (usually 0 or 1, more if bots played), each with from/to tile, ranged, damage and killed. `Interaction` keeps just these small records (`AttackAnimation`), not game snapshots, and clears them on the next intent. The browser plays attacks newer than the last `seq` it saw (an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page reload only remembers `seq`, so nothing is replayed.
+    Each entry of `selection.targets` has `move: null` (in range) or `{x, y, cost, path}` (moves there first).
+  - Animations: the state has `actions: {seq, attacks: [...]}`. `attacks` holds only the attacks since the last intent (usually 0 or 1, more if bots played), each with from/to tile, ranged, damage, killed and `approach` (the path walked first by a move + attack; the browser walks the unit along it before the hit). `Interaction` keeps just these small records (`AttackAnimation`), not game snapshots, and clears them on the next intent. The browser plays attacks newer than the last `seq` it saw (an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page reload only remembers `seq`, so nothing is replayed.
   - A unit's picture is `img/units/<unit key>.svg`. A unit type without a picture shows its letter `code`.
 
 ## Bots

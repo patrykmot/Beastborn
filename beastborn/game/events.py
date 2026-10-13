@@ -44,6 +44,8 @@ class UnitAttacked:
     result: AttackResult
     target_hp_after: int
     energy_after: int
+    source: Position  # attacker's tile when it hit (after a move made by the same command)
+    target: Position  # target's tile
 
 
 @dataclass(frozen=True)

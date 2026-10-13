@@ -9,6 +9,7 @@ from beastborn.domain.position import Position
 from beastborn.domain.terrain import Tile
 from beastborn.domain.unit import UnitStats
 from beastborn.engine.results import AttackResult
+from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.pathfinding import PathInfo
 from beastborn.game.view import GameView, UnitView
 from beastborn.ui.interaction import AttackAnimation, Interaction
@@ -65,7 +66,8 @@ def render(game_id: str, ui: Interaction) -> JSON:
         "selection": {
             "unit_id": ui.selected,
             "reachable": [_reachable_json(pos, info) for pos, info in sorted(ui.reachable.items())],
-            "targets": [_target_json(uid, result) for uid, result in sorted(ui.targets.items())],
+            # every enemy a click attacks; "move" is set when the unit walks there first
+            "targets": [_target_json(plan) for _, plan in sorted(ui.attack_plans.items())],
         },
         # attacks since the last intent, for animations; "seq" lets a reloaded page skip ones it already saw
         "actions": {"seq": ui.action_seq, "attacks": [_attack_json(a) for a in ui.last_attacks]},
@@ -90,8 +92,18 @@ def _reachable_json(pos: Position, info: PathInfo) -> JSON:
     return {"x": pos.x, "y": pos.y, "cost": info.cost, "path": [_xy(p) for p in info.path]}
 
 
-def _target_json(unit_id: int, result: AttackResult) -> JSON:
-    return {"unit_id": unit_id, "damage": result.damage, "formula": result.formula(), "blocked": result.blocked}
+def _target_json(plan: AttackPlan) -> JSON:
+    result: AttackResult = plan.result
+    move: JSON | None = None
+    if plan.move is not None:
+        move = {"x": plan.origin.x, "y": plan.origin.y, "cost": plan.move.cost, "path": [_xy(p) for p in plan.move.path]}
+    return {
+        "unit_id": plan.target_id,
+        "damage": result.damage,
+        "formula": result.formula(),
+        "blocked": result.blocked,
+        "move": move,
+    }
 
 
 def _attack_json(a: AttackAnimation) -> JSON:
@@ -103,6 +115,7 @@ def _attack_json(a: AttackAnimation) -> JSON:
         "owner": a.owner,
         "from": _xy(a.source),
         "to": _xy(a.target),
+        "approach": [_xy(p) for p in a.approach],  # walked before the hit, from its old tile to "from"
         "ranged": a.ranged,
         "damage": a.damage,
         "killed": a.killed,

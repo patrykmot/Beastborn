@@ -183,7 +183,9 @@ def test_attack_and_game_over(client, store):
     gid = inject(store, gsm)
 
     state = intent(client, gid, type="click", x=1, y=1)
-    assert state["selection"]["targets"] == [{"unit_id": 3, "damage": 3, "formula": "4 - 1 = 3", "blocked": False}]
+    assert state["selection"]["targets"] == [
+        {"unit_id": 3, "damage": 3, "formula": "4 - 1 = 3", "blocked": False, "move": None}
+    ]
     state = intent(client, gid, type="click", x=2, y=1)
     assert state["phase"] == "game_over" and state["winner"] == 0
     assert state["players"][1]["eliminated"] and state["players"][1]["units"] == 0

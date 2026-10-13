@@ -14,10 +14,14 @@ from beastborn.domain.unit import UnitState
 from beastborn.engine.interface import CalculationEngine
 from beastborn.engine.results import AttackResult, CombatantSnapshot, TickResult
 from beastborn.game import events as ev
+from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.commands import AttackCommand, Command, CommandResult, EndTurnCommand, MoveCommand
 from beastborn.game.pathfinding import PathInfo, reachable
 from beastborn.game.state import GameState, Phase
 from beastborn.game.view import GameView, PlayerView, UnitView
+
+_OUT_OF_RANGE: str = "Target is out of range"
+_OUT_OF_REACH: str = "Target is out of range and cannot be reached this turn"
 
 
 class GameStateMachine:
@@ -99,21 +103,49 @@ class GameStateMachine:
             if self._attack_error(unit, target) is None
         }
 
+    def plan_attack(self, attacker_id: int, target_id: int, move_to: Position | None = None) -> AttackPlan | None:
+        """How ``AttackCommand(attacker_id, target_id, move_to)`` would be carried out; None if it would be rejected.
+
+        Target in range: attack from where the unit stands (it never moves then).
+        Out of range: move to the tile with the cheapest move that still leaves energy for the attack; ties go to
+        more damage, then better own DEF on that tile, then the tile nearest the top-left (y, then x).
+        """
+        attacker: UnitState | None = self._own_unit(attacker_id)
+        target: UnitState | None = self._state.units.get(target_id)
+        if attacker is None or target is None:
+            return None
+        plan, _ = self._plan_attack(attacker, target, move_to)
+        return plan
+
+    def attack_plans(self, unit_id: int) -> dict[int, AttackPlan]:
+        """Every enemy the active player's unit can attack with one command: in range now, or after a move."""
+        unit: UnitState | None = self._own_unit(unit_id)
+        if unit is None:
+            return {}
+        origins: dict[Position, PathInfo] = self._attack_origins(unit)
+        plans: dict[int, AttackPlan] = {}
+        for target in self._state.sorted_units():
+            plan, _ = self._plan_attack(unit, target, None, origins)
+            if plan is not None:
+                plans[target.id] = plan
+        return plans
+
     # ------------------------------------------------------------------ commands
     def submit(self, command: Command) -> CommandResult:
         if self._state.phase is not Phase.AWAITING_COMMAND:
             return CommandResult.rejected(f"Game is not accepting commands (phase: {self._state.phase.value})")
         result: CommandResult
+        logged: Command = command  # an attack is logged with the tile it was made from
         if isinstance(command, MoveCommand):
             result = self._move(command)
         elif isinstance(command, AttackCommand):
-            result = self._attack(command)
+            result, logged = self._attack(command)
         elif isinstance(command, EndTurnCommand):
             result = self._end_turn()
         else:
             return CommandResult.rejected(f"Unknown command: {command!r}")
         if result.ok:
-            self.command_log.append(command)
+            self.command_log.append(logged)
         return result
 
     def _move(self, cmd: MoveCommand) -> CommandResult:
@@ -127,32 +159,36 @@ class GameStateMachine:
         info: PathInfo | None = self.reachable_tiles(unit.id).get(cmd.destination)
         if info is None:
             return CommandResult.rejected("Not enough energy to reach that tile")
-        unit.energy -= info.cost
-        unit.position = cmd.destination
-        return CommandResult(True, (ev.UnitMoved(unit.id, info.path, info.cost, unit.energy),))
+        return CommandResult(True, (self._apply_move(unit, info),))
 
-    def _attack(self, cmd: AttackCommand) -> CommandResult:
+    def _attack(self, cmd: AttackCommand) -> tuple[CommandResult, AttackCommand]:
+        """Attack, moving first if needed. Returns the result and the command to log (with the tile used)."""
         attacker, error = self._own_unit_or_error(cmd.attacker_id)
         if attacker is None:
-            return CommandResult.rejected(error or "Unit does not exist")
+            return CommandResult.rejected(error or "Unit does not exist"), cmd
         target: UnitState | None = self._state.units.get(cmd.target_id)
         if target is None:
-            return CommandResult.rejected("Target does not exist")
-        error = self._attack_error(attacker, target)
-        if error:
-            return CommandResult.rejected(error)
+            return CommandResult.rejected("Target does not exist"), cmd
+        plan, error = self._plan_attack(attacker, target, cmd.move_to)
+        if plan is None:
+            return CommandResult.rejected(error or "Cannot attack that unit"), cmd
 
+        # The whole plan is valid: only now is the state changed (move, then the hit from the new tile).
+        events: list[ev.GameEvent] = []
+        if plan.move is not None:
+            events.append(self._apply_move(attacker, plan.move))
         result: AttackResult = self._resolve(attacker, target)
         attacker.energy -= self._engine.attack_cost(attacker.stats)
         self._state.attacks_this_turn[attacker.id] = self._attacks_made(attacker) + 1
         self._apply_change(target, -result.damage, result.defense_change, result.defender_effects_after)
 
-        events: list[ev.GameEvent] = [
-            ev.UnitAttacked(attacker.id, target.id, result, max(0, target.hp), attacker.energy)
-        ]
+        events.append(ev.UnitAttacked(
+            attacker.id, target.id, result, max(0, target.hp), attacker.energy, attacker.position, target.position
+        ))
         if not target.alive:
             events += self._kill(target)
-        return CommandResult(True, tuple(events))
+        logged: AttackCommand = cmd if plan.move is None else AttackCommand(attacker.id, cmd.target_id, plan.origin)
+        return CommandResult(True, tuple(events)), logged
 
     def _end_turn(self) -> CommandResult:
         events: list[ev.GameEvent] = [ev.TurnEnded(self._state.active_player)]
@@ -245,12 +281,19 @@ class GameStateMachine:
         unit.defense = max(0, unit.defense + defense_change)
         unit.effects = effects
 
-    def _resolve(self, attacker: UnitState, target: UnitState) -> AttackResult:
-        return self._engine.resolve_attack(self._snapshot(attacker), self._snapshot(target))
+    def _apply_move(self, unit: UnitState, info: PathInfo) -> ev.UnitMoved:
+        unit.energy -= info.cost
+        unit.position = info.path[-1]
+        return ev.UnitMoved(unit.id, info.path, info.cost, unit.energy)
 
-    def _snapshot(self, unit: UnitState) -> CombatantSnapshot:
-        tile: Tile = self._state.board.tile(unit.position)
-        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, tile, unit.position, unit.id)
+    def _resolve(self, attacker: UnitState, target: UnitState, origin: Position | None = None) -> AttackResult:
+        """Exact attack outcome; ``origin`` = attack from that tile instead of the attacker's own."""
+        return self._engine.resolve_attack(self._snapshot(attacker, origin), self._snapshot(target))
+
+    def _snapshot(self, unit: UnitState, at: Position | None = None) -> CombatantSnapshot:
+        position: Position = at if at is not None else unit.position
+        tile: Tile = self._state.board.tile(position)
+        return CombatantSnapshot(unit.stats, unit.hp, unit.defense, unit.effects, tile, position, unit.id)
 
     def _attacks_made(self, unit: UnitState) -> int:
         return self._state.attacks_this_turn.get(unit.id, 0)
@@ -270,11 +313,72 @@ class GameStateMachine:
         return unit, None
 
     def _attack_error(self, attacker: UnitState, target: UnitState) -> str | None:
+        """Why the attacker cannot hit the target from where it stands now (None = it can)."""
+        error: str | None = self._attack_ready_error(attacker, target)
+        if error is None and not self._in_range_from(attacker, attacker.position, target):
+            return _OUT_OF_RANGE
+        return error
+
+    def _plan_attack(
+        self,
+        attacker: UnitState,
+        target: UnitState,
+        move_to: Position | None = None,
+        origins: dict[Position, PathInfo] | None = None,
+    ) -> tuple[AttackPlan | None, str | None]:
+        """Check an attack command without changing anything; (plan, None) or (None, reason).
+
+        ``origins``: ``_attack_origins(attacker)``, if already computed.
+        """
+        error: str | None = self._attack_ready_error(attacker, target)
+        if error:
+            return None, error
+        if move_to is None or move_to == attacker.position:
+            if self._in_range_from(attacker, attacker.position, target):  # in range: never move
+                result: AttackResult = self._resolve(attacker, target)
+                return AttackPlan(attacker.id, target.id, attacker.position, None, result), None
+            if move_to is not None or not C.AUTO_MOVE_TO_ATTACK:
+                return None, _OUT_OF_RANGE
+            options: dict[Position, PathInfo] = origins if origins is not None else self._attack_origins(attacker)
+            plans: list[AttackPlan] = [
+                self._plan_from(attacker, target, pos, info)
+                for pos, info in options.items()
+                if self._in_range_from(attacker, pos, target)
+            ]
+            if not plans:
+                return None, _OUT_OF_REACH
+            return min(plans, key=lambda plan: self._origin_rank(attacker, plan)), None
+
+        info: PathInfo | None = (origins if origins is not None else self._attack_origins(attacker)).get(move_to)
+        if info is None:
+            return None, "Not enough energy to move to that tile and attack"
+        if not self._in_range_from(attacker, move_to, target):
+            return None, "Target is out of range from that tile"
+        return self._plan_from(attacker, target, move_to, info), None
+
+    def _plan_from(self, attacker: UnitState, target: UnitState, origin: Position, move: PathInfo) -> AttackPlan:
+        return AttackPlan(attacker.id, target.id, origin, move, self._resolve(attacker, target, origin))
+
+    def _origin_rank(self, attacker: UnitState, plan: AttackPlan) -> tuple[int, int, int, int, int]:
+        """Lower is better: cheapest move, most damage, best own DEF on the tile, then top-left first."""
+        own_defense: int = self._engine.current_defense(attacker.defense, self._state.board.tile(plan.origin))
+        return plan.move_cost, -plan.result.damage, -own_defense, plan.origin.y, plan.origin.x
+
+    def _attack_origins(self, attacker: UnitState) -> dict[Position, PathInfo]:
+        """Tiles the attacker can move to and still have the energy for one attack."""
+        budget: int = attacker.energy - self._engine.attack_cost(attacker.stats)
+        if budget < 0:
+            return {}
+        blocked: set[Position] = self._state.occupied() - {attacker.position}
+        return reachable(self._state.board, self._engine, attacker.stats, attacker.position, budget, blocked)
+
+    def _in_range_from(self, attacker: UnitState, origin: Position, target: UnitState) -> bool:
+        return self._engine.in_attack_range(attacker.stats, origin.manhattan(target.position))
+
+    def _attack_ready_error(self, attacker: UnitState, target: UnitState) -> str | None:
+        """Checks that do not depend on distance: own unit, energy, attacks left."""
         if target.owner == attacker.owner:
             return "Cannot attack your own unit"
-        distance: int = attacker.position.manhattan(target.position)
-        if not self._engine.in_attack_range(attacker.stats, distance):
-            return "Target is out of range"
         if attacker.energy < self._engine.attack_cost(attacker.stats):
             return "Not enough energy to attack"
         limit: int | None = C.MAX_ATTACKS_PER_TURN

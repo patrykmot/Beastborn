@@ -18,8 +18,16 @@ class MoveCommand:
 
 @dataclass(frozen=True)
 class AttackCommand:
+    """Attack ``target_id``. If it is out of range, the attacker first moves to a tile it can attack from.
+
+    ``move_to`` = None: the Game State Machine picks that tile (see ``GameStateMachine.plan_attack``).
+    ``move_to`` = a tile: move exactly there, then attack (the attacker's own tile = attack without moving).
+    The command log keeps the tile that was used, so a replay never depends on how the tile was picked.
+    """
+
     attacker_id: int
     target_id: int
+    move_to: Position | None = None
 
 
 @dataclass(frozen=True)

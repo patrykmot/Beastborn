@@ -40,11 +40,11 @@ def test_click_tile_moves_and_click_enemy_attacks():
 def test_errors_are_shown_not_raised():
     _, ui = scenario()
     ui.handle(ClickTile(Position(1, 1)))
-    ui.handle(ClickTile(Position(3, 1)))  # enemy out of range
+    ui.handle(ClickTile(Position(4, 2)))  # enemy King: out of range and too far to walk to
     assert ui.message_is_error and "range" in ui.message
-    ui.handle(ClickTile(Position(3, 1)))
+    ui.handle(Cancel())
     ui.handle(ClickTile(Position(4, 2)))  # nothing selected -> enemy info message
-    assert ui.message_is_error
+    assert ui.message_is_error and "belongs to" in ui.message
 
 
 def test_end_turn_and_cancel():
@@ -82,3 +82,18 @@ def test_main_parses_arguments():
     args = parse_args(["--port", "9000", "--reload"])
     assert (args.host, args.port, args.reload) == ("127.0.0.1", 9000, True)
     assert parse_args([]).port == 8000
+
+
+def test_click_far_enemy_moves_then_attacks_and_hover_shows_the_planned_hit():
+    gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (0, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 1))])
+    ui = Interaction(gsm)
+    ui.handle(ClickTile(Position(0, 1)))
+    assert ui.targets == {} and set(ui.attack_plans) == {4}
+    ui.handle(HoverTile(Position(3, 1)))
+    assert ui.hover_plan().origin == Position(2, 1)
+    assert ui.hover_attack() == ui.hover_plan().result
+    ui.handle(ClickTile(Position(3, 1)))
+    assert gsm.view().unit(2).position == Position(2, 1) and gsm.view().unit(4).hp == 7
+    assert "moved (0,1)->(2,1)" in ui.log[-2] and "hit" in ui.log[-1]
+    (animation,) = ui.last_attacks
+    assert animation.source == Position(2, 1) and animation.approach[0] == Position(0, 1)
