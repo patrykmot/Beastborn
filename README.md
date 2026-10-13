@@ -43,7 +43,6 @@ python -m beastborn.reports.report   # or run beastborn/reports/report.py in PyC
 - **Attack report:** every unit attacks every unit. A table shows rounds (and hits) to kill for each pair, and a list
   shows the target's HP after every hit and Venom tick. Choose the attacker's and defender's terrain and height on top.
 - **Attack simulation:** one unit against another, step by step, with both units' stats, the next hit and an HP chart.
-- **Refresh** (F5) reloads `beastborn/data/units.json`: change a stat, press Refresh, see the new balance.
 
 The attacker stands still and hits while it has energy; the target does nothing. Fights run on the real game engine.
 
@@ -54,22 +53,8 @@ The attacker stands still and hits while it has energy; the target does nothing.
   Units start a game with 0 energy. Then use your units in any order and end the turn.
 - **Movement** (4 directions, units block tiles):
 
-  | Step into… | Cost |
-  |---|---|
-  | grass, same level | 2 EN |
-  | mud, same level | 3 EN |
-  | each level uphill | +2 EN |
-  | downhill into grass | 2 EN |
-  | downhill into mud | 5 EN |
-  | slow units (Archer) | +`move_penalty` EN per step |
-
-- **Attack** (costs `EN_ATK`, repeat while energy lasts; full rules in [docs/game_mechanics.md](docs/game_mechanics.md)):
-  `DMG = floor(ATK × (1 + 0.5 × EM) × RP − DEF)`, minimum 1 for every hit.
-  - `EM` = your level minus the target's level. Each level above adds +50 % ATK, each level below takes −50 %.
-  - `RP` only applies to ranged units (range > 1) and depends only on distance: 1 tile ×0.5, 2 tiles ×1, 3 tiles ×0.8, 4 tiles ×0.8, farther is impossible.
-  - Units standing in mud have half DEF (rounded down).
-- **Effects** (applied on every hit): Venom = lose `max(1, ATK ÷ 4)` HP at the start of each of your turns, for 5 rounds. Venom from different units stacks (each stack ticks every turn); the same unit only refreshes its own stack.
-  Acid = −`max(1, ATK ÷ 10)` DEF permanently per hit.
+- **Attack** (costs `EN_ATK`, repeat while energy lasts; full rules in [docs/game_mechanics.md](docs/game_mechanics.md)).
+- **Effects** (applied on every hit): Venom HP at the start of each of your turns. Acid  DEF permanently per hit (not yet used).
 - 
 ## Controls (browser)
 

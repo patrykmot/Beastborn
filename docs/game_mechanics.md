@@ -12,12 +12,6 @@ Calculates raw kinetic power based on height difference.
 
 ## 3. Range Dissipation (RP Factor)
 For units with `attack_range > 1`. RP is a damage **multiplier** that depends only on the distance (height does not change it).
-* **RP values:** 
-  * 1 tile: `RP = 0.5`
-  * 2 tiles: `RP = 1`
-  * 3 tiles: `RP = 0.8`
-  * 4 tiles: `RP = 0.8`
-  * > 4 tiles: `Damage = 0` (Attack fails) (It means it can't be performed, so no energy drop)
 * **Melee units** (`attack_range = 1`): `RP = 1`.
 * **Base Damage:** Apply the RP multiplier to the momentum.
   * `Base_Damage = Momentum_Damage * RP`
@@ -46,6 +40,4 @@ Decisions taken while implementing (`beastborn/engine/standard_engine.py`, numbe
 * **Momentum** never goes below 0. Note the `ELEVATION_COEF`.
 * **Every performed hit** spends energy and applies Venom / Acid.
 * **Out of range** (> 4 tiles, or more than the unit's own range): the attack is rejected and costs no energy.
-* **Acid / Venom amounts** use whole-number division (`ATK // 10`, `ATK // 4`), which equals the floor in the formulas.
-* **Optional rule** `ALLOW_BLOCK = True` in `beastborn/constant.py`: a hit with `floor(Base_Damage - Effective_DEF) <= 0` deals 0 and applies no effects (off by default).
-* **Archer** (`beastborn/data/units.json`): range 4, `move_penalty: 1` (+1 EN on every step), so it moves about one tile per turn.
+* **Acid / Venom amounts** use whole-number division, which equals the floor in the formulas.
