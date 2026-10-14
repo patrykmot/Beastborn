@@ -22,6 +22,16 @@ CacheKey = tuple[int, int | None]  # (accepted commands, selected unit id)
 
 
 @dataclass(frozen=True)
+class MoveAnimation:
+    """What a frontend needs to animate one move: the unit walks ``path`` (start and destination included)."""
+
+    seq: int  # number of the command that made the move
+    unit_id: int
+    owner: int
+    path: tuple[Position, ...]
+
+
+@dataclass(frozen=True)
 class AttackAnimation:
     """What a frontend needs to animate one attack. Tiles are taken before the hit (a killed target is gone after)."""
 
@@ -32,7 +42,6 @@ class AttackAnimation:
     owner: int
     source: Position  # where the attacker hit from
     target: Position
-    approach: tuple[Position, ...]  # path walked just before the hit by the same command (empty: no move)
     ranged: bool
     damage: int
     killed: bool
@@ -48,7 +57,8 @@ class Interaction:
         self.message_is_error: bool = False
         self.log: deque[str] = deque(maxlen=LOG_HISTORY)
         self.action_seq: int = 0  # number of accepted commands so far
-        self.last_attacks: list[AttackAnimation] = []  # attacks since the last player input (incl. bot turns)
+        # moves and attacks since the last player input (incl. bot turns), in the order they happened
+        self.last_actions: list[MoveAnimation | AttackAnimation] = []
         self.quit_requested: bool = False
         self._cache_key: CacheKey | None = None
         self._view: GameView = gsm.view()
@@ -143,7 +153,7 @@ class Interaction:
     # ------------------------------------------------------------------ input
     def handle(self, intent: UIIntent) -> None:
         if not isinstance(intent, HoverTile):
-            self.last_attacks = []  # the frontend has shown them with the previous response
+            self.last_actions = []  # the frontend has shown them with the previous response
         if isinstance(intent, Quit):
             self.quit_requested = True
         elif isinstance(intent, HoverTile):
@@ -191,12 +201,12 @@ class Interaction:
             return False
         after: GameView = self.gsm.view()
         self.action_seq += 1
-        walked: dict[int, tuple[Position, ...]] = {}  # unit id -> path moved by this command
         for event in result.events:
             if isinstance(event, ev.UnitMoved):
-                walked[event.unit_id] = event.path
+                owner: int = after.unit(event.unit_id).owner  # a move never kills, so the unit is still there
+                self.last_actions.append(MoveAnimation(self.action_seq, event.unit_id, owner, event.path))
             if isinstance(event, ev.UnitAttacked):
-                self.last_attacks.append(self._animation(event, before, walked.pop(event.attacker_id, ())))
+                self.last_actions.append(self._animation(event, before))
             line: str | None = describe(event, before, after)
             if line:
                 self.log.append(line)
@@ -205,9 +215,7 @@ class Interaction:
             self.selected = None
         return True
 
-    def _animation(
-        self, event: ev.UnitAttacked, before: GameView, approach: tuple[Position, ...] = ()
-    ) -> AttackAnimation:
+    def _animation(self, event: ev.UnitAttacked, before: GameView) -> AttackAnimation:
         attacker: UnitView | None = before.unit(event.attacker_id)
         target: UnitView | None = before.unit(event.target_id)
         assert attacker is not None and target is not None, "an attack always involves two existing units"
@@ -219,7 +227,6 @@ class Interaction:
             owner=attacker.owner,
             source=event.source,  # the attacker may have moved first, so not its tile in ``before``
             target=event.target,
-            approach=approach,
             ranged=event.result.ranged,
             damage=event.result.damage,
             killed=event.target_hp_after <= 0,

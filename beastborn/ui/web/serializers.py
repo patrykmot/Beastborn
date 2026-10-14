@@ -12,7 +12,7 @@ from beastborn.engine.results import AttackResult
 from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.pathfinding import PathInfo
 from beastborn.game.view import GameView, UnitView
-from beastborn.ui.interaction import AttackAnimation, Interaction
+from beastborn.ui.interaction import AttackAnimation, Interaction, MoveAnimation
 
 JSON = dict[str, Any]
 
@@ -69,8 +69,9 @@ def render(game_id: str, ui: Interaction) -> JSON:
             # every enemy a click attacks; "move" is set when the unit walks there first
             "targets": [_target_json(plan) for _, plan in sorted(ui.attack_plans.items())],
         },
-        # attacks since the last intent, for animations; "seq" lets a reloaded page skip ones it already saw
-        "actions": {"seq": ui.action_seq, "attacks": [_attack_json(a) for a in ui.last_attacks]},
+        # moves and attacks since the last intent, in order, for animations;
+        # "seq" lets a reloaded page skip ones it already saw
+        "actions": {"seq": ui.action_seq, "steps": [_step_json(a) for a in ui.last_actions]},
         "message": {"text": ui.message, "error": ui.message_is_error},
         "log": list(ui.log)[-LOG_LINES:],
     }
@@ -106,8 +107,11 @@ def _target_json(plan: AttackPlan) -> JSON:
     }
 
 
-def _attack_json(a: AttackAnimation) -> JSON:
+def _step_json(a: MoveAnimation | AttackAnimation) -> JSON:
+    if isinstance(a, MoveAnimation):
+        return {"kind": "move", "seq": a.seq, "unit_id": a.unit_id, "owner": a.owner, "path": [_xy(p) for p in a.path]}
     return {
+        "kind": "attack",
         "seq": a.seq,
         "attacker_id": a.attacker_id,
         "target_id": a.target_id,
@@ -115,7 +119,6 @@ def _attack_json(a: AttackAnimation) -> JSON:
         "owner": a.owner,
         "from": _xy(a.source),
         "to": _xy(a.target),
-        "approach": [_xy(p) for p in a.approach],  # walked before the hit, from its old tile to "from"
         "ranged": a.ranged,
         "damage": a.damage,
         "killed": a.killed,

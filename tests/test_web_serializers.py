@@ -44,25 +44,25 @@ def test_attacks_are_listed_for_animation():
     board = Board.from_strings(["......", "......"])
     gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (2, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
     ui = Interaction(gsm)
-    assert render("x", ui)["actions"] == {"seq": 0, "attacks": []}
+    assert render("x", ui)["actions"] == {"seq": 0, "steps": []}
 
     ui.handle(ClickTile(Position(0, 0)))
     ui.handle(ClickTile(Position(2, 0)))  # shoot: 8 / RP 1 - DEF 1 = 7
     state = render("x", ui)
-    assert state["actions"] == {"seq": 1, "attacks": [{
-        "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": ARCHER.key, "owner": 0,
-        "from": [0, 0], "to": [2, 0], "approach": [], "ranged": True, "damage": 7, "killed": False,
+    assert state["actions"] == {"seq": 1, "steps": [{
+        "kind": "attack", "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": ARCHER.key, "owner": 0,
+        "from": [0, 0], "to": [2, 0], "ranged": True, "damage": 7, "killed": False,
     }]}
     assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == 1
     assert state["log"][-1].startswith("P1 Archer shot P2 Soldier for 7")
 
     ui.handle(ClickTile(Position(2, 0)))  # 3 HP left -> killed; position comes from before the hit
-    attacks = render("x", ui)["actions"]["attacks"]
+    attacks = render("x", ui)["actions"]["steps"]
     assert len(attacks) == 1  # only the attacks since the last input are kept and sent
     assert (attacks[0]["seq"], attacks[0]["to"], attacks[0]["killed"]) == (2, [2, 0], True)
 
     ui.handle(ClickTile(Position(0, 1)))  # select the King: no attack, list is cleared
-    assert render("x", ui)["actions"] == {"seq": 2, "attacks": []}
+    assert render("x", ui)["actions"] == {"seq": 2, "steps": []}
 
 
 def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
@@ -79,6 +79,6 @@ def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
         "move": {"x": 2, "y": 1, "cost": 4, "path": [[0, 1], [1, 1], [2, 1]]},
     }]
     ui.handle(ClickTile(Position(3, 1)))  # walks to (2,1), then hits
-    (attack,) = render("x", ui)["actions"]["attacks"]
-    assert (attack["from"], attack["to"]) == ([2, 1], [3, 1])
-    assert attack["approach"] == [[0, 1], [1, 1], [2, 1]]
+    walk, attack = render("x", ui)["actions"]["steps"]  # in order: the walk, then the hit
+    assert walk == {"kind": "move", "seq": 1, "unit_id": 2, "owner": 0, "path": [[0, 1], [1, 1], [2, 1]]}
+    assert (attack["kind"], attack["seq"], attack["from"], attack["to"]) == ("attack", 1, [2, 1], [3, 1])

@@ -95,5 +95,16 @@ def test_click_far_enemy_moves_then_attacks_and_hover_shows_the_planned_hit():
     ui.handle(ClickTile(Position(3, 1)))
     assert gsm.view().unit(2).position == Position(2, 1) and gsm.view().unit(4).hp == 7
     assert "moved (0,1)->(2,1)" in ui.log[-2] and "hit" in ui.log[-1]
-    (animation,) = ui.last_attacks
-    assert animation.source == Position(2, 1) and animation.approach[0] == Position(0, 1)
+    walk, hit = ui.last_actions  # a move step, then an attack step
+    assert walk.path[0] == Position(0, 1) and walk.path[-1] == Position(2, 1)
+    assert hit.source == Position(2, 1) and hit.target == Position(3, 1)
+
+
+def test_plain_move_is_recorded_for_animation():
+    gsm, ui = scenario()
+    ui.handle(ClickTile(Position(1, 1)))
+    ui.handle(ClickTile(Position(1, 2)))
+    (walk,) = ui.last_actions
+    assert (walk.seq, walk.unit_id, walk.owner, walk.path) == (1, 2, 0, (Position(1, 1), Position(1, 2)))
+    ui.handle(Cancel())  # any next input clears it
+    assert ui.last_actions == []

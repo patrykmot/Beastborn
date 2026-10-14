@@ -52,10 +52,7 @@ The attacker stands still and hits while it has energy; the target does nothing.
 - **Turn:** at the start of your turn each of your units regenerates `REG_EN` energy (up to `MAX_EN`), then status effects tick (Venom).
   Units start a game with 0 energy. Then use your units in any order and end the turn.
 - **Movement** (4 directions, units block tiles):
-
-- **Attack** (costs `EN_ATK`, repeat while energy lasts; full rules in [docs/game_mechanics.md](docs/game_mechanics.md)).
-  An enemy out of range can still be attacked if the unit has the energy to walk to a tile in range **and** attack:
-  it moves there first (cheapest move; on a tie more damage, then not mud), then attacks. A unit already in range never moves.
+- **Attack** enemy unit. Move can be made if needed.
 - **Effects** (applied on every hit): Venom HP at the start of each of your turns. Acid  DEF permanently per hit (not yet used).
 - 
 ## Controls (browser)

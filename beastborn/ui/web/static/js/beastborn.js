@@ -2,7 +2,7 @@
  *
  * The server owns all game state, including the current selection. This file only sends
  * intents, draws the state JSON it gets back, shows hover previews from that state and
- * animates new attacks (with the walk before a move + attack) before drawing the new state.
+ * animates new moves and attacks before drawing the new state.
  */
 $(function () {
   "use strict";
@@ -17,7 +17,7 @@ $(function () {
   let busy = false;          // a request is in flight
   let hover = null;          // {x, y} of the tile under the mouse
   let gameOverShown = null;  // game id for which the modal was already shown
-  let seenSeq = 0;           // last action already shown; only newer attacks are animated
+  let seenSeq = 0;           // last action already shown; only newer moves and attacks are animated
   const gameOverModal = new bootstrap.Modal("#game-over-modal");
 
   // API
@@ -157,7 +157,7 @@ $(function () {
     if (busy || !state) return;
     setBusy(true);
     api.intent(state.game_id, body)
-      .then((newState) => playAttacks(newAttacks(newState)).then(() => newState))
+      .then((newState) => playActions(newSteps(newState)).then(() => newState))
       .done(setState)
       .fail((xhr) => {
         toast(errorText(xhr));
@@ -354,7 +354,7 @@ $(function () {
     renderHover();
   }
 
-  // Attack animations
+  // Move and attack animations
   const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const ARROW_SVG = `
     <svg viewBox="0 0 64 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -363,7 +363,8 @@ $(function () {
       <path d="M64 8 L50 2 L53 8 L50 14 Z" fill="#d9dee3" stroke="#5b6670" stroke-width="0.8"/>
     </svg>`;
 
-  const newAttacks = (s) => s.actions.attacks.filter((a) => a.seq > seenSeq);
+  const newSteps = (s) => s.actions.steps.filter((a) => a.seq > seenSeq);
+  const MAX_WALK_MS = 600; // a long walk steps faster, so the board is not blocked for long
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const speed = (ms) => (REDUCED_MOTION ? Math.min(ms, 120) : ms);
   const unitDisc = ([x, y]) => $tile(x, y).find(".unit .disc")[0];
@@ -390,22 +391,23 @@ $(function () {
     };
   }
 
-  /** Plays the attacks one after another. Never rejects: a failed animation must not block the game. */
-  async function playAttacks(attacks) {
-    if (!attacks.length || !state) return;
+  /** Plays moves and attacks one after another. Never rejects: a failed animation must not block the game. */
+  async function playActions(steps) {
+    if (!steps.length || !state) return;
     $("#board .dmg-pop").remove();
-    for (const a of attacks) {
+    for (const a of steps) {
       try {
-        if ((a.approach || []).length > 1) await walk(a.approach);
-        await (a.ranged ? shoot(a) : strike(a));
+        if (a.kind === "move") await walk(a.path);
+        else await (a.ranged ? shoot(a) : strike(a));
       } catch (err) {
         console.warn("animation skipped", err);
       }
     }
   }
 
-  /** Move + attack: the unit walks its path on the old board and then stands on the last tile, ready to hit. */
+  /** Move: the unit walks its path on the old board and then stands on the last tile (ready to hit, if it attacks). */
   async function walk(path) {
+    if (path.length < 2) return;
     const first = path[0], last = path[path.length - 1];
     const start = tileCenter(first);
     const $from = $tile(first[0], first[1]);
@@ -416,7 +418,8 @@ $(function () {
       return { transform: `translate(${c.x - start.x}px, ${c.y - start.y}px)`, offset: i / (path.length - 1) };
     });
     $from.css("z-index", 7); // above the tiles it walks over
-    await run($unit[0], frames, { duration: speed(150 * (path.length - 1)), easing: "linear" });
+    const duration = speed(Math.min(150 * (path.length - 1), MAX_WALK_MS));
+    await run($unit[0], frames, { duration, easing: "linear" });
     $from.css("z-index", "");
     $unit.appendTo($tile(last[0], last[1])); // shoot / strike find the attacker on its new tile
   }
