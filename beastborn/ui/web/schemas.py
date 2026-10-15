@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from beastborn.constant import DEFAULT_MAP_SIZE, DEFAULT_PLAYERS, MAX_PLAYERS, MAX_SEED, MIN_PLAYERS, MapSize
 
-IntentType = Literal["click", "end_turn", "cancel"]
+IntentType = Literal["click", "end_turn"]
 
 
 class NewGameRequest(BaseModel):

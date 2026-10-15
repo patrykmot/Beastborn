@@ -9,9 +9,17 @@ from beastborn.engine.results import AttackResult
 
 
 @dataclass(frozen=True)
+class RoundStarted:
+    round: int
+
+
+@dataclass(frozen=True)
 class TurnStarted:
+    """``unit_id`` (of ``player``) gets its turn: it regenerates, its effects tick, then it may act."""
+
     player: int
     round: int
+    unit_id: int
 
 
 @dataclass(frozen=True)
@@ -62,7 +70,11 @@ class PlayerEliminated:
 
 @dataclass(frozen=True)
 class TurnEnded:
+    """The active unit's turn is over: End turn, or it cannot move or attack any more."""
+
     player: int
+    unit_id: int
+    idle: bool  # the unit neither moved nor attacked in this turn
 
 
 @dataclass(frozen=True)
@@ -71,6 +83,6 @@ class GameOver:
 
 
 GameEvent = (
-    TurnStarted | EnergyRegenerated | EffectTicked | UnitMoved | UnitAttacked
+    RoundStarted | TurnStarted | EnergyRegenerated | EffectTicked | UnitMoved | UnitAttacked
     | UnitDied | PlayerEliminated | TurnEnded | GameOver
 )

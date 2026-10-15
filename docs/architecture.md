@@ -59,16 +59,24 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 ## Game State Machine (`beastborn/game`)
 
 - Phases: `SETUP → AWAITING_COMMAND ⇄ … → GAME_OVER`.
-- `gsm.start()` begins the first turn. `new_game()` calls it for you.
-- Start of turn, for each unit of the active player:
-  1. energy regeneration
-  2. status ticks
-  3. deaths
-- Eliminated players are skipped.
+- `gsm.start()` begins round 1 and the first unit's turn. `new_game()` calls it for you.
+- Turn flow (the GSM picks the unit, players cannot):
+  - A round gives every unit on the board one turn. `gsm.active_unit` is the unit whose turn it is,
+    `gsm.active_player` its owner. Only the active unit can be used in commands and queries.
+  - Players take turns in index order, each round starting with the first player; a player's units go in id order.
+    A unit that cannot move or attack now (checked with the energy it will have after its regeneration) is put off
+    until no unit that can act is left in the round. Players without units (Boss killed) are skipped.
+  - Start of a unit's turn: 1. energy regeneration, 2. status ticks, 3. death.
+  - The unit moves and attacks (several commands) until it cannot move one tile nor hit anything: then the GSM
+    ends its turn by itself and the next unit's turn starts in the same `CommandResult`. `EndTurnCommand` ends it
+    earlier (the unit waits).
+  - When every unit had its turn, the next round starts.
+  - Events: `RoundStarted`, `TurnStarted(player, round, unit_id)`, `TurnEnded(player, unit_id, idle)`
+    (`idle` = it neither moved nor attacked).
 - Queries:
-  - `view()` returns a read-only `GameView`.
-  - `reachable_tiles(unit_id)` returns cost and path for every tile the unit can reach.
-  - `attack_targets(unit_id)` lists enemies the unit can attack now, from where it stands.
+  - `view()` returns a read-only `GameView` (with `active_unit`).
+  - `reachable_tiles(unit_id)` returns cost and path for every tile the active unit can reach.
+  - `attack_targets(unit_id)` lists enemies the active unit can attack now, from where it stands.
   - `attack_plans(unit_id)` lists every enemy one `AttackCommand` can hit, including those it first has to move to,
     as `AttackPlan`s (tile it attacks from, the move, the exact result). `plan_attack(a, t, move_to=None)` returns one.
   - `preview_attack(a, t)` returns the exact result, because combat has no RNG.
@@ -83,9 +91,10 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 ## UI (`beastborn/ui`)
 
 - `interface.py` defines the neutral contracts:
-  - intents: `ClickTile`, `HoverTile`, `EndTurn`, `Cancel`, `Quit`
+  - intents: `ClickTile`, `HoverTile`, `EndTurn`, `Quit`
   - `InputAdapter` and `Frontend`, for loop-based clients such as a console client. The web client is request-driven, so it reuses the intents but not these two.
-- `interaction.py` (`Interaction`) holds the selection and hover state and turns intents into commands. It knows nothing about the web and is unit-tested.
+- `interaction.py` (`Interaction`) holds the hover state and turns intents into commands for the GSM's active unit
+  (click an enemy = attack, click a reachable tile = move, `EndTurn` = end the unit's turn). It knows nothing about the web and is unit-tested.
 - `text.py` turns events into log lines.
 
 ### Web client (`beastborn/ui/web`)
@@ -93,19 +102,19 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - `sessions.py`: `SessionStore` keeps one `GameSession` (an `Interaction` plus a lock) per game id (`uuid4().hex`).
   - Sessions live in memory, so run a single server process (threads are fine).
   - A game expires after `BEASTBORN_SESSION_TTL` seconds idle (default 2 h). At most `BEASTBORN_MAX_GAMES` (default 500) run at once.
-- `intents.py` maps request JSON to the existing intents: `click` → `ClickTile`, `end_turn` → `EndTurn`, `cancel` → `Cancel`.
-- `serializers.py` turns an `Interaction` into the state JSON: board, units, players, selection (reachable tiles with cost and path, targets with exact damage), message and log. Nothing is recomputed.
+- `intents.py` maps request JSON to the existing intents: `click` → `ClickTile`, `end_turn` → `EndTurn`.
+- `serializers.py` turns an `Interaction` into the state JSON: board, units, players, `active_unit`, what it can do (`reachable` tiles with cost and path, `targets` with exact damage), message and log. Nothing is recomputed.
 - `app.py`: `create_app(store=None)` returns the Flask app.
   - `POST /api/games`, `GET /api/games/{id}`, `POST /api/games/{id}/intents`, `DELETE /api/games/{id}`, plus the static page at `/`.
   - Each intent runs under the game's lock: `interaction.handle(intent)` → `render(...)`.
 - `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.
   - The browser redraws the whole board from every state response.
   - Hover previews (path, cost, damage) come from the last state, so they need no requests.
-    Each entry of `selection.targets` has `move: null` (in range) or `{x, y, cost, path}` (moves there first).
+    Each entry of `targets` has `move: null` (in range) or `{x, y, cost, path}` (moves there first).
   - Animations: the state has `actions: {seq, steps: [...]}`. `steps` holds only the moves and attacks since the last intent, in the order they happened (a move + attack is a move step, then an attack step; more if bots played). A move step (`kind: "move"`) has the path; an attack step (`kind: "attack"`) has from/to tile, ranged, damage and killed. `Interaction` keeps just these small records (`MoveAnimation`, `AttackAnimation`), not game snapshots, and clears them on the next intent. The browser plays steps newer than the last `seq` it saw (the unit walks its path, an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page reload only remembers `seq`, so nothing is replayed.
   - A unit's picture is `img/units/<unit key>.svg`. A unit type without a picture shows its letter `code`.
 
 ## Bots
 
-Implement `PlayerController.choose_command(gsm)` using `reachable_tiles` / `attack_targets` / `preview_attack`, then give the session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`). After every intent the web backend calls `run_bots()`, which lets bots act until a human is to move.
-`PassController` is a trivial example: it always ends its turn.
+Implement `PlayerController.choose_command(gsm)` for `gsm.active_unit` using `reachable_tiles` / `attack_plans` / `preview_attack`, then give the session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`). After every intent the web backend calls `run_bots()`, which lets bots act until a human is to move.
+`PassController` is a trivial example: it ends every unit's turn without acting.

@@ -1,7 +1,7 @@
 :root {
   --tile: 52px;
   --tile-edge: inset 0 0 0 1px rgb(0 0 0 / 0.18);
-  --selected: #ffec5a;
+  --active-unit: #ffec5a;
   --target: #ff463c;
   --hp: #5ad264;
   --en: #5aaaff;
@@ -95,12 +95,12 @@ body.busy .tile { cursor: progress; }
   z-index: 3;
   pointer-events: none;
 }
-.tile.selected { box-shadow: inset 0 0 0 3px var(--selected); z-index: 2; }
+.tile.active-unit { box-shadow: inset 0 0 0 3px var(--active-unit); z-index: 2; }
 .tile.target { box-shadow: inset 0 0 0 3px var(--target); z-index: 2; }
-/* enemy the selected unit can attack after moving: dashed frame; hover marks the tile it will attack from */
+/* enemy the active unit can attack after moving: dashed frame; hover marks the tile it will attack from */
 .tile.target-move { outline: 3px dashed var(--target); outline-offset: -3px; z-index: 2; }
 .tile.attack-from { box-shadow: inset 0 0 0 3px var(--target); z-index: 2; }
-.tile.hovered:not(.selected, .target, .target-move) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
+.tile.hovered:not(.active-unit, .target, .target-move) { box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.6); }
 
 /* Units */
 .unit {
@@ -193,9 +193,9 @@ body.busy .tile { cursor: progress; }
 .unit-card .stat-bar { height: 8px; }
 .unit-card .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 12px; }
 
-/* Fixed heights (worst-case content) so selecting or hovering never shifts the panel;
+/* Fixed heights (worst-case content) so a new active unit or hovering never shifts the panel;
    the log takes the remaining height. */
-#selected-info { height: 14rem; overflow-y: auto; }
+#active-info { height: 14rem; overflow-y: auto; }
 #hover-info { height: 11.5rem; overflow-y: auto; }
 .log-card { flex: 1 1 0; min-height: 10rem; }
 #log { flex: 1 1 0; min-height: 0; overflow-y: auto; }

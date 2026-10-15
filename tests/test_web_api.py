@@ -35,15 +35,8 @@ def intent(client, game_id, **body):
     return response.json
 
 
-def own_unit_with_moves(client, state):
-    """Select units of the active player until one can move; return (state, unit)."""
-    for unit in state["units"]:
-        if unit["owner"] != state["active_player"]:
-            continue
-        state = intent(client, state["game_id"], type="click", x=unit["x"], y=unit["y"])
-        if state["selection"]["reachable"]:
-            return state, unit
-    raise AssertionError("no movable unit")
+def active_unit(state):
+    return next(u for u in state["units"] if u["id"] == state["active_unit"])
 
 
 # ---------------------------------------------------------------- games
@@ -56,7 +49,9 @@ def test_create_game_state_shape(client):
     assert state["board"]["tiles"][0][0] == {"terrain": "grass", "elevation": 0}
     assert len(state["units"]) == 2 * (1 + UNITS_PER_PLAYER)
     assert {"id", "owner", "type", "x", "y", "hp", "max_hp", "energy", "current_def", "effects"} <= set(state["units"][0])
-    assert state["selection"] == {"unit_id": None, "reachable": [], "targets": []}
+    unit = active_unit(state)  # the game picks the unit; at the start it can only move
+    assert unit["owner"] == 0 and unit["energy"] == unit["reg_en"]
+    assert state["reachable"] and state["targets"] == []
     assert state["message"] == {"text": "", "error": False}
 
 
@@ -129,10 +124,10 @@ def test_non_json_body_is_422(client):
 
 
 # ---------------------------------------------------------------- intents
-def test_select_move_and_end_turn(client):
-    state, unit = own_unit_with_moves(client, new(client))
-    assert state["selection"]["unit_id"] == unit["id"]
-    dest = state["selection"]["reachable"][0]
+def test_move_the_active_unit(client):
+    state = new(client)
+    unit = active_unit(state)
+    dest = state["reachable"][0]
     assert dest["path"][0] == [unit["x"], unit["y"]] and dest["path"][-1] == [dest["x"], dest["y"]]
 
     state = intent(client, state["game_id"], type="click", x=dest["x"], y=dest["y"])
@@ -141,21 +136,26 @@ def test_select_move_and_end_turn(client):
     assert moved["energy"] == unit["energy"] - dest["cost"]
     assert any("moved" in line for line in state["log"])
 
+
+def test_end_turn_passes_to_the_next_players_unit(client):
+    state = new(client)
+    first = state["active_unit"]
     state = intent(client, state["game_id"], type="end_turn")
-    assert state["active_player"] == 1
-    assert state["selection"]["unit_id"] is None
+    assert state["active_player"] == 1 and active_unit(state)["owner"] == 1
+    assert state["log"][-1].endswith("waits") and state["active_unit"] != first
 
 
-def test_cancel_clears_selection(client):
-    state, _ = own_unit_with_moves(client, new(client))
-    state = intent(client, state["game_id"], type="cancel")
-    assert state["selection"]["unit_id"] is None
+def test_other_own_unit_cannot_be_chosen(client):
+    state = new(client)
+    other = next(u for u in state["units"] if u["owner"] == 0 and u["id"] != state["active_unit"])
+    after = intent(client, state["game_id"], type="click", x=other["x"], y=other["y"])
+    assert after["message"]["error"] and "now it is" in after["message"]["text"]
+    assert after["active_unit"] == state["active_unit"] and after["units"] == state["units"]
 
 
 def test_rejected_action_reports_error_and_keeps_state(client):
     state = new(client)
     enemy = next(u for u in state["units"] if u["owner"] == 1)
-    state, _ = own_unit_with_moves(client, state)
     before = {u["id"]: (u["x"], u["y"], u["hp"], u["energy"]) for u in state["units"]}
     state = intent(client, state["game_id"], type="click", x=enemy["x"], y=enemy["y"])  # far away
     assert state["message"]["error"] and "range" in state["message"]["text"]
@@ -164,7 +164,8 @@ def test_rejected_action_reports_error_and_keeps_state(client):
 
 @pytest.mark.parametrize(
     "body",
-    [{"type": "jump"}, {"type": "click"}, {"type": "click", "x": 12, "y": 0}, {"type": "click", "x": -1, "y": 0}],
+    [{"type": "jump"}, {"type": "cancel"}, {"type": "click"}, {"type": "click", "x": 12, "y": 0},
+     {"type": "click", "x": -1, "y": 0}],
 )
 def test_invalid_intents(client, body):
     gid = new(client)["game_id"]
@@ -182,8 +183,9 @@ def test_attack_and_game_over(client, store):
     gsm = custom_game(board, [(0, SOLDIER, (1, 1)), (0, KING, (0, 0)), (1, weak_king, (2, 1)), (1, SOLDIER, (4, 2))])
     gid = inject(store, gsm)
 
-    state = intent(client, gid, type="click", x=1, y=1)
-    assert state["selection"]["targets"] == [
+    state = client.get(f"/api/games/{gid}").json
+    assert state["active_unit"] == 1
+    assert state["targets"] == [
         {"unit_id": 3, "damage": 3, "formula": "4 - 1 = 3", "blocked": False, "move": None}
     ]
     state = intent(client, gid, type="click", x=2, y=1)

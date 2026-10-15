@@ -23,10 +23,13 @@ class GameState:
     units: dict[int, UnitState]
     seed: int | None = None
     phase: Phase = Phase.SETUP
-    active_player: int = 0
+    active_player: int = 0  # owner of the active unit
+    active_unit: int | None = None  # the unit whose turn it is (the Game State Machine picks it)
     round: int = 0
     winner: int | None = None
-    attacks_this_turn: dict[int, int] = field(default_factory=dict)
+    acted_this_round: set[int] = field(default_factory=set)  # units that had (or have) their turn this round
+    attacks_this_turn: int = 0  # attacks made by the active unit in its current turn
+    actions_this_turn: int = 0  # moves and attacks made by the active unit in its current turn
     fallen: list[UnitState] = field(default_factory=list)  # units removed from the board (killed, or their Boss died)
 
     def unit_at(self, pos: Position) -> UnitState | None:

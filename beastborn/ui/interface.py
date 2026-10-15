@@ -30,17 +30,13 @@ class EndTurn:
     pass
 
 
-@dataclass(frozen=True)
-class Cancel:
-    pass
-
 
 @dataclass(frozen=True)
 class Quit:
     pass
 
 
-UIIntent = ClickTile | HoverTile | EndTurn | Cancel | Quit
+UIIntent = ClickTile | HoverTile | EndTurn | Quit
 
 
 # ------------------------------------------------------------------ contracts

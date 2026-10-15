@@ -1,7 +1,7 @@
 """Who decides the moves for a player.
 
-Humans act through a frontend. A bot (added later) implements ``choose_command`` and
-uses the same GSM queries the UI uses (reachable_tiles, attack_targets).
+Humans act through a frontend. A bot (added later) implements ``choose_command`` for the GSM's
+active unit (``gsm.active_unit``) and uses the same GSM queries the UI uses (reachable_tiles, attack_plans).
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class PlayerController(ABC):
 
     @abstractmethod
     def choose_command(self, gsm: GameStateMachine) -> Command | None:
-        """Next command for the active player, or None to wait (e.g. for human input)."""
+        """Next command for the active unit (owned by the active player), or None to wait (e.g. for human input)."""
 
 
 class HumanController(PlayerController):
@@ -33,7 +33,7 @@ class HumanController(PlayerController):
 
 
 class PassController(PlayerController):
-    """Trivial placeholder bot: always ends its turn."""
+    """Trivial placeholder bot: ends every unit's turn without acting."""
 
     def choose_command(self, gsm: GameStateMachine) -> Command | None:
         return EndTurnCommand()

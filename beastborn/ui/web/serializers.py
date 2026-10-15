@@ -54,6 +54,7 @@ def render(game_id: str, ui: Interaction) -> JSON:
         "round": view.round,
         "phase": view.phase.value,
         "active_player": view.active_player,
+        "active_unit": ui.active_unit.id if ui.active_unit is not None else None,  # the unit whose turn it is
         "winner": view.winner,
         "human_turn": ui.human_turn,
         "score": ui.score,  # of the active player
@@ -63,12 +64,10 @@ def render(game_id: str, ui: Interaction) -> JSON:
             for p in view.players
         ],
         "units": [unit_json(u) for u in view.units],
-        "selection": {
-            "unit_id": ui.selected,
-            "reachable": [_reachable_json(pos, info) for pos, info in sorted(ui.reachable.items())],
-            # every enemy a click attacks; "move" is set when the unit walks there first
-            "targets": [_target_json(plan) for _, plan in sorted(ui.attack_plans.items())],
-        },
+        # what the active unit can do: tiles it can move to, and every enemy a click attacks
+        # ("move" is set when the unit walks there first)
+        "reachable": [_reachable_json(pos, info) for pos, info in sorted(ui.reachable.items())],
+        "targets": [_target_json(plan) for _, plan in sorted(ui.attack_plans.items())],
         # moves and attacks since the last intent, in order, for animations;
         # "seq" lets a reloaded page skip ones it already saw
         "actions": {"seq": ui.action_seq, "steps": [_step_json(a) for a in ui.last_actions]},

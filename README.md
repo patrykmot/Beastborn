@@ -49,8 +49,12 @@ The attacker stands still and hits while it has energy; the target does nothing.
 ## Rules in short
 
 - **Win:** kill every enemy Boss. If your Boss dies, your whole army leaves the battlefield.
-- **Turn:** at the start of your turn each of your units regenerates `REG_EN` energy (up to `MAX_EN`), then status effects tick (Venom).
-  Units start a game with 0 energy. Then use your units in any order and end the turn.
+- **Round and turns:** in every round each unit gets one turn. The game picks the unit, players cannot choose:
+  players take turns in order (Player 1, Player 2, ..., Player 1, ...), each player's units go in a fixed order,
+  and a unit that cannot move or attack right now is put off to the end of the round. Every round starts with Player 1.
+- **Unit turn:** the unit regenerates `REG_EN` energy (up to `MAX_EN`), then its status effects tick (Venom).
+  Units start a game with 0 energy. Then it moves and attacks until it cannot do anything more (the turn passes
+  by itself) or you press End turn (the unit waits).
 - **Movement** (4 directions, units block tiles):
 - **Attack** enemy unit. Move can be made if needed.
 - **Effects** (applied on every hit): Venom HP at the start of each of your turns. Acid  DEF permanently per hit (not yet used).
@@ -59,13 +63,12 @@ The attacker stands still and hits while it has energy; the target does nothing.
 
 | Action | Input |
 |---|---|
-| Select own unit | Left click |
+| Active unit | Chosen by the game (yellow frame, shown under "Active unit") |
 | Move | Left click a highlighted tile (number = EN cost) |
 | Attack | Left click an enemy with a red frame (hover shows exact damage). Arrows and melee hits are animated |
 | Move + attack | Left click an enemy with a dashed red frame: the unit walks to the marked tile, then attacks (hover shows the path, move cost and damage) |
-| Deselect | Right click / Esc |
 | Preview | Hover: path + move cost, or exact damage on a target |
-| End turn | E / Space / button |
+| End turn (the unit waits, the next unit acts) | E / Space / button |
 
 ## Project layout
 
@@ -92,7 +95,7 @@ gercio_eu_pythonanywhere_com_wsgi.py   PythonAnywhere WSGI entry point (producti
 |---|---|---|
 | `POST` | `/api/games` | `{"players": 2, "size": 12, "seed": null}` → new game state |
 | `GET` | `/api/games/{id}` | → state |
-| `POST` | `/api/games/{id}/intents` | `{"type": "click", "x": 3, "y": 5}` / `{"type": "end_turn"}` / `{"type": "cancel"}` → state |
+| `POST` | `/api/games/{id}/intents` | `{"type": "click", "x": 3, "y": 5}` / `{"type": "end_turn"}` → state |
 | `DELETE` | `/api/games/{id}` | → 204 |
 
 ## Credits

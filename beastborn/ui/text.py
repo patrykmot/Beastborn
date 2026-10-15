@@ -6,8 +6,8 @@ from beastborn.game import events as ev
 from beastborn.game.view import GameView, UnitView
 
 
-def round_header(round_number: int, player_name: str) -> str:
-    return f"--- Round {round_number}: {player_name} ---"
+def round_header(round_number: int) -> str:
+    return f"--- Round {round_number} ---"
 
 
 def owned_name(owner: int, name: str) -> str:
@@ -31,8 +31,10 @@ def describe(event: ev.GameEvent, before: GameView, after: GameView) -> str | No
     def label(unit_id: int) -> str:
         return unit_label(before if before.unit(unit_id) else after, unit_id)
 
-    if isinstance(event, ev.TurnStarted):
-        return round_header(event.round, after.players[event.player].name)
+    if isinstance(event, ev.RoundStarted):
+        return round_header(event.round)
+    if isinstance(event, ev.TurnEnded):
+        return f"{label(event.unit_id)} waits" if event.idle else None
     if isinstance(event, ev.UnitMoved):
         return f"{label(event.unit_id)} moved {event.path[0]}->{event.path[-1]} (-{event.cost} EN)"
     if isinstance(event, ev.UnitAttacked):
@@ -52,4 +54,4 @@ def describe(event: ev.GameEvent, before: GameView, after: GameView) -> str | No
         if event.winner is None:
             return "Game over - no winner"
         return f"{after.players[event.winner].name} wins!"
-    return None  # EnergyRegenerated, TurnEnded: visible on the board already
+    return None  # TurnStarted, EnergyRegenerated: visible on the board already

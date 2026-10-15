@@ -97,18 +97,18 @@
       </div>
 
       <div class="card">
-        <div class="card-header py-1 small text-secondary">Selected</div>
-        <div id="selected-info" class="card-body py-2"></div>
+        <div class="card-header py-1 small text-secondary">Active unit</div>
+        <div id="active-info" class="card-body py-2"></div>
       </div>
 
-      <button id="btn-end-turn" class="btn btn-primary btn-lg">
+      <button id="btn-end-turn" class="btn btn-primary btn-lg" title="End this unit's turn (the next unit acts)">
         <i class="bi bi-hourglass-split"></i> End turn <kbd class="ms-1">E</kbd>
       </button>
 
       <div class="card log-card">
         <div class="card-header py-1 small text-secondary d-flex justify-content-between">
           <span>Log</span>
-          <span class="text-body-tertiary">LMB select · move · attack &nbsp;|&nbsp; RMB/Esc cancel</span>
+          <span class="text-body-tertiary">LMB move · attack &nbsp;|&nbsp; E/Space end turn</span>
         </div>
         <ul id="log" class="list-group list-group-flush small"></ul>
       </div>

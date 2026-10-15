@@ -3,33 +3,40 @@ from beastborn.control import PassController
 from beastborn.domain import Board, Position
 from beastborn.game import Phase, custom_game
 from beastborn.ui.interaction import Interaction
-from beastborn.ui.interface import Cancel, ClickTile, EndTurn, HoverTile, Quit
+from beastborn.ui.interface import ClickTile, EndTurn, HoverTile, Quit
 from tests.conftest import KING, SOLDIER
 
 FLAT = Board.from_strings([".....", ".....", "....."])
 
 
 def scenario():
+    """Turn order: P1 King (1), P2 King (3), P1 Soldier (2), P2 Soldier (4)."""
     gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 1))])
     return gsm, Interaction(gsm)
 
 
-def test_click_own_unit_selects_and_shows_reachable():
-    _, ui = scenario()
-    ui.handle(ClickTile(Position(1, 1)))
-    assert ui.selected == 2
-    assert Position(2, 1) in ui.reachable
-    ui.handle(ClickTile(Position(1, 1)))  # click again = deselect
-    assert ui.selected is None and ui.reachable == {}
+def soldier_turn(ui):
+    ui.handle(EndTurn())
+    ui.handle(EndTurn())
+    assert ui.active_unit.id == 2
+
+
+def test_the_game_picks_the_active_unit_and_shows_its_moves():
+    gsm, ui = scenario()
+    assert ui.active_unit.id == 1
+    assert ui.reachable == gsm.reachable_tiles(1) and Position(1, 0) in ui.reachable
+    ui.handle(ClickTile(Position(1, 1)))  # another own unit cannot be chosen
+    assert ui.message_is_error and "now it is P1 King" in ui.message
+    assert ui.active_unit.id == 1 and gsm.command_log == []
 
 
 def test_click_tile_moves_and_click_enemy_attacks():
     gsm, ui = scenario()
-    ui.handle(ClickTile(Position(1, 1)))
+    soldier_turn(ui)
     ui.handle(ClickTile(Position(2, 1)))
     assert gsm.view().unit(2).position == Position(2, 1)
-    assert ui.selected == 2  # stays selected after moving
-    assert 4 in ui.targets
+    assert ui.active_unit.id == 2  # 4 EN left: still its turn
+    assert not ui.attack_plans[4].needs_move
     ui.handle(HoverTile(Position(3, 1)))
     assert ui.hover_attack().damage == 3
     ui.handle(ClickTile(Position(3, 1)))
@@ -39,21 +46,18 @@ def test_click_tile_moves_and_click_enemy_attacks():
 
 def test_errors_are_shown_not_raised():
     _, ui = scenario()
-    ui.handle(ClickTile(Position(1, 1)))
+    soldier_turn(ui)
     ui.handle(ClickTile(Position(4, 2)))  # enemy King: out of range and too far to walk to
     assert ui.message_is_error and "range" in ui.message
-    ui.handle(Cancel())
-    ui.handle(ClickTile(Position(4, 2)))  # nothing selected -> enemy info message
-    assert ui.message_is_error and "belongs to" in ui.message
+    ui.handle(ClickTile(Position(4, 0)))  # an empty tile out of reach: nothing happens
+    assert ui.message == "" and ui.active_unit.id == 2
 
 
-def test_end_turn_and_cancel():
+def test_end_turn_passes_to_the_next_unit():
     gsm, ui = scenario()
-    ui.handle(ClickTile(Position(1, 1)))
-    ui.handle(Cancel())
-    assert ui.selected is None
     ui.handle(EndTurn())
-    assert gsm.active_player == 1
+    assert (gsm.active_player, ui.active_unit.id) == (1, 3)
+    assert ui.log[-1] == "P1 King waits"
     ui.handle(Quit())
     assert ui.quit_requested
 
@@ -67,6 +71,7 @@ def test_bot_controller_plays_its_turn():
     assert gsm.active_player == 1
     ui.tick()
     assert gsm.active_player == 0 and gsm.view().round == 2
+    assert "--- Round 2 ---" in ui.log
 
 
 def test_no_commands_after_game_over():
@@ -87,8 +92,8 @@ def test_main_parses_arguments():
 def test_click_far_enemy_moves_then_attacks_and_hover_shows_the_planned_hit():
     gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (0, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 1))])
     ui = Interaction(gsm)
-    ui.handle(ClickTile(Position(0, 1)))
-    assert ui.targets == {} and set(ui.attack_plans) == {4}
+    soldier_turn(ui)
+    assert set(ui.attack_plans) == {4} and ui.attack_plans[4].needs_move  # nothing in range from where it stands
     ui.handle(HoverTile(Position(3, 1)))
     assert ui.hover_plan().origin == Position(2, 1)
     assert ui.hover_attack() == ui.hover_plan().result
@@ -98,13 +103,13 @@ def test_click_far_enemy_moves_then_attacks_and_hover_shows_the_planned_hit():
     walk, hit = ui.last_actions  # a move step, then an attack step
     assert walk.path[0] == Position(0, 1) and walk.path[-1] == Position(2, 1)
     assert hit.source == Position(2, 1) and hit.target == Position(3, 1)
+    assert ui.active_unit.id == 4  # no energy left: the game passed the turn by itself
 
 
 def test_plain_move_is_recorded_for_animation():
     gsm, ui = scenario()
-    ui.handle(ClickTile(Position(1, 1)))
-    ui.handle(ClickTile(Position(1, 2)))
+    ui.handle(ClickTile(Position(1, 0)))
     (walk,) = ui.last_actions
-    assert (walk.seq, walk.unit_id, walk.owner, walk.path) == (1, 2, 0, (Position(1, 1), Position(1, 2)))
-    ui.handle(Cancel())  # any next input clears it
+    assert (walk.seq, walk.unit_id, walk.owner, walk.path) == (1, 1, 0, (Position(0, 0), Position(1, 0)))
+    ui.handle(ClickTile(Position(1, 1)))  # any next input clears it
     assert ui.last_actions == []

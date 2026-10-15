@@ -29,24 +29,109 @@ def unit(gsm, unit_id):
     return gsm.view().unit(unit_id)
 
 
-# ---------------------------------------------------------------- turn start
-def test_first_turn_regenerates_only_active_player():
+def turn_of(gsm, unit_id):
+    """End turns until it is ``unit_id``'s turn; returns the events on the way. (The GSM picks who acts.)"""
+    events = []
+    for _ in range(50):
+        if gsm.active_unit == unit_id:
+            return events
+        result = gsm.submit(EndTurnCommand())
+        assert result.ok, result.error
+        events += result.events
+    raise AssertionError(f"unit {unit_id} never got its turn")
+
+
+def active_units(gsm, turns):
+    """Ids of the next ``turns`` active units when every unit just ends its turn."""
+    order = [gsm.active_unit]
+    for _ in range(turns - 1):
+        gsm.submit(EndTurnCommand())
+        order.append(gsm.active_unit)
+    return order
+
+
+# ---------------------------------------------------------------- turn order
+def test_players_alternate_and_units_go_in_id_order():
+    gsm = two_player_game()  # P0: 1, 2; P1: 3, 4
+    assert active_units(gsm, 5) == [1, 3, 2, 4, 1]
+    assert gsm.view().round == 2
+
+
+def test_round_starts_with_the_first_player_and_bigger_army_finishes_the_round():
+    gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (0, SOLDIER, (2, 0)), (1, KING, (4, 2))])
+    assert active_units(gsm, 5) == [1, 4, 2, 3, 1]
+
+
+def test_only_the_active_unit_regenerates():
     gsm = two_player_game()
-    assert unit(gsm, 2).energy == 6  # REG_EN
-    assert unit(gsm, 4).energy == 0  # P1 has not started a turn yet
+    assert (gsm.active_player, gsm.active_unit) == (0, 1)
+    assert unit(gsm, 1).energy == 6  # REG_EN at the start of its own turn
+    assert unit(gsm, 2).energy == 0  # its turn has not started yet
+    turn_of(gsm, 2)
+    assert unit(gsm, 2).energy == 6
 
 
 def test_energy_hoarding_caps_at_max():
     gsm = two_player_game()
-    gsm.submit(EndTurnCommand())  # P1 turn 1: 6
-    gsm.submit(EndTurnCommand())  # P0 turn 2
-    assert unit(gsm, 2).energy == 10  # 6 + 6 capped at MAX_EN 10
+    gsm.submit(EndTurnCommand())
+    turn_of(gsm, 1)  # round 2
+    assert unit(gsm, 1).energy == 10  # 6 + 6 capped at MAX_EN 10
     assert gsm.view().round == 2
+
+
+def test_only_the_active_unit_can_act():
+    gsm = two_player_game()
+    assert gsm.active_unit == 1
+    result = gsm.submit(MoveCommand(2, Position(2, 1)))
+    assert not result.ok and "not this unit's turn" in result.error
+    assert gsm.reachable_tiles(2) == {} and gsm.attack_plans(2) == {}
+    assert "another player" in gsm.submit(MoveCommand(3, Position(3, 2))).error
+
+
+def test_end_turn_without_acting_is_waiting():
+    gsm = two_player_game()
+    result = gsm.submit(EndTurnCommand())
+    assert result.events[0] == ev.TurnEnded(0, 1, idle=True)
+    assert isinstance(result.events[1], ev.TurnStarted) and result.events[1].unit_id == 3
+
+
+def test_turn_ends_by_itself_when_the_unit_cannot_do_more():
+    gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
+    assert gsm.submit(AttackCommand(2, 4)).ok and gsm.active_unit == 2  # 4 EN left
+    assert gsm.submit(AttackCommand(2, 4)).ok and gsm.active_unit == 2  # 2 EN left: still enough for a step
+    result = gsm.submit(AttackCommand(2, 4))  # 0 EN: nothing left to do
+    kinds = [type(e) for e in result.events]
+    assert kinds[:3] == [ev.UnitAttacked, ev.TurnEnded, ev.TurnStarted]
+    assert result.events[1] == ev.TurnEnded(0, 2, idle=False)
+    assert gsm.active_unit == 4
+    assert gsm.command_log[-1] == AttackCommand(2, 4)  # the automatic turn end is not a command
+
+
+def test_unit_that_cannot_act_is_put_off_to_the_end_of_the_round():
+    # The King (1) is boxed in by its own Soldiers and has no enemy in range.
+    gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (0, SOLDIER, (0, 1)), (1, KING, (4, 2))])
+    assert gsm.active_unit == 2
+    assert active_units(gsm, 3) == [2, 4, 3]
+    result = gsm.submit(EndTurnCommand())  # only the boxed-in King is left: its turn starts and ends by itself
+    kinds = [type(e) for e in result.events]
+    assert ev.TurnEnded(0, 1, idle=True) in result.events
+    assert kinds.index(ev.EnergyRegenerated) < kinds.index(ev.RoundStarted)  # it still regenerated this round
+    assert gsm.view().round == 2 and gsm.active_unit == 2
+
+
+def test_put_off_unit_acts_as_soon_as_it_is_free():
+    gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (0, SOLDIER, (0, 1)), (1, KING, (4, 2))])
+    assert gsm.submit(MoveCommand(2, Position(2, 0))).ok  # frees (1,0)
+    turn_of(gsm, 4)
+    gsm.submit(EndTurnCommand())
+    assert gsm.active_unit == 1  # before Soldier 3: id order again
 
 
 # ---------------------------------------------------------------- movement
 def test_move_spends_energy():
     gsm = two_player_game(p1_soldier=(4, 0))
+    turn_of(gsm, 2)
     result = gsm.submit(MoveCommand(2, Position(3, 1)))
     assert result.ok
     moved = result.events[0]
@@ -58,6 +143,7 @@ def test_move_spends_energy():
 
 def test_move_without_enough_energy_changes_nothing():
     gsm = two_player_game()
+    turn_of(gsm, 2)
     before = gsm.view()
     result = gsm.submit(MoveCommand(2, Position(4, 0)))  # 4 tiles = 8 EN, has 6
     assert not result.ok and "energy" in result.error
@@ -102,6 +188,7 @@ def test_cannot_move_outside_board():
 # ---------------------------------------------------------------- attacks
 def test_attack_damages_and_spends_energy():
     gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
     preview = gsm.preview_attack(2, 4)
     result = gsm.submit(AttackCommand(2, 4))
     assert result.ok
@@ -115,24 +202,35 @@ def test_attack_damages_and_spends_energy():
 
 def test_multiple_attacks_while_energy_lasts():
     gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
     assert gsm.submit(AttackCommand(2, 4)).ok
     assert gsm.submit(AttackCommand(2, 4)).ok
     assert gsm.submit(AttackCommand(2, 4)).ok
-    result = gsm.submit(AttackCommand(2, 4))  # 0 energy left
+    assert unit(gsm, 4).hp == 1 and unit(gsm, 2).energy == 0
+    assert not gsm.submit(AttackCommand(2, 4)).ok  # its turn is over
+
+
+def test_not_enough_energy_to_attack():
+    gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
+    gsm._state.units[2].energy = 1
+    result = gsm.submit(AttackCommand(2, 4))
     assert not result.ok and "energy" in result.error
-    assert unit(gsm, 4).hp == 1
 
 
 def test_attack_limit_from_constant(monkeypatch):
     monkeypatch.setattr(C, "MAX_ATTACKS_PER_TURN", 1)
     gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
     assert gsm.submit(AttackCommand(2, 4)).ok
     assert not gsm.submit(AttackCommand(2, 4)).ok
 
 
 def test_attack_rejections():
     gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(4, 1))  # 6 EN: 2 steps + 1 attack, the target needs 3 steps
+    turn_of(gsm, 2)
     assert "out of range" in gsm.submit(AttackCommand(2, 4)).error
+    assert "not this unit's turn" in gsm.submit(AttackCommand(1, 4)).error
     assert "own unit" in gsm.submit(AttackCommand(2, 1)).error
     assert "another player" in gsm.submit(AttackCommand(4, 2)).error
     assert "does not exist" in gsm.submit(AttackCommand(2, 99)).error
@@ -140,10 +238,12 @@ def test_attack_rejections():
 
 def test_attack_targets_lists_only_valid_targets():
     gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
     targets = gsm.attack_targets(2)
     assert set(targets) == {4}
     assert targets[4].damage == 3
     assert gsm.attack_targets(4) == {}  # not this player's turn
+    assert gsm.attack_targets(1) == {}  # not this unit's turn
 
 
 def test_elevation_and_mud_in_a_real_fight():
@@ -189,7 +289,8 @@ def test_archer_cannot_shoot_beyond_four_tiles_and_keeps_energy(monkeypatch):
 def test_archer_beyond_four_tiles_steps_closer_and_shoots():
     gsm = archer_game(5)
     result = gsm.submit(AttackCommand(1, 2))
-    moved, hit = result.events
+    moved, hit, ended = result.events[:3]  # 1 EN left: its turn ends by itself
+    assert ended == ev.TurnEnded(0, 1, idle=False)
     assert isinstance(moved, ev.UnitMoved) and moved.path == (Position(0, 0), Position(1, 0))
     assert hit.result.distance == 4 and hit.result.damage == 5  # 8 x0.8 - 1 = 5.4 -> 5
     assert unit(gsm, 1).energy == 6 - 3 - 2  # step 2 + move_penalty 1, then the attack
@@ -218,10 +319,11 @@ def test_venom_ticks_at_start_of_victims_turn():
     rat = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.VENOM),))  # ATK 4 -> 1 HP per round, 5 rounds
     gsm = two_player_game(p1_soldier=(2, 1))
     gsm._state.units[2].stats = rat  # P0 soldier becomes a rat
+    turn_of(gsm, 2)
     gsm.submit(AttackCommand(2, 4))
     assert unit(gsm, 4).hp == 7
     assert unit(gsm, 4).effects == (StatusEffect(EffectKind.VENOM, 1, 5, source_id=2),)
-    result = gsm.submit(EndTurnCommand())
+    result = gsm.submit(EndTurnCommand())  # the victim's turn is next
     ticks = [e for e in result.events if isinstance(e, ev.EffectTicked)]
     assert len(ticks) == 1 and ticks[0].unit_id == 4
     assert unit(gsm, 4).hp == 6
@@ -234,19 +336,20 @@ def test_venom_from_two_rats_stacks_and_ticks_twice():
         FLAT,
         [(0, KING, (0, 0)), (0, rat, (2, 1)), (0, rat, (3, 0)),
          (1, KING, (4, 2)), (1, replace(SOLDIER, hp=20), (3, 1))],
-    )
+    )  # turn order: 1, 4, 2, 5, 3
+    turn_of(gsm, 2)
     for _ in range(2):  # the second hit of the same rat refreshes its stack, it does not add one
         assert gsm.submit(AttackCommand(2, 5)).ok
+    turn_of(gsm, 3)  # the victim's turn comes in between: one tick
     assert gsm.submit(AttackCommand(3, 5)).ok
-    assert unit(gsm, 5).hp == 20 - 3 * 3
+    assert unit(gsm, 5).hp == 20 - 3 * 3 - 1
     assert unit(gsm, 5).effects == (
-        StatusEffect(EffectKind.VENOM, 1, 5, source_id=2), StatusEffect(EffectKind.VENOM, 1, 5, source_id=3),
+        StatusEffect(EffectKind.VENOM, 1, 4, source_id=2), StatusEffect(EffectKind.VENOM, 1, 5, source_id=3),
     )
-    result = gsm.submit(EndTurnCommand())
-    ticks = [e for e in result.events if isinstance(e, ev.EffectTicked)]
-    assert [(t.unit_id, t.amount, t.hp_after) for t in ticks] == [(5, 1, 10), (5, 1, 9)]
-    assert unit(gsm, 5).hp == 9
-    assert [e.remaining_turns for e in unit(gsm, 5).effects] == [4, 4]
+    ticks = [e for e in turn_of(gsm, 5) if isinstance(e, ev.EffectTicked)]
+    assert [(t.unit_id, t.amount, t.hp_after) for t in ticks] == [(5, 1, 9), (5, 1, 8)]
+    assert unit(gsm, 5).hp == 8
+    assert [e.remaining_turns for e in unit(gsm, 5).effects] == [3, 4]
 
 
 def test_start_of_turn_order_regen_then_venom_then_death():
@@ -254,7 +357,8 @@ def test_start_of_turn_order_regen_then_venom_then_death():
     victim = gsm._state.units[4]
     victim.hp = 1
     victim.effects = (StatusEffect(EffectKind.VENOM, 1, 3),)
-    result = gsm.submit(EndTurnCommand())
+    turn_of(gsm, 2)
+    result = gsm.submit(EndTurnCommand())  # unit 4's turn
     kinds = [type(e) for e in result.events]
     i_regen = kinds.index(ev.EnergyRegenerated)
     i_tick = kinds.index(ev.EffectTicked)
@@ -267,6 +371,7 @@ def test_acid_reduces_defense_permanently():
     acid = replace(SOLDIER, on_hit=(EffectSpec(EffectKind.ACID),))  # ATK 4 -> -1 DEF per hit
     gsm = two_player_game(p1_soldier=(2, 1))
     gsm._state.units[2].stats = acid
+    turn_of(gsm, 2)
     gsm.submit(AttackCommand(2, 4))
     assert unit(gsm, 4).defense == 0
     gsm.submit(AttackCommand(2, 4))
@@ -290,6 +395,7 @@ def test_killing_boss_wins_two_player_game():
 def test_killing_normal_unit_does_not_end_game():
     gsm = two_player_game(p1_soldier=(2, 1))
     gsm._state.units[4].hp = 3
+    turn_of(gsm, 2)
     result = gsm.submit(AttackCommand(2, 4))
     assert [type(e) for e in result.events] == [ev.UnitAttacked, ev.UnitDied]
     assert gsm.phase is Phase.AWAITING_COMMAND
@@ -306,9 +412,11 @@ def test_eliminated_player_is_skipped_in_three_player_game():
     gsm.submit(AttackCommand(1, 3))
     assert gsm.phase is Phase.AWAITING_COMMAND  # two players left
     gsm.submit(EndTurnCommand())
-    assert gsm.active_player == 2
+    assert gsm.active_player == 2  # Player 2 is out
     gsm.submit(EndTurnCommand())
-    assert gsm.active_player == 0 and gsm.view().round == 2
+    assert gsm.active_unit == 2 and gsm.view().round == 1
+    gsm.submit(EndTurnCommand())
+    assert gsm.active_unit == 1 and gsm.view().round == 2
 
 
 def test_boss_killed_by_venom_at_own_turn_start():
@@ -323,10 +431,11 @@ def test_boss_killed_by_venom_at_own_turn_start():
 
 def test_command_log_records_only_accepted_commands():
     gsm = two_player_game()
+    turn_of(gsm, 2)
     gsm.submit(MoveCommand(2, Position(4, 0)))  # rejected
     gsm.submit(MoveCommand(2, Position(2, 1)))
     gsm.submit(EndTurnCommand())
-    assert gsm.command_log == [MoveCommand(2, Position(2, 1)), EndTurnCommand()]
+    assert gsm.command_log == [EndTurnCommand(), EndTurnCommand(), MoveCommand(2, Position(2, 1)), EndTurnCommand()]
 
 
 # ---------------------------------------------------------------- engine swap
@@ -344,6 +453,8 @@ class CheapMovesEngine(StandardCalculationEngine):
 def test_swapping_calculation_engine_changes_rules_without_touching_gsm():
     standard = two_player_game(p1_soldier=(2, 1))
     cheap = two_player_game(p1_soldier=(2, 1), engine=CheapMovesEngine())
+    turn_of(standard, 2)
+    turn_of(cheap, 2)
     assert standard.reachable_tiles(2)[Position(1, 2)].cost == 2
     assert cheap.reachable_tiles(2)[Position(1, 2)].cost == 1
     cheap.submit(AttackCommand(2, 4))
@@ -363,15 +474,20 @@ def test_cannot_start_twice():
 
 # ---------------------------------------------------------------- move, then attack
 def far_game(**kwargs):
-    """P0 Soldier (0,1) with 6 EN; P1 Soldier (3,1). Only (2,1) is in reach (4 EN) and next to the target."""
-    return two_player_game(p0_soldier=(0, 1), p1_soldier=(3, 1), **kwargs)
+    """P0 Soldier (0,1) with 6 EN, at its turn; P1 Soldier (3,1). Only (2,1) is in reach (4 EN) and next to the target.
+
+    Its turn comes after two other turns: the command log starts with two ``EndTurnCommand``s.
+    """
+    gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(3, 1), **kwargs)
+    turn_of(gsm, 2)
+    return gsm
 
 
 def test_attack_out_of_range_moves_first_then_attacks():
     gsm = far_game()
     result = gsm.submit(AttackCommand(2, 4))
     assert result.ok
-    moved, hit = result.events
+    moved, hit = result.events[:2]  # then its turn ends: no energy left
     assert isinstance(moved, ev.UnitMoved) and isinstance(hit, ev.UnitAttacked)
     assert moved.path[0] == Position(0, 1) and moved.path[-1] == Position(2, 1)
     assert moved.cost == 4 and moved.energy_after == 2
@@ -383,15 +499,16 @@ def test_attack_out_of_range_moves_first_then_attacks():
 def test_move_attack_is_logged_with_the_tile_it_was_made_from():
     gsm = far_game()
     gsm.submit(AttackCommand(2, 4))
-    assert gsm.command_log == [AttackCommand(2, 4, Position(2, 1))]
+    assert gsm.command_log[2:] == [AttackCommand(2, 4, Position(2, 1))]
 
 
 def test_attack_in_range_never_moves():
     gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
     result = gsm.submit(AttackCommand(2, 4))
     assert [type(e) for e in result.events] == [ev.UnitAttacked]
     assert unit(gsm, 2).position == Position(1, 1)
-    assert gsm.command_log == [AttackCommand(2, 4)]
+    assert gsm.command_log[2:] == [AttackCommand(2, 4)]
 
 
 def test_ranged_unit_next_to_its_target_does_not_step_back():
@@ -410,11 +527,12 @@ def test_plan_is_exactly_what_happens():
 
 def test_rejected_move_attack_changes_nothing():
     gsm = two_player_game(p0_soldier=(0, 1), p1_soldier=(4, 1))
-    before = gsm.view()
+    turn_of(gsm, 2)
+    before, log = gsm.view(), list(gsm.command_log)
     assert gsm.plan_attack(2, 4) is None
     result = gsm.submit(AttackCommand(2, 4))
     assert not result.ok and "cannot be reached" in result.error
-    assert gsm.view() == before and gsm.command_log == []
+    assert gsm.view() == before and gsm.command_log == log
 
 
 def test_attack_limit_is_checked_before_moving(monkeypatch):
@@ -445,7 +563,7 @@ def test_explicit_tile_to_attack_from():
     assert "out of range from that tile" in gsm.submit(AttackCommand(2, 4, Position(1, 1))).error
     assert "Not enough energy" in gsm.submit(AttackCommand(2, 4, Position(3, 0))).error
     assert gsm.submit(AttackCommand(2, 4, Position(0, 1))).error == "Target is out of range"  # own tile = no move
-    assert gsm.command_log == []
+    assert gsm.command_log == [EndTurnCommand(), EndTurnCommand()]
     result = gsm.submit(AttackCommand(2, 4, Position(2, 1)))
     assert result.ok and unit(gsm, 2).position == Position(2, 1)
 
@@ -462,6 +580,7 @@ def test_picks_the_cheapest_tile_even_if_another_hits_harder():
     # Target (2,1) on flat ground. (2,0) is a hill: more damage, but climbing costs 2 more EN.
     board = Board.from_strings([".....", ".....", "....."], ["00100", "00000", "00000"])
     gsm = custom_game(board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (1, KING, (4, 2)), (1, SOLDIER, (2, 1))])
+    turn_of(gsm, 2)
     plan = gsm.plan_attack(2, 4)
     assert plan.origin == Position(1, 1) and plan.move_cost == 2
 
@@ -470,6 +589,7 @@ def test_equal_cost_picks_the_tile_with_more_damage():
     # From the hill at (1,0): stay high on (1,1) or walk down to (2,0). Both cost 2 EN; the high tile hits harder.
     board = Board.from_strings([".....", ".....", "....."], ["01000", "01000", "00000"])
     gsm = custom_game(board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 0)), (1, KING, (4, 2)), (1, SOLDIER, (2, 1))])
+    turn_of(gsm, 2)
     plan = gsm.plan_attack(2, 4)
     assert plan.origin == Position(1, 1) and plan.result.elevation_modifier == 1
     assert plan.result.damage > gsm._resolve(gsm._state.units[2], gsm._state.units[4], Position(2, 0)).damage
@@ -482,22 +602,23 @@ def test_equal_cost_and_damage_avoids_mud_then_goes_top_left():
         board, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 0))],
         engine=CheapMovesEngine(),
     )
+    turn_of(gsm, 2)
     assert gsm.plan_attack(2, 4).origin == Position(3, 1)
     flat = custom_game(
         FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 0))],
         engine=CheapMovesEngine(),
     )
+    turn_of(flat, 2)
     assert flat.plan_attack(2, 4).origin == Position(2, 0)  # full tie: top row first
 
 
 def test_replaying_the_command_log_gives_the_same_game():
     gsm = far_game()
-    gsm.submit(AttackCommand(2, 4))
-    gsm.submit(EndTurnCommand())
+    gsm.submit(AttackCommand(2, 4))  # no energy left: unit 4's turn starts by itself
     gsm.submit(AttackCommand(4, 2))  # P1 hits back in place
-    gsm.submit(EndTurnCommand())
+    turn_of(gsm, 2)  # round 2
     gsm.submit(AttackCommand(2, 4))
-    replay = far_game()
+    replay = two_player_game(p0_soldier=(0, 1), p1_soldier=(3, 1))
     for command in gsm.command_log:
         assert replay.submit(command).ok
     assert replay.view() == gsm.view()

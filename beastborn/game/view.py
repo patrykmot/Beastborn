@@ -44,6 +44,7 @@ class GameView:
     units: tuple[UnitView, ...]
     players: tuple[PlayerView, ...]
     active_player: int
+    active_unit: int | None  # the unit whose turn it is; only it can act
     round: int
     phase: Phase
     winner: int | None

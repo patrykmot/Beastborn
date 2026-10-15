@@ -1,8 +1,8 @@
 /* Beastborn web client (jQuery + Bootstrap).
  *
- * The server owns all game state, including the current selection. This file only sends
- * intents, draws the state JSON it gets back, shows hover previews from that state and
- * animates new moves and attacks before drawing the new state.
+ * The server owns all game state, including which unit acts now (the game picks it, players
+ * cannot). This file only sends intents, draws the state JSON it gets back, shows hover
+ * previews from that state and animates new moves and attacks before drawing the new state.
  */
 $(function () {
   "use strict";
@@ -76,8 +76,8 @@ $(function () {
       y,
       tile: state.board.tiles[y][x],
       unit,
-      reach: state.selection.reachable.find((r) => r.x === x && r.y === y),
-      target: unit && state.selection.targets.find((t) => t.unit_id === unit.id),
+      reach: state.reachable.find((r) => r.x === x && r.y === y),
+      target: unit && state.targets.find((t) => t.unit_id === unit.id),
     };
   }
 
@@ -176,7 +176,7 @@ $(function () {
   function render() {
     renderBoard();
     renderTurn();
-    renderSelected();
+    renderActive();
     renderHover();
     renderLog();
     $("#btn-end-turn").prop("disabled", state.phase === "game_over" || !state.human_turn);
@@ -185,8 +185,8 @@ $(function () {
   function renderBoard() {
     const { width, height, tiles } = state.board;
     const unitsAt = new Map(state.units.map((u) => [key(u.x, u.y), u]));
-    const reach = new Map(state.selection.reachable.map((r) => [key(r.x, r.y), r]));
-    const targets = new Map(state.selection.targets.map((t) => [t.unit_id, t]));
+    const reach = new Map(state.reachable.map((r) => [key(r.x, r.y), r]));
+    const targets = new Map(state.targets.map((t) => [t.unit_id, t]));
 
     const html = [];
     for (let y = 0; y < height; y++) {
@@ -196,7 +196,7 @@ $(function () {
         const r = reach.get(key(x, y));
         const classes = ["tile", `terrain-${tile.terrain}`, `elev-${tile.elevation}`];
         if (r) classes.push("reachable");
-        if (unit && unit.id === state.selection.unit_id) classes.push("selected");
+        if (unit && unit.id === state.active_unit) classes.push("active-unit");
         const target = unit && targets.get(unit.id);
         if (target) classes.push(target.move ? "target-move" : "target");
 
@@ -231,8 +231,11 @@ $(function () {
 
   function renderTurn() {
     const active = state.players[state.active_player];
+    const unit = state.units.find((u) => u.id === state.active_unit);
     $("#turn-info").html(
-      chipHtml(active.index, esc(active.name), "active") + ` <span class="ms-1">Round ${state.round}</span>` +
+      chipHtml(active.index, esc(active.name), "active") +
+      (unit ? ` <span class="ms-1">${esc(unit.name)}</span>` : "") +
+      ` <span class="ms-1 text-secondary">Round ${state.round}</span>` +
       ` <span class="badge text-bg-dark border ms-1" title="Score of ${esc(active.name)}: enemy HP lost (Boss HP x10) + height of own units">` +
       `<i class="bi bi-trophy-fill text-warning"></i> ${state.score}</span>`
     );
@@ -284,18 +287,17 @@ $(function () {
       </div>`;
   }
 
-  function renderSelected() {
-    const u = state.units.find((unit) => unit.id === state.selection.unit_id);
+  function renderActive() {
+    const u = state.units.find((unit) => unit.id === state.active_unit);
     if (!u) {
-      const hint = state.phase === "game_over" ? "Game over." : "Click one of your units.";
-      $("#selected-info").html(`<span class="text-secondary">${hint}</span>`);
+      $("#active-info").html('<span class="text-secondary">Game over.</span>');
       return;
     }
-    const moves = state.selection.reachable.length;
-    const inRange = state.selection.targets.filter((t) => !t.move).length;
-    const afterMove = state.selection.targets.length - inRange;
+    const moves = state.reachable.length;
+    const inRange = state.targets.filter((t) => !t.move).length;
+    const afterMove = state.targets.length - inRange;
     const targets = `${plural(inRange, "target")} in range` + (afterMove ? ` · ${afterMove} after a move` : "");
-    $("#selected-info").html(
+    $("#active-info").html(
       unitCard(u) + `<div class="small text-secondary mt-1">${moves} reachable tiles · ${targets}</div>`
     );
   }
@@ -316,7 +318,7 @@ $(function () {
       const hpAfter = Math.max(0, h.unit.hp - h.target.damage);
       html += `<div class="text-danger"><i class="bi bi-crosshair"></i> Attack: ${esc(h.target.formula)} → <strong>${h.target.damage}</strong> dmg, HP ${h.unit.hp} → ${hpAfter}</div>`;
     }
-    if (h.unit && h.unit.id !== state.selection.unit_id) html += `<div class="mt-1">${unitCard(h.unit, true)}</div>`;
+    if (h.unit && h.unit.id !== state.active_unit) html += `<div class="mt-1">${unitCard(h.unit, true)}</div>`;
     $("#hover-info").html(html);
   }
 
@@ -519,14 +521,12 @@ $(function () {
     .on("click", ".tile", function () {
       sendIntent({ type: "click", x: Number(this.dataset.x), y: Number(this.dataset.y) });
     })
-    .on("contextmenu", (e) => { e.preventDefault(); sendIntent({ type: "cancel" }); })
     .on("mouseenter", ".tile", function () { setHover({ x: Number(this.dataset.x), y: Number(this.dataset.y) }); })
     .on("mouseleave", () => setHover(null));
 
   $(document).on("keydown", (e) => {
     if (!state || $(e.target).is("input, select, textarea") || $(".modal.show").length) return;
     if (["e", "E", " "].includes(e.key)) { e.preventDefault(); sendIntent({ type: "end_turn" }); }
-    if (e.key === "Escape") sendIntent({ type: "cancel" });
   });
 
   let resizeTimer = null;

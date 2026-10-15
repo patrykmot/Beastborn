@@ -1,4 +1,4 @@
-"""Frontend-neutral presenter: selection state + turning intents into GSM commands."""
+"""Frontend-neutral presenter: turns intents into GSM commands for the active unit (the GSM picks it)."""
 from __future__ import annotations
 
 from collections import deque
@@ -15,10 +15,8 @@ from beastborn.game.pathfinding import PathInfo
 from beastborn.game.state import Phase
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.game.view import GameView, UnitView
-from beastborn.ui.interface import Cancel, ClickTile, EndTurn, HoverTile, Quit, UIIntent
-from beastborn.ui.text import describe, round_header
-
-CacheKey = tuple[int, int | None]  # (accepted commands, selected unit id)
+from beastborn.ui.interface import ClickTile, EndTurn, HoverTile, Quit, UIIntent
+from beastborn.ui.text import describe, round_header, unit_label
 
 
 @dataclass(frozen=True)
@@ -51,7 +49,6 @@ class Interaction:
     def __init__(self, gsm: GameStateMachine, controllers: dict[int, PlayerController] | None = None):
         self.gsm: GameStateMachine = gsm
         self.controllers: dict[int, PlayerController] = controllers or {}
-        self.selected: int | None = None
         self.hovered: Position | None = None
         self.message: str = ""
         self.message_is_error: bool = False
@@ -60,31 +57,28 @@ class Interaction:
         # moves and attacks since the last player input (incl. bot turns), in the order they happened
         self.last_actions: list[MoveAnimation | AttackAnimation] = []
         self.quit_requested: bool = False
-        self._cache_key: CacheKey | None = None
+        self._cache_key: int | None = None  # accepted commands when the derived state below was computed
         self._view: GameView = gsm.view()
         self._reachable: dict[Position, PathInfo] = {}
-        self._targets: dict[int, AttackResult] = {}
         self._plans: dict[int, AttackPlan] = {}
         self._score: int = gsm.score(self._view.active_player)
         self.log.append(f"Seed {self._view.seed}" if self._view.seed is not None else "Custom game")
-        self.log.append(round_header(self._view.round, self._view.players[self._view.active_player].name))
+        self.log.append(round_header(self._view.round))
 
     # ------------------------------------------------------------------ derived state
     def _refresh(self) -> None:
-        key: CacheKey = (len(self.gsm.command_log), self.selected)
+        key: int = len(self.gsm.command_log)
         if key == self._cache_key:
             return
         self._cache_key = key
         self._view = self.gsm.view()
         self._score = self.gsm.score(self._view.active_player)
-        if self.selected is not None and self._view.unit(self.selected) is None:
-            self.selected = None
-        if self.selected is None:
-            self._reachable, self._targets, self._plans = {}, {}, {}
+        active: int | None = self._view.active_unit
+        if active is None or self._view.phase is Phase.GAME_OVER:
+            self._reachable, self._plans = {}, {}
         else:
-            self._reachable = self.gsm.reachable_tiles(self.selected)
-            self._targets = self.gsm.attack_targets(self.selected)
-            self._plans = self.gsm.attack_plans(self.selected)
+            self._reachable = self.gsm.reachable_tiles(active)
+            self._plans = self.gsm.attack_plans(active)
 
     @property
     def view(self) -> GameView:
@@ -93,18 +87,13 @@ class Interaction:
 
     @property
     def reachable(self) -> dict[Position, PathInfo]:
+        """Where the active unit can move."""
         self._refresh()
         return self._reachable
 
     @property
-    def targets(self) -> dict[int, AttackResult]:
-        """Enemies in range of the selected unit right now."""
-        self._refresh()
-        return self._targets
-
-    @property
     def attack_plans(self) -> dict[int, AttackPlan]:
-        """Every enemy a click can attack, including those the selected unit first has to move to."""
+        """Every enemy a click can attack, including those the active unit first has to move to."""
         self._refresh()
         return self._plans
 
@@ -115,8 +104,12 @@ class Interaction:
         return self._score
 
     @property
-    def selected_unit(self) -> UnitView | None:
-        return self.view.unit(self.selected) if self.selected is not None else None
+    def active_unit(self) -> UnitView | None:
+        """The unit whose turn it is (None after the game is over)."""
+        view: GameView = self.view
+        if view.phase is Phase.GAME_OVER or view.active_unit is None:
+            return None
+        return view.unit(view.active_unit)
 
     @property
     def hovered_unit(self) -> UnitView | None:
@@ -131,15 +124,16 @@ class Interaction:
         return self.attack_plans.get(target.id) if target is not None else None
 
     def hover_attack(self) -> AttackResult | None:
-        """Exact attack outcome if the selected unit attacks the hovered enemy.
+        """Exact attack outcome if the active unit attacks the hovered enemy.
 
         From the tile it would move to first, if any; otherwise from where it stands (even if out of range).
         """
+        active: UnitView | None = self.active_unit
         target: UnitView | None = self.hovered_unit
-        if self.selected is None or target is None or target.owner == self.view.active_player:
+        if active is None or target is None or target.owner == active.owner:
             return None
         plan: AttackPlan | None = self.hover_plan()
-        return plan.result if plan is not None else self.gsm.preview_attack(self.selected, target.id)
+        return plan.result if plan is not None else self.gsm.preview_attack(active.id, target.id)
 
     @property
     def human_turn(self) -> bool:
@@ -158,32 +152,27 @@ class Interaction:
             self.quit_requested = True
         elif isinstance(intent, HoverTile):
             self.hovered = intent.position
-        elif isinstance(intent, Cancel):
-            self._deselect()
         elif not self._waiting_for_human:
             return
         elif isinstance(intent, EndTurn):
-            self.selected = None
             self.submit(EndTurnCommand())
         elif isinstance(intent, ClickTile):
             self._click(intent.position)
 
     def _click(self, pos: Position) -> None:
-        view: GameView = self.view
-        clicked: UnitView | None = view.unit_at(pos)
-
-        if clicked is not None and clicked.owner == view.active_player:
-            self.selected = None if clicked.id == self.selected else clicked.id
-            self._say("")
-        elif self.selected is None:
-            if clicked is not None:
-                self._say(f"That {clicked.name} belongs to {view.players[clicked.owner].name}", error=True)
-        elif clicked is not None:
-            self.submit(AttackCommand(self.selected, clicked.id))
-        elif pos in self.reachable:
-            self.submit(MoveCommand(self.selected, pos))
+        """Enemy = attack it (moving first if needed), reachable tile = move there. Units cannot be chosen."""
+        active: UnitView | None = self.active_unit
+        clicked: UnitView | None = self.view.unit_at(pos)
+        if active is None:
+            return
+        if clicked is not None and clicked.owner != active.owner:
+            self.submit(AttackCommand(active.id, clicked.id))
+        elif clicked is None and pos in self.reachable:
+            self.submit(MoveCommand(active.id, pos))
+        elif clicked is not None and clicked.id != active.id:
+            self._say(f"Units act in turn: now it is {unit_label(self.view, active.id)}", error=True)
         else:
-            self._deselect()
+            self._say("")
 
     def tick(self) -> None:
         """Let non-human controllers (bots) act. Call once per frame."""
@@ -211,8 +200,6 @@ class Interaction:
             if line:
                 self.log.append(line)
         self._say("")
-        if isinstance(command, EndTurnCommand):
-            self.selected = None
         return True
 
     def _animation(self, event: ev.UnitAttacked, before: GameView) -> AttackAnimation:
@@ -232,9 +219,6 @@ class Interaction:
             killed=event.target_hp_after <= 0,
         )
 
-    def _deselect(self) -> None:
-        self.selected = None
-        self._say("")
 
     def _say(self, text: str, error: bool = False) -> None:
         self.message, self.message_is_error = text, error

@@ -2,7 +2,7 @@
 
 Run with ``python main.py`` (or ``flask --app beastborn.ui.web.app run``) and open http://127.0.0.1:8000.
 Each game lives in a server-side session keyed by its id; the browser only draws the
-returned state and sends intents (click / end_turn / cancel).
+returned state and sends intents (click / end_turn).
 """
 from __future__ import annotations
 
