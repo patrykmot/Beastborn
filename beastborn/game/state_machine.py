@@ -8,8 +8,15 @@ players take turns in index order (P1, P2, ..., P1, ...), and each player's unit
 cannot move or attack right now is put off until no unit that can act is left this round (others may free it).
 In its turn a unit regenerates, its status effects tick, then it moves and attacks until it cannot do anything
 more (the GSM ends its turn) or ``EndTurnCommand`` ends it. When every unit has had its turn, the next round starts.
+
+``rollback`` undoes the last command exactly. ``find_all_possible_actions`` lists every way the active unit can
+play its whole turn, one command per way.
 """
 from __future__ import annotations
+
+from collections.abc import Callable
+from itertools import count
+from typing import Any
 
 from beastborn import constant as C
 from beastborn.domain.board import Board
@@ -22,7 +29,9 @@ from beastborn.engine.interface import CalculationEngine
 from beastborn.engine.results import AttackResult, CombatantSnapshot, TickResult
 from beastborn.game import events as ev
 from beastborn.game.attack_plan import AttackPlan
-from beastborn.game.commands import AttackCommand, Command, CommandResult, EndTurnCommand, MoveCommand
+from beastborn.game.commands import (
+    AttackCommand, Command, CommandResult, CommandType, EndTurnCommand, MoveCommand, WrapperCommand,
+)
 from beastborn.game.pathfinding import PathInfo, reachable
 from beastborn.game.state import GameState, Phase
 from beastborn.game.view import GameView, PlayerView, UnitView
@@ -30,12 +39,24 @@ from beastborn.game.view import GameView, PlayerView, UnitView
 _OUT_OF_RANGE: str = "Target is out of range"
 _OUT_OF_REACH: str = "Target is out of range and cannot be reached this turn"
 
+Turn = tuple[Command, ...]  # the commands of one whole unit turn, in order
+
 
 class GameStateMachine:
     def __init__(self, state: GameState, engine: CalculationEngine):
         self._state: GameState = state
         self._engine: CalculationEngine = engine
         self.command_log: list[Command] = []  # with the seed this is enough to replay a game
+        # _history[i] = (state before command_log[i], its version): what ``rollback`` goes back to
+        self._history: list[tuple[GameState, int]] = []
+        self._new_versions: count[int] = count(1)
+        self._version: int = 0  # one number per distinct state; ``rollback`` brings the old number back
+        self._actions_cache: tuple[int, tuple[Command, ...]] | None = None  # (version, find_all_possible_actions)
+        self._handlers: dict[CommandType, Callable[[Any], tuple[CommandResult, Command]]] = {
+            CommandType.MOVE: self._move,
+            CommandType.ATTACK: self._attack,
+            CommandType.END_TURN: self._end_turn,
+        }
 
     # ------------------------------------------------------------------ properties
     @property
@@ -88,8 +109,7 @@ class GameStateMachine:
         unit: UnitState | None = self._own_unit(unit_id)
         if unit is None:
             return {}
-        blocked: set[Position] = self._state.occupied() - {unit.position}
-        return reachable(self._state.board, self._engine, unit.stats, unit.position, unit.energy, blocked)
+        return self._reachable(unit, unit.energy)
 
     def preview_attack(self, attacker_id: int, target_id: int) -> AttackResult | None:
         """Exact outcome of an attack (combat has no RNG). Ignores energy and range."""
@@ -143,24 +163,91 @@ class GameStateMachine:
 
     # ------------------------------------------------------------------ commands
     def submit(self, command: Command) -> CommandResult:
+        """Run a command for the active unit. A command that changed the state is added to ``command_log``."""
         if self._state.phase is not Phase.AWAITING_COMMAND:
             return CommandResult.rejected(f"Game is not accepting commands (phase: {self._state.phase.value})")
-        result: CommandResult
-        logged: Command = command  # an attack is logged with the tile it was made from
-        if isinstance(command, MoveCommand):
-            result = self._move(command)
-        elif isinstance(command, AttackCommand):
-            result, logged = self._attack(command)
-        elif isinstance(command, EndTurnCommand):
-            result = self._end_turn()
-        else:
+        if not isinstance(command, Command):
             return CommandResult.rejected(f"Unknown command: {command!r}")
-        if not result.ok:
-            return result
-        self.command_log.append(logged)
-        if isinstance(command, (MoveCommand, AttackCommand)):
-            result = self._after_action(result)
+        before: GameState = self._state
+        self._state = before.copy()  # the command changes the copy; ``before`` is kept untouched for ``rollback``
+        result: CommandResult
+        logged: Command | None
+        try:
+            if isinstance(command, WrapperCommand):
+                result, logged = self._run_wrapper(command)
+            else:
+                result, logged = self._run(command)
+        except BaseException:
+            self._state = before  # a failing command never leaves a half-changed state
+            raise
+        if logged is None:  # rejected: nothing changed
+            self._state = before
+        else:  # the state changed (also a WrapperCommand rejected part-way)
+            self.command_log.append(logged)
+            self._history.append((before, self._version))
+            self._version = next(self._new_versions)
         return result
+
+    def rollback(self) -> Command | None:
+        """Undo the last command in ``command_log``: the state and the log are exactly as before it.
+
+        Returns the undone command, or None if there is nothing to undo. Can be repeated down to the start of the game.
+        ``submit`` keeps the state from before each command untouched and changes a copy, so a rollback brings back
+        the very same objects (a unit taken from the state before a command is the live one again after its rollback).
+        """
+        if not self._history:
+            return None
+        self._state, self._version = self._history.pop()
+        return self.command_log.pop()
+
+    def _run(self, command: Command) -> tuple[CommandResult, Command | None]:
+        """Run one command (not a wrapper). Returns the result and the command to log (None = nothing changed).
+
+        An attack is logged with the tile it was made from.
+        """
+        handler: Callable[[Any], tuple[CommandResult, Command]] | None = self._handlers.get(command.kind)
+        if handler is None:
+            return CommandResult.rejected(f"Unknown command: {command!r}"), None
+        result, logged = handler(command)
+        if not result.ok:
+            return result, None
+        if command.kind is not CommandType.END_TURN:
+            result = self._after_action(result)
+        return result, logged
+
+    def _run_wrapper(self, wrapper: WrapperCommand) -> tuple[CommandResult, WrapperCommand | None]:
+        """Run the wrapped commands in order. On a rejected one stop: the ones before it stay done (and logged)."""
+        error: str | None = self._wrapper_error(wrapper)
+        if error is not None:
+            return CommandResult.rejected(error), None
+        unit_id: int | None = self._state.active_unit
+        events: list[ev.GameEvent] = []
+        done: list[Command] = []
+        for number, command in enumerate(wrapper.commands, start=1):
+            result: CommandResult
+            logged: Command | None = None
+            if self._state.phase is not Phase.AWAITING_COMMAND or self._state.active_unit != unit_id:
+                result = CommandResult.rejected("The unit's turn is already over")
+            else:
+                result, logged = self._run(command)
+            if not result.ok or logged is None:
+                reason: str = f"Command {number} of {len(wrapper.commands)} rejected: {result.error}"
+                return CommandResult.rejected(reason, tuple(events)), WrapperCommand(tuple(done)) if done else None
+            events += result.events
+            done.append(logged)
+        return CommandResult(True, tuple(events)), WrapperCommand(tuple(done))
+
+    @staticmethod
+    def _wrapper_error(wrapper: WrapperCommand) -> str | None:
+        """Checks done before any wrapped command runs."""
+        commands: tuple[Command, ...] = wrapper.commands
+        if not commands:
+            return "A wrapper command needs at least one command"
+        if any(not isinstance(c, Command) or c.kind is CommandType.WRAPPER for c in commands):
+            return "A wrapper command can contain only move, attack and end turn commands"
+        if any(c.kind is CommandType.END_TURN for c in commands[:-1]):
+            return "End turn can only be the last command of a wrapper command"
+        return None
 
     def _after_action(self, result: CommandResult) -> CommandResult:
         """After a move or an attack: the GSM ends the turn of a unit that cannot do anything more."""
@@ -173,18 +260,18 @@ class GameStateMachine:
             return result
         return CommandResult(True, result.events + tuple(self._end_unit_turn()))
 
-    def _move(self, cmd: MoveCommand) -> CommandResult:
+    def _move(self, cmd: MoveCommand) -> tuple[CommandResult, MoveCommand]:
         unit, error = self._own_unit_or_error(cmd.unit_id)
         if unit is None:
-            return CommandResult.rejected(error or "Unit does not exist")
+            return CommandResult.rejected(error or "Unit does not exist"), cmd
         if not self._state.board.in_bounds(cmd.destination):
-            return CommandResult.rejected("Destination is outside the board")
+            return CommandResult.rejected("Destination is outside the board"), cmd
         if cmd.destination in self._state.occupied():
-            return CommandResult.rejected("Destination is occupied")
+            return CommandResult.rejected("Destination is occupied"), cmd
         info: PathInfo | None = self.reachable_tiles(unit.id).get(cmd.destination)
         if info is None:
-            return CommandResult.rejected("Not enough energy to reach that tile")
-        return CommandResult(True, (self._apply_move(unit, info),))
+            return CommandResult.rejected("Not enough energy to reach that tile"), cmd
+        return CommandResult(True, (self._apply_move(unit, info),)), cmd
 
     def _attack(self, cmd: AttackCommand) -> tuple[CommandResult, AttackCommand]:
         """Attack, moving first if needed. Returns the result and the command to log (with the tile used)."""
@@ -215,8 +302,95 @@ class GameStateMachine:
         logged: AttackCommand = cmd if plan.move is None else AttackCommand(attacker.id, cmd.target_id, plan.origin)
         return CommandResult(True, tuple(events)), logged
 
-    def _end_turn(self) -> CommandResult:
-        return CommandResult(True, tuple(self._end_unit_turn()))
+    def _end_turn(self, cmd: EndTurnCommand) -> tuple[CommandResult, EndTurnCommand]:
+        return CommandResult(True, tuple(self._end_unit_turn())), cmd
+
+    # ------------------------------------------------------------------ possible actions
+    def find_all_possible_actions(self) -> list[Command]:
+        """Every way the active unit can play its whole turn, one command per way (REQ_LOG_08_01).
+
+        Every command is valid now and, when submitted, ends the unit's turn (the next unit gets its turn).
+        A turn is: attacks (each may move first: ``AttackCommand`` with an explicit ``move_to``), then maybe one
+        ``MoveCommand``, then ``EndTurnCommand`` if the unit could still act (else the GSM ends the turn by itself).
+        A turn of one command is that command, a longer one is a ``WrapperCommand``. Moves are never chained (one
+        ``MoveCommand`` already takes the cheapest path). Every distinct command sequence is listed, also those that
+        end on the same board (e.g. two attacks in the other order). Empty when no command is accepted (game over).
+
+        Read only (REQ_LOG_08_02): every attack is tried with ``submit`` and undone with ``rollback``, so the game is
+        the same afterwards and the list cannot differ from what ``submit`` accepts. Cached until the state changes.
+        """
+        if self._state.phase is not Phase.AWAITING_COMMAND or self._state.active_unit is None:
+            return []
+        if self._actions_cache is None or self._actions_cache[0] != self._version:
+            turns: list[Turn] = self._turns({})
+            actions: tuple[Command, ...] = tuple(turn[0] if len(turn) == 1 else WrapperCommand(turn) for turn in turns)
+            self._actions_cache = (self._version, actions)
+        return list(self._actions_cache[1])
+
+    def _turns(self, memo: dict[tuple[object, ...], list[Turn]]) -> list[Turn]:
+        """Every command sequence that finishes the active unit's turn from the current state.
+
+        ``memo``: a situation reached twice (e.g. the same two attacks in the other order) is searched only once.
+        """
+        unit: UnitState = self._state.units[self._state.active_unit]
+        situation: tuple[object, ...] = self._situation(unit)
+        known: list[Turn] | None = memo.get(situation)
+        if known is not None:
+            return known
+        reach: dict[Position, PathInfo] = self._reachable(unit, unit.energy)
+        turns: list[Turn] = [(EndTurnCommand(),)]
+        turns += [self._move_turn(unit, move) for move in reach.values()]
+        for attack in self._attack_commands(unit, reach):
+            turns += [(attack, *rest) for rest in self._turns_after(attack, memo)]
+        memo[situation] = turns
+        return turns
+
+    def _turns_after(self, command: Command, memo: dict[tuple[object, ...], list[Turn]]) -> list[Turn]:
+        """Every way to finish the turn after ``command``: it is submitted, searched on, then rolled back."""
+        unit_id: int | None = self._state.active_unit
+        result: CommandResult = self.submit(command)
+        if not result.ok:  # cannot happen: commands are built with the checks submit uses
+            raise RuntimeError(f"Possible action {command!r} was rejected: {result.error}")
+        try:
+            turn_over: bool = any(isinstance(e, ev.TurnEnded) and e.unit_id == unit_id for e in result.events)
+            return [()] if turn_over or self._state.phase is Phase.GAME_OVER else self._turns(memo)
+        finally:
+            self.rollback()
+
+    def _situation(self, unit: UnitState) -> tuple[object, ...]:
+        """Everything the rest of the active unit's turn depends on (its own other units do not change)."""
+        enemies: tuple[tuple[object, ...], ...] = tuple(
+            (u.id, u.hp, u.defense, u.effects) for u in self._state.sorted_units() if u.owner != unit.owner
+        )
+        return unit.position, unit.energy, self._state.attacks_this_turn, enemies
+
+    def _attack_commands(self, unit: UnitState, reach: dict[Position, PathInfo]) -> list[AttackCommand]:
+        """Every attack the unit can make now: from where it stands, and after a move to each tile it can hit from."""
+        budget: int = unit.energy - self._engine.attack_cost(unit.stats)  # energy left for a move first
+        commands: list[AttackCommand] = []
+        for target in self._state.sorted_units():
+            if self._attack_ready_error(unit, target) is not None:
+                continue
+            if self._in_range_from(unit, unit.position, target):
+                commands.append(AttackCommand(unit.id, target.id))
+            commands += [
+                AttackCommand(unit.id, target.id, origin)
+                for origin, move in reach.items()
+                if move.cost <= budget and self._in_range_from(unit, origin, target)
+            ]
+        return commands
+
+    def _move_turn(self, unit: UnitState, move: PathInfo) -> Turn:
+        """A move as the last action of a turn, + ``EndTurnCommand`` if the unit could still act after it.
+
+        Checked with ``_can_act`` (as ``submit`` does after a move) instead of submitting: a move is the last action
+        anyway, so nothing has to be played on.
+        """
+        destination: Position = move.path[-1]
+        command: MoveCommand = MoveCommand(unit.id, destination)
+        if self._can_act(unit, unit.energy - move.cost, at=destination):
+            return command, EndTurnCommand()
+        return (command,)
 
     # ------------------------------------------------------------------ turn flow
     def _end_unit_turn(self) -> list[ev.GameEvent]:
@@ -283,21 +457,22 @@ class GameStateMachine:
         s.attacks_this_turn = s.actions_this_turn = 0
         return [ev.TurnStarted(unit.owner, s.round, unit.id), *self._start_unit_turn(unit)]
 
-    def _can_act(self, unit: UnitState, energy: int, fresh: bool = False) -> bool:
+    def _can_act(self, unit: UnitState, energy: int, fresh: bool = False, at: Position | None = None) -> bool:
         """Can the unit move one tile or hit an enemy from where it stands, with ``energy``?
 
         Every move and every attack (also a move + attack) starts with one of these, so False = nothing to do.
-        ``fresh``: as at the start of its turn (no attacks made yet).
+        ``fresh``: as at the start of its turn (no attacks made yet). ``at``: as if it stood on that tile instead.
         """
         board: Board = self._state.board
-        occupied: set[Position] = self._state.occupied()
-        here: Tile = board.tile(unit.position)
-        for step in board.neighbours(unit.position):
+        position: Position = unit.position if at is None else at
+        occupied: set[Position] = self._state.occupied() - {unit.position}
+        here: Tile = board.tile(position)
+        for step in board.neighbours(position):
             if step not in occupied and self._engine.step_cost(unit.stats, here, board.tile(step)) <= energy:
                 return True
         return any(
             self._attack_ready_error(unit, target, energy, fresh) is None
-            and self._in_range_from(unit, unit.position, target)
+            and self._in_range_from(unit, position, target)
             for target in self._state.units.values()
         )
 
@@ -441,8 +616,12 @@ class GameStateMachine:
         budget: int = attacker.energy - self._engine.attack_cost(attacker.stats)
         if budget < 0:
             return {}
-        blocked: set[Position] = self._state.occupied() - {attacker.position}
-        return reachable(self._state.board, self._engine, attacker.stats, attacker.position, budget, blocked)
+        return self._reachable(attacker, budget)
+
+    def _reachable(self, unit: UnitState, budget: int) -> dict[Position, PathInfo]:
+        """Tiles the unit can move to with ``budget`` energy (other units block)."""
+        blocked: set[Position] = self._state.occupied() - {unit.position}
+        return reachable(self._state.board, self._engine, unit.stats, unit.position, budget, blocked)
 
     def _in_range_from(self, attacker: UnitState, origin: Position, target: UnitState) -> bool:
         return self._engine.in_attack_range(attacker.stats, origin.manhattan(target.position))

@@ -2,6 +2,7 @@
 
 Humans act through a frontend. A bot (added later) implements ``choose_command`` for the GSM's
 active unit (``gsm.active_unit``) and uses the same GSM queries the UI uses (reachable_tiles, attack_plans).
+``gsm.find_all_possible_actions()`` lists every whole turn the active unit can play, one command each.
 """
 from __future__ import annotations
 

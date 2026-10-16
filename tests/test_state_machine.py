@@ -1,5 +1,5 @@
 import math
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from fractions import Fraction
 
 import pytest
@@ -8,7 +8,7 @@ from beastborn import constant as C
 from beastborn.domain import Board, EffectKind, EffectSpec, Position, StatusEffect
 from beastborn.engine import StandardCalculationEngine
 from beastborn.game import (
-    AttackCommand, EndTurnCommand, MoveCommand, Phase, custom_game,
+    AttackCommand, Command, CommandType, EndTurnCommand, MoveCommand, Phase, WrapperCommand, custom_game,
 )
 from beastborn.game import events as ev
 from tests.conftest import ARCHER, KING, SOLDIER
@@ -622,3 +622,209 @@ def test_replaying_the_command_log_gives_the_same_game():
     for command in gsm.command_log:
         assert replay.submit(command).ok
     assert replay.view() == gsm.view()
+
+
+# ---------------------------------------------------------------- wrapper command
+def neighbours_game():
+    """P0 Soldier 2 at (1,1) with 6 EN at its turn, next to P1 Soldier 4 at (2,1). One hit: 3 damage, 2 EN."""
+    gsm = two_player_game(p1_soldier=(2, 1))
+    turn_of(gsm, 2)
+    return gsm
+
+
+def test_every_command_has_a_kind():
+    move, wrapper = MoveCommand(1, Position(0, 0)), WrapperCommand([EndTurnCommand()])
+    commands = [move, AttackCommand(1, 2), EndTurnCommand(), wrapper]
+    kinds = [CommandType.MOVE, CommandType.ATTACK, CommandType.END_TURN, CommandType.WRAPPER]
+    assert [c.kind for c in commands] == kinds
+    assert all(isinstance(c, Command) for c in commands)
+    assert wrapper.commands == (EndTurnCommand(),)  # a list is stored as a tuple
+
+
+def test_wrapper_runs_its_commands_in_order_and_is_logged_as_one():
+    gsm = neighbours_game()
+    wrapper = WrapperCommand((AttackCommand(2, 4), MoveCommand(2, Position(1, 2)), EndTurnCommand()))
+    result = gsm.submit(wrapper)
+    assert result.ok
+    kinds = [type(e) for e in result.events]
+    assert kinds[:4] == [ev.UnitAttacked, ev.UnitMoved, ev.TurnEnded, ev.TurnStarted]
+    assert unit(gsm, 4).hp == 7 and unit(gsm, 2).position == Position(1, 2) and gsm.active_unit != 2
+    assert gsm.command_log[2:] == [wrapper]
+    replay = two_player_game(p1_soldier=(2, 1))
+    for command in gsm.command_log:
+        assert replay.submit(command).ok
+    assert replay.view() == gsm.view()
+
+
+def test_wrapper_stops_at_a_rejected_command_and_keeps_what_already_ran():
+    gsm = neighbours_game()
+    result = gsm.submit(WrapperCommand((AttackCommand(2, 4), MoveCommand(2, Position(4, 0)), EndTurnCommand())))
+    assert not result.ok and result.error.startswith("Command 2 of 3 rejected")
+    assert [type(e) for e in result.events] == [ev.UnitAttacked]  # the attack happened
+    assert unit(gsm, 4).hp == 7 and gsm.active_unit == 2  # still its turn (4 EN left)
+    assert gsm.command_log[2:] == [WrapperCommand((AttackCommand(2, 4),))]
+
+
+def test_wrapper_never_acts_after_the_units_turn_is_over():
+    gsm = neighbours_game()
+    attacks = [AttackCommand(2, 4)] * 3  # 3 x 2 EN: the GSM ends the turn after the third hit
+    result = gsm.submit(WrapperCommand((*attacks, EndTurnCommand())))  # the end turn would hit the next unit
+    assert not result.ok and "already over" in result.error
+    assert unit(gsm, 4).hp == 1 and gsm.active_unit == 4  # unit 4's turn was not ended
+    assert gsm.command_log[2:] == [WrapperCommand(tuple(attacks))]
+
+
+def test_wrapper_rules_are_checked_before_anything_runs():
+    gsm = neighbours_game()
+    before, log = gsm.view(), list(gsm.command_log)
+    hit = AttackCommand(2, 4)
+    assert "at least one" in gsm.submit(WrapperCommand(())).error
+    assert "only move, attack" in gsm.submit(WrapperCommand((hit, WrapperCommand((hit,))))).error
+    assert "last command" in gsm.submit(WrapperCommand((EndTurnCommand(), hit))).error
+    assert gsm.view() == before and gsm.command_log == log
+
+
+# ---------------------------------------------------------------- possible actions
+def unit_ids(action):
+    """Ids of the units an action uses."""
+    steps = action.commands if isinstance(action, WrapperCommand) else (action,)
+    used = [c for c in steps if c.kind is not CommandType.END_TURN]
+    return {c.attacker_id if isinstance(c, AttackCommand) else c.unit_id for c in used}
+
+
+def test_possible_actions_are_whole_turns():
+    gsm = neighbours_game()
+    actions = gsm.find_all_possible_actions()
+    end, hit = EndTurnCommand(), AttackCommand(2, 4)
+    assert actions[0] == end  # wait
+    assert hit not in actions  # 4 EN left after one hit: the turn would go on, so it needs an end turn
+    assert WrapperCommand((hit, end)) in actions
+    assert WrapperCommand((hit, hit, hit)) in actions  # 0 EN left: the GSM ends the turn, no end turn needed
+    assert WrapperCommand((hit, MoveCommand(2, Position(1, 2)), end)) in actions  # hit, step away, 2 EN kept
+    assert WrapperCommand((MoveCommand(2, Position(1, 2)), end)) in actions
+    assert MoveCommand(2, Position(3, 0)) in actions  # 3 steps = 6 EN: nothing left, the turn ends by itself
+    assert len(set(actions)) == len(actions)
+    for action in actions:  # moves are never chained, and a move comes only last (before end turn)
+        steps = action.commands if isinstance(action, WrapperCommand) else (action,)
+        assert len(steps) >= 2 or not isinstance(action, WrapperCommand)  # one step = the command itself
+        moves = [i for i, c in enumerate(steps) if c.kind is CommandType.MOVE]
+        assert len(moves) <= 1 and all(i >= len(steps) - 2 for i in moves)
+        assert all(c.kind is not CommandType.END_TURN for c in steps[:-1])
+
+
+def test_every_possible_action_is_accepted_and_ends_the_turn():
+    for action in neighbours_game().find_all_possible_actions():
+        gsm = neighbours_game()  # one action per game: an action changes the state
+        result = gsm.submit(action)
+        assert result.ok, (action, result.error)
+        assert ev.TurnEnded(0, 2, idle=action == EndTurnCommand()) in result.events
+        assert gsm.active_unit != 2
+
+
+def test_possible_actions_move_first_with_an_explicit_tile():
+    gsm = far_game()  # only (2,1) is in reach and next to the target
+    actions = gsm.find_all_possible_actions()
+    assert AttackCommand(2, 4, Position(2, 1)) in actions  # 0 EN left afterwards: a single command
+    assert AttackCommand(2, 4) not in actions
+    assert gsm.submit(AttackCommand(2, 4, Position(2, 1))).ok
+
+
+def test_possible_actions_do_not_change_the_game_and_are_cached():
+    gsm = neighbours_game()
+    state, log = gsm._state, list(gsm.command_log)
+    expected = state.copy()
+    actions = gsm.find_all_possible_actions()
+    assert gsm._state is state and state == expected and gsm.command_log == log  # every try was rolled back
+    actions.clear()  # the caller gets its own list
+    assert gsm.find_all_possible_actions() == neighbours_game().find_all_possible_actions()
+    gsm.submit(EndTurnCommand())
+    assert all(unit_ids(a) == {gsm.active_unit} for a in gsm.find_all_possible_actions() if a != EndTurnCommand())
+    gsm.rollback()  # back to the first state: the cached list is valid again
+    assert gsm.find_all_possible_actions() == neighbours_game().find_all_possible_actions()
+
+
+def test_unit_that_cannot_act_can_only_end_its_turn():
+    gsm = neighbours_game()
+    gsm._state.units[2].energy = 0
+    assert gsm.find_all_possible_actions() == [EndTurnCommand()]
+
+
+def test_killing_the_last_boss_ends_the_list_of_commands():
+    gsm = two_player_game(p0_soldier=(3, 2))  # next to the P1 King (4,2) and the P1 Soldier (3,1)
+    gsm._state.units[3].hp = 1
+    turn_of(gsm, 2)
+    actions = gsm.find_all_possible_actions()
+    assert AttackCommand(2, 3) in actions
+    assert not any(isinstance(a, WrapperCommand) and a.commands[0] == AttackCommand(2, 3) for a in actions)
+    assert isinstance(gsm.submit(AttackCommand(2, 3)).events[-1], ev.GameOver)
+    assert gsm.find_all_possible_actions() == []
+
+
+# ---------------------------------------------------------------- rollback
+def test_rollback_undoes_every_kind_of_command_exactly():
+    gsm = two_player_game(p1_soldier=(2, 1))  # turn order: 1, 3, 2, 4
+    commands = [
+        EndTurnCommand(),  # the next unit's turn starts: it regenerates
+        WrapperCommand((MoveCommand(3, Position(3, 2)), EndTurnCommand())),
+        AttackCommand(2, 4),
+        WrapperCommand((AttackCommand(2, 4), MoveCommand(2, Position(4, 0)))),  # rejected part-way: the hit stays
+        AttackCommand(2, 4),  # 0 EN: the GSM ends the turn by itself
+    ]
+    saved = []
+    for command in commands:
+        saved.append((gsm._state.copy(), list(gsm.command_log)))
+        gsm.submit(command)
+    assert len(gsm.command_log) == len(commands) and unit(gsm, 4).hp == 1 and gsm.active_unit == 4
+    end = gsm.view()
+    for state, log in reversed(saved):
+        assert gsm.rollback() is not None
+        assert gsm._state == state and gsm.command_log == log
+    assert gsm.rollback() is None  # back at the start of the game
+    for command in commands:  # the game goes on normally after a rollback
+        gsm.submit(command)
+    assert gsm.view() == end
+
+
+def test_rollback_of_a_won_game_brings_the_army_back():
+    weak_king = replace(KING, hp=3)
+    gsm = custom_game(FLAT, [(0, SOLDIER, (0, 0)), (1, weak_king, (1, 0)), (1, SOLDIER, (4, 2))])
+    before, expected = gsm.view(), gsm._state.copy()
+    gsm.submit(AttackCommand(1, 2))
+    assert gsm.phase is Phase.GAME_OVER and gsm.view().units_of(1) == []
+    assert gsm.rollback() == AttackCommand(1, 2)
+    assert gsm.phase is Phase.AWAITING_COMMAND and gsm.view() == before and gsm._state == expected
+    assert gsm.submit(AttackCommand(1, 2)).ok
+
+
+def test_rollback_brings_back_the_same_objects():
+    gsm = neighbours_game()
+    state, soldier = gsm._state, gsm._state.units[2]
+    gsm.submit(MoveCommand(2, Position(1, 2)))
+    assert soldier.position == Position(1, 1)  # the command changed a copy
+    gsm.rollback()
+    assert gsm._state is state and gsm._state.units[2] is soldier
+
+
+def test_rejected_command_leaves_nothing_to_roll_back():
+    gsm = two_player_game()
+    assert not gsm.submit(MoveCommand(1, Position(4, 0))).ok
+    assert gsm.rollback() is None and gsm.command_log == []
+
+
+def test_state_copy_shares_nothing_mutable():
+    gsm = two_player_game(p1_soldier=(2, 1))
+    gsm._state.units[4].hp = 3
+    turn_of(gsm, 2)
+    gsm.submit(AttackCommand(2, 4))  # unit 4 falls: ``fallen`` is not empty
+    state = gsm._state
+    clone = state.copy()
+    assert clone == state
+    for f in fields(state):
+        original, copied = getattr(state, f.name), getattr(clone, f.name)
+        if isinstance(original, (list, dict, set)):
+            assert copied is not original, f.name
+            items = original.values() if isinstance(original, dict) else original
+            copied_items = copied.values() if isinstance(copied, dict) else copied
+            for a, b in zip(items, copied_items):
+                if is_dataclass(a) and not a.__dataclass_params__.frozen:
+                    assert a is not b, f.name

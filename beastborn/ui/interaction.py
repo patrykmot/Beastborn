@@ -185,12 +185,19 @@ class Interaction:
     def submit(self, command: Command) -> bool:
         before: GameView = self.gsm.view()
         result: CommandResult = self.gsm.submit(command)
+        if result.events:  # a WrapperCommand rejected part-way keeps what it already did
+            self._record(result.events, before)
         if not result.ok:
             self._say(result.error or "Not allowed", error=True)
             return False
+        self._say("")
+        return True
+
+    def _record(self, events: tuple[ev.GameEvent, ...], before: GameView) -> None:
+        """Log lines and animations for the events of one accepted command."""
         after: GameView = self.gsm.view()
         self.action_seq += 1
-        for event in result.events:
+        for event in events:
             if isinstance(event, ev.UnitMoved):
                 owner: int = after.unit(event.unit_id).owner  # a move never kills, so the unit is still there
                 self.last_actions.append(MoveAnimation(self.action_seq, event.unit_id, owner, event.path))
@@ -199,8 +206,6 @@ class Interaction:
             line: str | None = describe(event, before, after)
             if line:
                 self.log.append(line)
-        self._say("")
-        return True
 
     def _animation(self, event: ev.UnitAttacked, before: GameView) -> AttackAnimation:
         attacker: UnitView | None = before.unit(event.attacker_id)

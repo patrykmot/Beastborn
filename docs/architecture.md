@@ -81,9 +81,26 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     as `AttackPlan`s (tile it attacks from, the move, the exact result). `plan_attack(a, t, move_to=None)` returns one.
   - `preview_attack(a, t)` returns the exact result, because combat has no RNG.
   - `score(player)` returns the CE score of the current board for that player.
-- Commands: `submit(MoveCommand | AttackCommand | EndTurnCommand)` returns a `CommandResult(ok, events, error)`.
-  - A rejected command never changes state.
+  - `find_all_possible_actions()` returns every way the active unit can play its **whole turn**, one command per way
+    (for bots: one command = one unit turn, the next unit acts after it). A turn is: attacks (each may move first, as
+    `AttackCommand` with an explicit `move_to`), then maybe one `MoveCommand`, then `EndTurnCommand` if the unit could
+    still act (otherwise the GSM ends the turn by itself). One step is returned as that command, more as a `WrapperCommand`.
+    Every distinct command sequence is listed (also ones ending on the same board). It is read only: every attack is
+    tried with `submit` and undone with `rollback`, so the list is exactly what `submit` accepts. The list is cached
+    until the state changes. Typical: ~1 ms, crowded fights up to ~65 ms and several hundred actions.
+- Commands: every command is a `Command` (frozen dataclass) with a `kind` (`CommandType`: `MOVE`, `ATTACK`,
+  `END_TURN`, `WRAPPER`); `submit` dispatches on the kind and returns a `CommandResult(ok, events, error)`.
+  - A rejected command never changes state (except a `WrapperCommand`, see below).
+  - `WrapperCommand(commands)`: several commands of one unit's turn, run in order. Must not be empty, nested, or have
+    `EndTurnCommand` before its end. If a wrapped command is rejected (or the unit's turn is already over), the rest
+    is skipped: the commands that ran stay done, the result is `ok=False` with their events, and the log keeps a
+    `WrapperCommand` of just those.
   - Accepted commands are stored in `command_log`. Seed + log is enough to replay a game.
+  - `rollback()` undoes the last logged command exactly (state and log) and returns it (None = nothing to undo); it can
+    be repeated back to the start of the game. `submit` keeps the state from before each command untouched in a
+    history next to `command_log` and works on a copy (`GameState.copy()`, the board is shared because it never
+    changes), so a rollback brings back the very same objects. A rejected or failing command leaves the state as it was.
+    Cost: about 8 KB of memory per command (4 players).
   - `AttackCommand(attacker, target, move_to=None)`: gsm will attack target, if needed move is a swell made before attack.
 - Map generation (`map_generator.py`) is the only random part. It uses `random.Random(seed)`.
   Every army is the same: a Boss + `BIG_RATS_PER_PLAYER` / `PEASANTS_PER_PLAYER` / `ARCHERS_PER_PLAYER` (`constant.py`).

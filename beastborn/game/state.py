@@ -1,6 +1,7 @@
 """Complete mutable game state. Owned and mutated only by GameStateMachine."""
 from __future__ import annotations
 
+from copy import copy as shallow_copy
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -50,3 +51,15 @@ class GameState:
 
     def alive_players(self) -> list[Player]:
         return [p for p in self.players if not p.eliminated]
+
+    def copy(self) -> GameState:
+        """An independent copy: changing one never changes the other. The board never changes, so it is shared.
+
+        A new mutable field must be copied here too (tests/test_state_machine.py checks every field).
+        """
+        clone: GameState = shallow_copy(self)
+        clone.players = [shallow_copy(p) for p in self.players]
+        clone.units = {unit_id: shallow_copy(u) for unit_id, u in self.units.items()}
+        clone.fallen = [shallow_copy(u) for u in self.fallen]
+        clone.acted_this_round = set(self.acted_this_round)
+        return clone
