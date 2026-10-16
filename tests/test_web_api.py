@@ -5,12 +5,15 @@ from pathlib import Path
 
 import pytest
 
+from beastborn import constant as C
 from beastborn.constant import STATIC_DIR, UNITS_PER_PLAYER
 from beastborn.domain import Board
 from beastborn.game import custom_game
 from beastborn.ui.web.app import create_app
 from beastborn.ui.web.sessions import SessionStore
 from tests.conftest import KING, SOLDIER
+
+pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
 
 @pytest.fixture
@@ -45,20 +48,21 @@ def test_create_game_state_shape(client):
     assert re.fullmatch(r"[0-9a-f]{32}", state["game_id"])
     assert state["phase"] == "awaiting_command"
     assert state["active_player"] == 0 and state["round"] == 1 and state["seed"] == 42
-    assert state["board"]["width"] == 12 and len(state["board"]["tiles"]) == 12
+    assert state["board"]["width"] == C.DEFAULT_MAP_SIZE and len(state["board"]["tiles"]) == C.DEFAULT_MAP_SIZE
     assert state["board"]["tiles"][0][0] == {"terrain": "grass", "elevation": 0}
     assert len(state["units"]) == 2 * (1 + UNITS_PER_PLAYER)
     assert {"id", "owner", "type", "x", "y", "hp", "max_hp", "energy", "current_def", "effects"} <= set(state["units"][0])
     unit = active_unit(state)  # the game picks the unit; at the start it can only move
-    assert unit["owner"] == 0 and unit["energy"] == unit["reg_en"]
+    start = min(unit["max_en"], C.STARTING_ENERGY)
+    assert unit["owner"] == 0 and unit["energy"] == min(unit["max_en"], start + unit["reg_en"])
     assert state["reachable"] and state["targets"] == []
     assert state["message"] == {"text": "", "error": False}
 
 
 def test_options_players_and_size(client):
-    state = new(client, players=4, size=16)
-    assert state["board"]["width"] == 16
-    assert len(state["players"]) == 4 and len(state["units"]) == 4 * (1 + UNITS_PER_PLAYER)
+    state = new(client, players=C.MAX_PLAYERS, size=max(C.MAP_SIZES))
+    assert state["board"]["width"] == max(C.MAP_SIZES)
+    assert len(state["players"]) == C.MAX_PLAYERS and len(state["units"]) == C.MAX_PLAYERS * (1 + UNITS_PER_PLAYER)
 
 
 def test_many_games_at_once(client):
@@ -80,7 +84,9 @@ def test_random_seed_when_missing(client):
 
 
 @pytest.mark.parametrize(
-    "body", [{"players": 1}, {"players": 5}, {"size": 11}, {"seed": -1}, {"players": "many"}]
+    "body",
+    [{"players": C.MIN_PLAYERS - 1}, {"players": C.MAX_PLAYERS + 1}, {"size": max(C.MAP_SIZES) + 1}, {"seed": -1},
+     {"seed": C.MAX_SEED + 1}, {"players": "many"}],
 )
 def test_invalid_new_game(client, body):
     assert client.post("/api/games", json=body).status_code == 422
@@ -164,7 +170,7 @@ def test_rejected_action_reports_error_and_keeps_state(client):
 
 @pytest.mark.parametrize(
     "body",
-    [{"type": "jump"}, {"type": "cancel"}, {"type": "click"}, {"type": "click", "x": 12, "y": 0},
+    [{"type": "jump"}, {"type": "cancel"}, {"type": "click"}, {"type": "click", "x": C.DEFAULT_MAP_SIZE, "y": 0},
      {"type": "click", "x": -1, "y": 0}],
 )
 def test_invalid_intents(client, body):

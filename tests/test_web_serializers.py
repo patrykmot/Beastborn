@@ -1,11 +1,16 @@
 import json
 
+import pytest
+
+from beastborn import constant as C
 from beastborn.constant import LOG_LINES
 from beastborn.domain import EffectKind, Position, StatusEffect
 from beastborn.game import new_game
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.interface import ClickTile
 from beastborn.ui.web.serializers import render
+
+pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
 
 def test_render_is_json_and_matches_gsm():
@@ -39,24 +44,26 @@ def test_effects_and_log_limit():
 def test_attacks_are_listed_for_animation():
     from beastborn.domain import Board
     from beastborn.game import custom_game
-    from tests.conftest import ARCHER, KING, SOLDIER
+    from tests.conftest import ARCHER, KING, SOLDIER, hit_damage, range_multiplier
 
+    damage = hit_damage(ARCHER.atk * range_multiplier(2) - SOLDIER.defense)  # 2 tiles away
+    assert damage < SOLDIER.hp <= 2 * damage  # the 2nd shot kills
     board = Board.from_strings(["......", "......"])
     gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (2, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
     ui = Interaction(gsm)
     assert render("x", ui)["actions"] == {"seq": 0, "steps": []}
     assert render("x", ui)["active_unit"] == 1  # the Archer acts first
 
-    ui.handle(ClickTile(Position(2, 0)))  # shoot: 8 / RP 1 - DEF 1 = 7
+    ui.handle(ClickTile(Position(2, 0)))  # shoot
     state = render("x", ui)
     assert state["actions"] == {"seq": 1, "steps": [{
         "kind": "attack", "seq": 1, "attacker_id": 1, "target_id": 2, "attacker_type": ARCHER.key, "owner": 0,
-        "from": [0, 0], "to": [2, 0], "ranged": True, "damage": 7, "killed": False,
+        "from": [0, 0], "to": [2, 0], "ranged": True, "damage": damage, "killed": False,
     }]}
-    assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == 1
-    assert state["log"][-1].startswith("P1 Archer shot P2 Soldier for 7")
+    assert next(u for u in state["units"] if u["id"] == 1)["move_penalty"] == ARCHER.move_penalty
+    assert state["log"][-1].startswith(f"P1 Archer shot P2 Soldier for {damage}")
 
-    ui.handle(ClickTile(Position(2, 0)))  # 3 HP left -> killed; position comes from before the hit
+    ui.handle(ClickTile(Position(2, 0)))  # killed; position comes from before the hit
     state = render("x", ui)
     attacks = state["actions"]["steps"]
     assert len(attacks) == 1  # only the attacks since the last input are kept and sent
@@ -80,7 +87,7 @@ def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
     ui.handle(EndTurn())
     assert render("x", ui)["targets"] == [{
         "unit_id": 4, "damage": 3, "formula": "4 - 1 = 3", "blocked": False,
-        "move": {"x": 2, "y": 1, "cost": 4, "path": [[0, 1], [1, 1], [2, 1]]},
+        "move": {"x": 2, "y": 1, "cost": 2 * C.EN_NT, "path": [[0, 1], [1, 1], [2, 1]]},
     }]
     ui.handle(ClickTile(Position(3, 1)))  # walks to (2,1), then hits
     walk, attack = render("x", ui)["actions"]["steps"]  # in order: the walk, then the hit

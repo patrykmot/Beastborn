@@ -55,7 +55,7 @@ class GameState:
     def copy(self) -> GameState:
         """An independent copy: changing one never changes the other. The board never changes, so it is shared.
 
-        A new mutable field must be copied here too (tests/test_state_machine.py checks every field).
+        A new mutable field must be copied here too.
         """
         clone: GameState = shallow_copy(self)
         clone.players = [shallow_copy(p) for p in self.players]

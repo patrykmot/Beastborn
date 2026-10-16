@@ -102,7 +102,7 @@ ALLOW_BLOCK: Final[bool] = False  # [5] if True, floor(Base_Damage - DEF) <= 0 d
 
 # [6] On-hit effects.
 VENOM_DURATION: Final[int] = 5  # rounds; one stack per attacker (re-hit refreshes it), every stack ticks
-VENOM_ATK_DIVISOR: Final[int] = 2  # Venom damage per round = max(1, ATK // 4)
+VENOM_ATK_DIVISOR: Final[int] = 2  # Venom damage per round = max(1, ATK // VENOM_ATK_DIVISOR)
 ACID_ATK_DIVISOR: Final[int] = 10  # Acid DEF shred = max(1, ATK // 10)
 MIN_EFFECT_MAGNITUDE: Final[int] = 1  # the "max(1, ...)" above
 

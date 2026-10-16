@@ -1,6 +1,5 @@
 """Balance report (beastborn/reports/report.py): fight simulation, matrix and a GUI smoke test."""
 import json
-import math
 from dataclasses import replace
 from fractions import Fraction
 
@@ -17,8 +16,11 @@ from beastborn.reports.report import (  # noqa: E402
     Scenario, Side, StepKind, attack_matrix, best_distance, legal_distances, pick_distance, simulate,
 )
 from tests.conftest import (  # noqa: E402
-    ARCHER, FIXED_ARCHER, FIXED_BIG_RAT, FIXED_BOSS, FIXED_PEASANT, FIXED_UNITS, KING, SOLDIER, write_units_file,
+    ARCHER, FIXED_ARCHER, FIXED_BIG_RAT, FIXED_BOSS, FIXED_PEASANT, FIXED_UNITS, KING, SOLDIER, acid_shred,
+    first_turn_energy, hit_damage, mud_defense, range_multiplier, venom_per_round, write_units_file,
 )
+
+pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
 CE = StandardCalculationEngine()
 K = Fraction(str(C.ELEVATION_COEF))  # damage bonus per elevation level
@@ -26,6 +28,16 @@ K = Fraction(str(C.ELEVATION_COEF))  # damage bonus per elevation level
 
 def hp_trace(fight):
     return [s.target_hp_after for s in fight.steps if s.kind in (StepKind.HIT, StepKind.VENOM)]
+
+
+def legal(stats):
+    """Distances a unit can attack from (ranged: every distance of the range table within its range)."""
+    return [d for d in sorted(C.RANGE_DISSIPATION) if d <= stats.attack_range] if stats.is_ranged else [1]
+
+
+def best(stats):
+    """Distance with the strongest range multiplier; on a tie the nearer one."""
+    return min(legal(stats), key=lambda d: (-range_multiplier(d), d))
 
 
 # ---------------------------------------------------------------- one fight
@@ -48,30 +60,36 @@ def test_regen_limits_hits_per_round(roster):
     def hits_in_round(fight, round_):
         return sum(1 for s in fight.steps if s.kind is StepKind.HIT and s.round == round_)
 
-    assert hits_in_round(boss_fight, 1) == 1  # reg 3, 3 EN per hit
-    assert hits_in_round(rat_fight, 1) == 3  # reg 6, 2 EN per hit
+    boss, rat = roster[C.UNIT_BOSS], roster[C.UNIT_BIG_RAT]
+    assert hits_in_round(boss_fight, 1) == first_turn_energy(boss) // boss.en_atk
+    assert hits_in_round(rat_fight, 1) == first_turn_energy(rat) // rat.en_atk
     first_turn = rat_fight.steps[1]
-    assert first_turn.kind is StepKind.REGEN and first_turn.event == "turn start +6 EN"
-    assert first_turn.attacker.energy == 6
+    regen = first_turn_energy(rat) - min(rat.max_en, C.STARTING_ENERGY)
+    assert first_turn.kind is StepKind.REGEN and first_turn.event == f"turn start +{regen} EN"
+    assert first_turn.attacker.energy == first_turn_energy(rat)
 
 
 def test_venom_ticks_at_target_turn_start(roster):
-    fight = simulate(Scenario(Side(roster[C.UNIT_BIG_RAT]), Side(roster[C.UNIT_BOSS])))
+    rat, boss = roster[C.UNIT_BIG_RAT], roster[C.UNIT_BOSS]
+    fight = simulate(Scenario(Side(rat), Side(boss)))
     kinds = [s.kind for s in fight.steps if s.round == 1]
-    assert kinds == [StepKind.REGEN, StepKind.HIT, StepKind.HIT, StepKind.HIT, StepKind.VENOM]
+    assert kinds == [StepKind.REGEN] + [StepKind.HIT] * (first_turn_energy(rat) // rat.en_atk) + [StepKind.VENOM]
     venom = next(s for s in fight.steps if s.kind is StepKind.VENOM)
-    assert venom.damage == max(1, roster[C.UNIT_BIG_RAT].atk // 4)
+    assert venom.damage == venom_per_round(rat.atk)
     assert venom.target.effects[0].kind is EffectKind.VENOM
-    assert (fight.rounds, fight.hits, fight.venom_damage) == (10, 30, 10)
+    assert fight.venom_damage > 0 and fight.venom_damage % venom_per_round(rat.atk) == 0
+    assert fight.hit_damage + fight.venom_damage == boss.hp + fight.overkill  # every HP is accounted for
 
 
 def test_acid_lowers_target_def():
-    acid = replace(SOLDIER, key="acid", atk=10, on_hit=(EffectSpec(EffectKind.ACID),))  # 1 DEF per hit
+    acid = replace(SOLDIER, key="acid", atk=10, on_hit=(EffectSpec(EffectKind.ACID),))
     target = replace(KING, defense=2, hp=40)
+    shred = acid_shred(acid.atk)
     fight = simulate(Scenario(Side(acid), Side(target)))
     defenses = [s.target.defense for s in fight.steps if s.kind is StepKind.HIT and s.target]
-    assert defenses[:3] == [1, 0, 0]
-    assert "acid DEF 2 → 1" in next(s for s in fight.steps if s.kind is StepKind.HIT).calculation
+    assert defenses[:3] == [max(0, target.defense - shred * hits) for hits in (1, 2, 3)]
+    first_hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
+    assert f"acid DEF {target.defense} → {max(0, target.defense - shred)}" in first_hit.calculation
 
 
 def test_terrain_and_height_change_damage(roster):
@@ -80,11 +98,12 @@ def test_terrain_and_height_change_damage(roster):
     )
     fight = simulate(scenario)
     hit = next(s for s in fight.steps if s.kind is StepKind.HIT)
-    raw = roster[C.UNIT_ARCHER].atk * (1 + K) * Fraction(4, 5) - 2  # 0.3: 7 x1.3 x0.8 - 2 = 5.28 -> 5
-    assert hit.calculation.startswith(f"{roster[C.UNIT_ARCHER].atk} x{fmt(1 + K)} height x0.8 range - 2 = {fmt(raw)}")
-    assert hit.damage == max(1, math.floor(raw))
+    archer, rp, defense = roster[C.UNIT_ARCHER], range_multiplier(3), mud_defense(roster[C.UNIT_BOSS].defense)
+    raw = archer.atk * (1 + K) * rp - defense
+    assert hit.calculation.startswith(f"{archer.atk} x{fmt(1 + K)} height x{fmt(rp)} range - {defense} = {fmt(raw)}")
+    assert hit.damage == hit_damage(raw)
     assert hit.result.formula() == hit.calculation
-    assert hit.target.current_defense == 2
+    assert hit.target.current_defense == defense
 
 
 def test_matrix_uses_tab1_conditions(roster):
@@ -104,9 +123,9 @@ def test_matrix_uses_tab1_conditions(roster):
 
 def test_distances(roster, monkeypatch):
     assert legal_distances(roster[C.UNIT_PEASANT], CE) == [1]
-    assert legal_distances(roster[C.UNIT_ARCHER], CE) == [1, 2, 3, 4]
+    assert legal_distances(roster[C.UNIT_ARCHER], CE) == legal(roster[C.UNIT_ARCHER])
     assert best_distance(roster[C.UNIT_PEASANT], CE) == 1
-    assert best_distance(roster[C.UNIT_ARCHER], CE) == 2
+    assert best_distance(roster[C.UNIT_ARCHER], CE) == best(roster[C.UNIT_ARCHER])
     short_bow = replace(ARCHER, attack_range=2)
     assert pick_distance(short_bow, CE, 4) == 2 and pick_distance(short_bow, CE, None) == 2
     with pytest.raises(ValueError):
@@ -129,22 +148,31 @@ def test_matrix_has_every_pair(roster):
     fights = attack_matrix(roster)
     assert len(fights) == len(roster) ** 2
     assert all(f.killed for f in fights.values())
-    assert fights[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == 2
+    assert fights[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == best(roster[C.UNIT_ARCHER])
     assert fights[(C.UNIT_BOSS, C.UNIT_ARCHER)].scenario.distance == 1
     assert attack_matrix(roster, ranged_distance=1)[(C.UNIT_ARCHER, C.UNIT_BOSS)].scenario.distance == 1
 
 
-# The matrix for the FIXED_* test units (tests/conftest.py), not for units.json: rebalancing the game does not
-# change it. Both units on grass, height 0, Archer at 2 tiles. (rounds, hits) per attacker -> target.
+# The matrix for the FIXED_* test units (tests/conftest.py), not for units.json, worked out with the rule numbers
+# in MATRIX_RULES: rebalancing units.json or constant.py does not change it. Both units on grass, height 0,
+# Archer at its best distance (2 tiles). (rounds, hits) per attacker -> target.
+MATRIX_RULES = {
+    "STARTING_ENERGY": 0,
+    "MIN_DAMAGE": 1,
+    "VENOM_ATK_DIVISOR": 2,
+    "RANGE_DISSIPATION": {1: 0.5, 2: 1.0, 3: 0.8, 4: 0.8},
+}
 EXPECTED_MATRIX = {
     C.UNIT_BOSS: {C.UNIT_BOSS: (40, 40), C.UNIT_BIG_RAT: (5, 5), C.UNIT_PEASANT: (6, 6), C.UNIT_ARCHER: (5, 5)},
-    C.UNIT_BIG_RAT: {C.UNIT_BOSS: (10, 30), C.UNIT_BIG_RAT: (2, 5), C.UNIT_PEASANT: (2, 5), C.UNIT_ARCHER: (2, 5)},
+    C.UNIT_BIG_RAT: {C.UNIT_BOSS: (8, 24), C.UNIT_BIG_RAT: (2, 5), C.UNIT_PEASANT: (2, 5), C.UNIT_ARCHER: (2, 4)},
     C.UNIT_PEASANT: {C.UNIT_BOSS: (12, 20), C.UNIT_BIG_RAT: (3, 4), C.UNIT_PEASANT: (3, 4), C.UNIT_ARCHER: (3, 4)},
     C.UNIT_ARCHER: {C.UNIT_BOSS: (9, 14), C.UNIT_BIG_RAT: (3, 4), C.UNIT_PEASANT: (3, 4), C.UNIT_ARCHER: (2, 3)},
 }
 
 
-def test_matrix_rounds_and_hits(roster):
+def test_matrix_rounds_and_hits(roster, monkeypatch):
+    for name, value in MATRIX_RULES.items():
+        monkeypatch.setattr(C, name, value)
     fights = attack_matrix(roster)
     actual = {a: {t: (fights[a, t].rounds, fights[a, t].hits) for t in row} for a, row in EXPECTED_MATRIX.items()}
     assert actual == EXPECTED_MATRIX
@@ -152,8 +180,14 @@ def test_matrix_rounds_and_hits(roster):
 
 def test_step_rows_for_the_tables():
     fight = simulate(Scenario(Side(SOLDIER), Side(SOLDIER)))
-    assert report.step_row(fight.steps[1]) == ("R1", "turn start +6 EN", "EN 0 → 6 (max 10)", "10", "6/10")
-    assert report.step_row(fight.steps[2]) == ("R1", "hit", "4 - 1 = 3", "10 → 7", "4/10")
+    start, energy, top = min(SOLDIER.max_en, C.STARTING_ENERGY), first_turn_energy(SOLDIER), SOLDIER.max_en
+    damage = SOLDIER.atk - SOLDIER.defense
+    assert report.step_row(fight.steps[1]) == (
+        "R1", f"turn start +{energy - start} EN", f"EN {start} → {energy} (max {top})", "10", f"{energy}/{top}",
+    )
+    assert report.step_row(fight.steps[2]) == (
+        "R1", "hit", f"4 - 1 = {damage}", f"10 → {10 - damage}", f"{energy - SOLDIER.en_atk}/{top}",
+    )
     assert report.step_row(fight.steps[-1])[1] == "hit - dead"
     assert report.step_tag(fight.steps[-1]) == "dead"
 
@@ -187,10 +221,18 @@ def test_gui_report_tab(app):
     tab = app.report_tab
     app.update()
     assert len(tab.fights) == len(FIXED_UNITS) ** 2
-    assert tab.cells[(C.UNIT_BIG_RAT, C.UNIT_BOSS)].cget("text") == "10 (30)"
+    def cell(pair):
+        fight = tab.fights[pair]
+        return tab.cells[pair].cget("text"), f"{fight.rounds} ({fight.hits})"
+
+    text, expected = cell((C.UNIT_BIG_RAT, C.UNIT_BOSS))
+    assert text == expected
     assert len(tab.tree.get_children()) == len(FIXED_UNITS) ** 2
+    boss_on_grass = tab.fights[(C.UNIT_BOSS, C.UNIT_BOSS)].hits
     tab.target_terrain.set("mud")  # recalculates every pair
-    assert tab.cells[(C.UNIT_BOSS, C.UNIT_BOSS)].cget("text") == "14 (14)"  # 5 - floor(4 / 2) = 3 per hit, 40 HP, 1 hit per round
+    text, expected = cell((C.UNIT_BOSS, C.UNIT_BOSS))
+    assert text == expected
+    assert tab.fights[(C.UNIT_BOSS, C.UNIT_BOSS)].hits < boss_on_grass  # half DEF in mud: fewer hits to kill
     tab.select((C.UNIT_BIG_RAT, C.UNIT_BOSS), scroll=True, open_pair=True)
     assert tab.chart.fight is tab.fights[(C.UNIT_BIG_RAT, C.UNIT_BOSS)]
     tab.ranged.set("1")

@@ -244,7 +244,11 @@ def _unit(view: GameView, unit_id: int) -> UnitView:
 
 
 def _record(events: Sequence[ev.GameEvent], view: GameView, steps: list[Step]) -> None:
-    """Turn the events of one command into report steps (snapshots = state after the command)."""
+    """Turn the events of one command into report steps (snapshots = state after the command).
+
+    One command can also start the next round (e.g. a killing hit when no other unit is left to act), so each step
+    gets the round it happened in, and nothing after the target's death is recorded: the fight is over.
+    """
     attacker: UnitView = _unit(view, ATTACKER_ID)
     target: UnitView | None = view.unit(TARGET_ID)
     max_en: int = attacker.stats.max_en
@@ -259,8 +263,13 @@ def _record(events: Sequence[ev.GameEvent], view: GameView, steps: list[Step]) -
             killed=killed, attacker=attacker, target=target, result=result,
         ))
 
+    round_now: int = view.round - sum(isinstance(e, ev.RoundStarted) for e in events)  # round before the command
     for event in events:
-        if isinstance(event, ev.TurnStarted) and event.player == 0:
+        if steps[-1].killed:
+            return
+        if isinstance(event, ev.RoundStarted):
+            round_now = event.round
+        elif isinstance(event, ev.TurnStarted) and event.player == 0:
             regen = next((e for e in events if isinstance(e, ev.EnergyRegenerated) and e.unit_id == ATTACKER_ID), None)
             before, after = (regen.before, regen.after) if regen else (attacker.energy, attacker.energy)
             add(event.round, StepKind.REGEN, f"turn start +{after - before} EN",
@@ -271,9 +280,9 @@ def _record(events: Sequence[ev.GameEvent], view: GameView, steps: list[Step]) -
             if r.defense_change:
                 old_def: int = steps[-1].target.defense if steps[-1].target else 0
                 calculation += f"; acid DEF {old_def} {ARROW} {old_def + r.defense_change}"
-            add(view.round, StepKind.HIT, "hit", calculation, event.target_hp_after, r.damage, r)
+            add(round_now, StepKind.HIT, "hit", calculation, event.target_hp_after, r.damage, r)
         elif isinstance(event, ev.EffectTicked) and event.unit_id == TARGET_ID:
-            add(view.round, StepKind.VENOM, event.kind.value, f"{event.amount} HP (ignores DEF)",
+            add(round_now, StepKind.VENOM, event.kind.value, f"{event.amount} HP (ignores DEF)",
                 event.hp_after, event.amount)
 
 

@@ -83,8 +83,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   - `score(player)` returns the CE score of the current board for that player.
   - `find_all_possible_actions()` returns every way the active unit can play its **whole turn**, one command per way
     (for bots: one command = one unit turn, the next unit acts after it). A turn is: attacks (each may move first, as
-    `AttackCommand` with an explicit `move_to`), then maybe one `MoveCommand`, then `EndTurnCommand` if the unit could
-    still act (otherwise the GSM ends the turn by itself). One step is returned as that command, more as a `WrapperCommand`.
+    `AttackCommand` with an explicit `move_to`), then maybe one `MoveCommand`, then always `EndTurnCommand`. Every
+    command is a `WrapperCommand` that ends with `EndTurnCommand`, except waiting: `EndTurnCommand` alone (listed first).
     Every distinct command sequence is listed (also ones ending on the same board). It is read only: every attack is
     tried with `submit` and undone with `rollback`, so the list is exactly what `submit` accepts. The list is cached
     until the state changes. Typical: ~1 ms, crowded fights up to ~65 ms and several hundred actions.
@@ -94,7 +94,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   - `WrapperCommand(commands)`: several commands of one unit's turn, run in order. Must not be empty, nested, or have
     `EndTurnCommand` before its end. If a wrapped command is rejected (or the unit's turn is already over), the rest
     is skipped: the commands that ran stay done, the result is `ok=False` with their events, and the log keeps a
-    `WrapperCommand` of just those.
+    `WrapperCommand` of just those. Exception: when the GSM already ended the turn by itself (no energy left) or the
+    game ended, a last `EndTurnCommand` is accepted and does nothing.
   - Accepted commands are stored in `command_log`. Seed + log is enough to replay a game.
   - `rollback()` undoes the last logged command exactly (state and log) and returns it (None = nothing to undo); it can
     be repeated back to the start of the game. `submit` keeps the state from before each command untouched in a

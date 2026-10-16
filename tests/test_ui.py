@@ -1,10 +1,15 @@
 """UI presenter tests (frontend-neutral)."""
+import pytest
+
+from beastborn import constant as C
 from beastborn.control import PassController
 from beastborn.domain import Board, Position
 from beastborn.game import Phase, custom_game
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.interface import ClickTile, EndTurn, HoverTile, Quit
 from tests.conftest import KING, SOLDIER
+
+pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
 FLAT = Board.from_strings([".....", ".....", "....."])
 
@@ -85,8 +90,8 @@ def test_main_parses_arguments():
     from main import parse_args
 
     args = parse_args(["--port", "9000", "--reload"])
-    assert (args.host, args.port, args.reload) == ("127.0.0.1", 9000, True)
-    assert parse_args([]).port == 8000
+    assert (args.host, args.port, args.reload) == (C.DEFAULT_HOST, 9000, True)
+    assert parse_args([]).port == C.DEFAULT_PORT
 
 
 def test_click_far_enemy_moves_then_attacks_and_hover_shows_the_planned_hit():
