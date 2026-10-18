@@ -1,0 +1,20 @@
+{
+  "_comment": "What the bot says after each of its unit turns. Keys are moods (beastborn/control/bot_voice.py: Mood). Add lines freely; a new mood needs a Mood value too.",
+  "start": [
+    "Beep boop. I have calculated 5 turns ahead. You have calculated lunch.",
+    "Initiating Operation Big Rat. Resistance is mildly inconvenient.",
+    "Good luck, human. Statistically, you will need it."
+  ],
+  "attack": [
+    "Nothing personal. It's just alpha-beta.",
+    "Bonk. Calculated bonk.",
+    "Your Boss's HP bar looks a bit long. Let me fix that.",
+    "I pruned that branch. And your unit."
+  ],
+  "defense": [
+    "Tactical retreat. Totally planned. Definitely.",
+    "I'm not hiding, I'm optimising my position.",
+    "Waiting is also a move. A very clever move.",
+    "Patience is a virtue. Also a heuristic."
+  ]
+}

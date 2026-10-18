@@ -114,6 +114,14 @@ SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) h
 SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
 SCORE_PER_ELEVATION_LEVEL: Final[int] = 5  # per level above the ground each of my units stands on
 
+# ====================================================================== bot (beastborn/control/bot.py)
+BOT_SEARCH_DEPTH: Final[int] = 5  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
+MAX_BOTS: Final[int] = 1  # bots per game
+BOT_PLAYERS: Final[int] = 2  # a bot can play only in games with exactly this many players (2-player search)
+BOT_NAME_TEMPLATE: Final[str] = "Player {number} (Bot)"  # number = index + 1
+BOT_LINES_FILE: Final[Path] = PACKAGE_DIR / "data" / "bot_lines.json"  # what the bot says, by mood
+
 # ====================================================================== ui
 LOG_HISTORY: Final[int] = 200  # log lines kept by Interaction
 LOG_LINES: Final[int] = 50  # log lines sent to the browser
@@ -123,7 +131,6 @@ DEFAULT_HOST: Final[str] = "127.0.0.1"
 DEFAULT_PORT: Final[int] = 8000
 STATIC_URL_PATH: Final[str] = "/static"
 INDEX_FILE: Final[str] = "index.html"
-MAX_BOT_STEPS: Final[int] = 10_000  # safety limit for run_bots()
 SESSIONS_KEY: Final[str] = "beastborn.sessions"  # Flask app.extensions key
 DEFAULT_TTL_SECONDS: Final[int] = 30 * 60  # idle time before a game expires
 DEFAULT_MAX_SESSIONS: Final[int] = 100  # games kept in memory at once

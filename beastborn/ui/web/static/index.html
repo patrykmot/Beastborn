@@ -39,7 +39,7 @@
               <span class="sprite sprite-lg" style="--sprite:url(/static/img/units/big_rat.svg); --team:#a056cc"></span>
             </div>
             <h1 class="h3 mb-1">New game</h1>
-            <p class="text-secondary small mb-0">Hot-seat tactics. No dice: energy, terrain and height decide every fight.</p>
+            <p class="text-secondary small mb-0">Hot-seat tactics, or play the bot. No dice: energy, terrain and height decide every fight.</p>
           </div>
 
           <form id="start-form" autocomplete="off">
@@ -51,6 +51,18 @@
               <label class="btn btn-outline-primary" for="players-3">3</label>
               <input type="radio" class="btn-check" name="players" id="players-4" value="4">
               <label class="btn btn-outline-primary" for="players-4">4</label>
+            </div>
+
+            <div id="bot-row" class="mb-3">
+              <div class="form-label">Bot <span class="text-secondary small">(2-player games)</span></div>
+              <div class="btn-group w-100" role="group" aria-label="Bot">
+                <input type="radio" class="btn-check" name="bot" id="bot-none" value="">
+                <label class="btn btn-outline-secondary" for="bot-none">No bot</label>
+                <input type="radio" class="btn-check" name="bot" id="bot-p1" value="0">
+                <label class="btn btn-outline-secondary" for="bot-p1"><i class="bi bi-robot"></i> Player 1</label>
+                <input type="radio" class="btn-check" name="bot" id="bot-p2" value="1" checked>
+                <label class="btn btn-outline-secondary" for="bot-p2"><i class="bi bi-robot"></i> Player 2</label>
+              </div>
             </div>
 
             <div class="row g-2 mb-3">

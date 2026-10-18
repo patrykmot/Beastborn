@@ -1,6 +1,6 @@
 # Beastborn
 
-Turn-based tactics for 2–4 hot-seat players. Beasts fight on a random battlefield with mud and hills.
+Turn-based tactics for 2–4 hot-seat players, or one human against the bot. Beasts fight on a random battlefield with mud and hills.
 **Combat has zero randomness.** What happens depends only on energy, position and unit stats.
 
 Made with fun by Patryk Motyczyński.
@@ -77,7 +77,7 @@ beastborn/
   domain/    pure data: Position, Tile, Board, UnitStats/UnitState, effects, roster loader
   engine/    Calculation Engine (CE): interface + StandardCalculationEngine (numbers in constant.py)
   game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
-  control/   player controllers (human now, bots later)
+  control/   player controllers: human, and the alpha-beta bot (bot.py, bot_voice.py)
   ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
     web/     Flask backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
   data/      units.json
@@ -93,9 +93,10 @@ gercio_eu_pythonanywhere_com_wsgi.py   PythonAnywhere WSGI entry point (producti
 
 | Method | Path | Body |
 |---|---|---|
-| `POST` | `/api/games` | `{"players": 2, "size": 12, "seed": null}` → new game state |
+| `POST` | `/api/games` | `{"players": 2, "size": 12, "seed": null, "bots": [1]}` → new game state (`bots`: seats played by the bot; at most 1, only with 2 players; default none) |
 | `GET` | `/api/games/{id}` | → state |
 | `POST` | `/api/games/{id}/intents` | `{"type": "click", "x": 3, "y": 5}` / `{"type": "end_turn"}` → state |
+| `POST` | `/api/games/{id}/bot-step` | no body → the bot plays one unit turn (only while `watching`) → state |
 | `DELETE` | `/api/games/{id}` | → 204 |
 
 ## Credits

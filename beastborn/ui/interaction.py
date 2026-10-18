@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from beastborn.constant import LOG_HISTORY
+from beastborn.control.bot import BotPlayerController
 from beastborn.control.controller import HumanController, PlayerController
 from beastborn.domain.position import Position
 from beastborn.engine.results import AttackResult
@@ -45,6 +46,19 @@ class AttackAnimation:
     killed: bool
 
 
+@dataclass(frozen=True)
+class BotSpeech:
+    """What the bot said after one of its unit turns (shown after that turn's moves and attacks)."""
+
+    seq: int  # number of the command it talks about
+    player: int
+    unit_id: int  # the unit that played the turn
+    text: str
+
+
+Step = MoveAnimation | AttackAnimation | BotSpeech
+
+
 class Interaction:
     def __init__(self, gsm: GameStateMachine, controllers: dict[int, PlayerController] | None = None):
         self.gsm: GameStateMachine = gsm
@@ -54,8 +68,8 @@ class Interaction:
         self.message_is_error: bool = False
         self.log: deque[str] = deque(maxlen=LOG_HISTORY)
         self.action_seq: int = 0  # number of accepted commands so far
-        # moves and attacks since the last player input (incl. bot turns), in the order they happened
-        self.last_actions: list[MoveAnimation | AttackAnimation] = []
+        # moves, attacks and bot speech since the last player input or bot turn, in the order they happened
+        self.last_actions: list[Step] = []
         self.quit_requested: bool = False
         self._cache_key: int | None = None  # accepted commands when the derived state below was computed
         self._view: GameView = gsm.view()
@@ -74,7 +88,9 @@ class Interaction:
         self._view = self.gsm.view()
         self._score = self.gsm.score(self._view.active_player)
         active: int | None = self._view.active_unit
-        if active is None or self._view.phase is Phase.GAME_OVER:
+        controller: PlayerController | None = self.controllers.get(self._view.active_player)
+        bot_turn: bool = controller is not None and not controller.is_human
+        if active is None or self._view.phase is Phase.GAME_OVER or bot_turn:  # no previews for a bot's unit
             self._reachable, self._plans = {}, {}
         else:
             self._reachable = self.gsm.reachable_tiles(active)
@@ -144,6 +160,14 @@ class Interaction:
     def _waiting_for_human(self) -> bool:
         return self.view.phase is not Phase.GAME_OVER and self.human_turn
 
+    @property
+    def watching(self) -> bool:
+        """WatchState: a bot is playing, the human can only watch (and start a new game)."""
+        return self.view.phase is not Phase.GAME_OVER and not self.human_turn
+
+    def is_bot(self, player: int) -> bool:
+        return isinstance(self.controllers.get(player), BotPlayerController)
+
     # ------------------------------------------------------------------ input
     def handle(self, intent: UIIntent) -> None:
         if not isinstance(intent, HoverTile):
@@ -174,13 +198,28 @@ class Interaction:
         else:
             self._say("")
 
-    def tick(self) -> None:
-        """Let non-human controllers (bots) act. Call once per frame."""
-        if self.view.phase is Phase.GAME_OVER or self.human_turn:
-            return
-        command: Command | None = self.controllers[self.view.active_player].choose_command(self.gsm)
-        if command is not None:
-            self.submit(command)
+    def tick(self) -> bool:
+        """Let the non-human controller (bot) whose turn it is play one command. True = it did.
+
+        A bot's command is a whole unit turn. What the bot says about it is added to the log and to
+        ``last_actions`` (after that turn's moves and attacks). ``last_actions`` then holds just this turn.
+        """
+        if not self.watching:
+            return False
+        player: int = self.view.active_player
+        unit_id: int | None = self.view.active_unit
+        controller: PlayerController = self.controllers[player]
+        command: Command | None = controller.choose_command(self.gsm)
+        if command is None:
+            return False
+        self.last_actions = []
+        if not self.submit(command):
+            return False
+        text: str | None = controller.last_message if isinstance(controller, BotPlayerController) else None
+        if text and unit_id is not None:
+            self.last_actions.append(BotSpeech(self.action_seq, player, unit_id, text))
+            self.log.append(f'{self.view.players[player].name}: "{text}"')
+        return True
 
     def submit(self, command: Command) -> bool:
         before: GameView = self.gsm.view()

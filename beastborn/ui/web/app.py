@@ -2,12 +2,14 @@
 
 Run with ``python main.py`` (or ``flask --app beastborn.ui.web.app run``) and open http://127.0.0.1:8000.
 Each game lives in a server-side session keyed by its id; the browser only draws the
-returned state and sends intents (click / end_turn).
+returned state and sends intents (click / end_turn). While a bot plays (WatchState) the browser
+asks for one bot unit turn at a time (``POST /api/games/<id>/bot-step``) and shows it.
 """
 from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from typing import Any, NoReturn, TypeVar
 
 from flask import Flask, Response, abort, jsonify, render_template, request
@@ -15,9 +17,10 @@ from pydantic import BaseModel, ValidationError
 from werkzeug.exceptions import HTTPException
 
 from beastborn import constant as C
+from beastborn.control.bot import BotPlayerController
+from beastborn.control.controller import PlayerController
 from beastborn.domain.board import Board
 from beastborn.game.setup import new_game
-from beastborn.game.state import Phase
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.interface import UIIntent
@@ -28,6 +31,7 @@ from beastborn.ui.web.sessions import GameSession, SessionStore, TooManySessions
 
 M = TypeVar("M", bound=BaseModel)
 JsonResponse = tuple[Response, int]
+BotFactory = Callable[[], PlayerController]
 
 
 class InvalidBody(HTTPException):
@@ -66,7 +70,16 @@ def game_not_found() -> NoReturn:
     abort(404, description=C.GAME_NOT_FOUND)
 
 
-def create_app(store: SessionStore | None = None) -> Flask:
+def player_names(players: int, bots: list[int]) -> list[str]:
+    """``Player 1``, ``Player 2 (Bot)``..."""
+    return [
+        (C.BOT_NAME_TEMPLATE if index in bots else C.PLAYER_NAME_TEMPLATE).format(number=index + 1)
+        for index in range(players)
+    ]
+
+
+def create_app(store: SessionStore | None = None, bot_factory: BotFactory = BotPlayerController) -> Flask:
+    """``bot_factory`` makes the controller of each bot seat (tests pass a quicker bot)."""
     app: Flask = Flask(
         __name__,
         static_folder=str(C.STATIC_DIR),
@@ -100,10 +113,12 @@ def create_app(store: SessionStore | None = None) -> Flask:
     def create_game() -> tuple[JSON, int]:
         body: NewGameRequest = parse_body(NewGameRequest)
         gsm: GameStateMachine = new_game(
-            body.players, seed=body.seed, width=body.size, height=body.size
+            body.players, seed=body.seed, width=body.size, height=body.size,
+            player_names=player_names(body.players, body.bots),
         )
+        controllers: dict[int, PlayerController] = {seat: bot_factory() for seat in body.bots}
         try:
-            session: GameSession = sessions.create(gsm)
+            session: GameSession = sessions.create(gsm, controllers)
         except TooManySessions as exc:
             abort(503, description=str(exc))
         with session.lock:
@@ -126,9 +141,16 @@ def create_app(store: SessionStore | None = None) -> Flask:
                 intent: UIIntent = to_intent(body, board.width, board.height)
             except InvalidIntent as exc:
                 abort(422, description=str(exc))
-            ui.handle(intent)
-            run_bots(ui)
+            ui.handle(intent)  # ignored while a bot plays (WatchState)
             return render(session.id, ui)
+
+    @app.post("/api/games/<game_id>/bot-step")
+    def bot_step(game_id: str) -> JSON:
+        """WatchState: the bot whose turn it is plays one unit turn. Does nothing on a human's turn or after the game."""
+        session: GameSession = get_session(game_id)
+        with session.lock:
+            session.interaction.tick()
+            return render(session.id, session.interaction)
 
     @app.delete("/api/games/<game_id>")
     def delete_game(game_id: str) -> tuple[str, int]:
@@ -137,14 +159,6 @@ def create_app(store: SessionStore | None = None) -> Flask:
         return "", 204
 
     return app
-
-
-def run_bots(ui: Interaction) -> None:
-    """Let non-human controllers play until a human is to move (no bots are configured yet)."""
-    for _ in range(C.MAX_BOT_STEPS):
-        if ui.view.phase is Phase.GAME_OVER or ui.human_turn:
-            return
-        ui.tick()
 
 
 app: Flask = create_app()

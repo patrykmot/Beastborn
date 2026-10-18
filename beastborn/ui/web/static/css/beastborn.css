@@ -45,6 +45,7 @@
   cursor: pointer;
 }
 body.busy .tile { cursor: progress; }
+body.watching .tile { cursor: not-allowed; }  /* WatchState: a bot plays, the board takes no input */
 .tile.terrain-grass.elev-0 { background: rgb(92 150 78); }
 .tile.terrain-grass.elev-1 { background: rgb(128 176 96); }
 .tile.terrain-grass.elev-2 { background: rgb(170 200 128); }
@@ -207,6 +208,32 @@ body.busy .tile { cursor: progress; }
 #fx > * { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
 .fx-arrow { color: var(--team); filter: drop-shadow(0 2px 1px rgb(0 0 0 / 0.55)); }
 .fx-arrow svg { display: block; width: 100%; height: auto; }
+/* What the bot says after its turn: a bubble above its unit */
+.fx-speech {
+  max-width: min(260px, 70vw);
+  width: max-content;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #f6f1dc;
+  color: #1d1d1d;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.25;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.5);
+  border: 2px solid var(--team);
+}
+.fx-speech::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: var(--team);
+  border-bottom: 0;
+}
+.bot-thinking .spinner-border { width: 0.9rem; height: 0.9rem; border-width: 0.15em; }
+
 .fx-burst {
   border-radius: 50%;
   border: 3px solid #fff4b8;

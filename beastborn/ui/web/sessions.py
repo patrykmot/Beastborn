@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from beastborn.constant import DEFAULT_MAX_SESSIONS, DEFAULT_TTL_SECONDS
+from beastborn.control.controller import PlayerController
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.ui.interaction import Interaction
 
@@ -41,13 +42,16 @@ class SessionStore:
         self._sessions: dict[str, GameSession] = {}
         self._lock: threading.Lock = threading.Lock()
 
-    def create(self, gsm: GameStateMachine) -> GameSession:
+    def create(self, gsm: GameStateMachine, controllers: dict[int, PlayerController] | None = None) -> GameSession:
+        """A new game session; ``controllers`` = the non-human players (bots) by player index."""
         with self._lock:
             now: float = self._clock()
             self._purge_expired(now)
             if len(self._sessions) >= self.max_sessions:
                 raise TooManySessions(f"Server already runs {self.max_sessions} games")
-            session: GameSession = GameSession(uuid.uuid4().hex, Interaction(gsm), created_at=now, last_access=now)
+            session: GameSession = GameSession(
+                uuid.uuid4().hex, Interaction(gsm, controllers), created_at=now, last_access=now
+            )
             self._sessions[session.id] = session
             return session
 

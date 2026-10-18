@@ -12,7 +12,7 @@ from beastborn.engine.results import AttackResult
 from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.pathfinding import PathInfo
 from beastborn.game.view import GameView, UnitView
-from beastborn.ui.interaction import AttackAnimation, Interaction, MoveAnimation
+from beastborn.ui.interaction import AttackAnimation, BotSpeech, Interaction, MoveAnimation, Step
 
 JSON = dict[str, Any]
 
@@ -57,10 +57,17 @@ def render(game_id: str, ui: Interaction) -> JSON:
         "active_unit": ui.active_unit.id if ui.active_unit is not None else None,  # the unit whose turn it is
         "winner": view.winner,
         "human_turn": ui.human_turn,
+        "watching": ui.watching,  # WatchState: a bot plays, the browser blocks input and asks for bot steps
         "score": ui.score,  # of the active player
         "board": {"width": board.width, "height": board.height, "tiles": _tiles_json(board)},
         "players": [
-            {"index": p.index, "name": p.name, "eliminated": p.eliminated, "units": len(view.units_of(p.index))}
+            {
+                "index": p.index,
+                "name": p.name,
+                "bot": ui.is_bot(p.index),
+                "eliminated": p.eliminated,
+                "units": len(view.units_of(p.index)),
+            }
             for p in view.players
         ],
         "units": [unit_json(u) for u in view.units],
@@ -68,7 +75,7 @@ def render(game_id: str, ui: Interaction) -> JSON:
         # ("move" is set when the unit walks there first)
         "reachable": [_reachable_json(pos, info) for pos, info in sorted(ui.reachable.items())],
         "targets": [_target_json(plan) for _, plan in sorted(ui.attack_plans.items())],
-        # moves and attacks since the last intent, in order, for animations;
+        # moves, attacks and bot speech since the last intent or bot step, in order, for animations;
         # "seq" lets a reloaded page skip ones it already saw
         "actions": {"seq": ui.action_seq, "steps": [_step_json(a) for a in ui.last_actions]},
         "message": {"text": ui.message, "error": ui.message_is_error},
@@ -106,7 +113,9 @@ def _target_json(plan: AttackPlan) -> JSON:
     }
 
 
-def _step_json(a: MoveAnimation | AttackAnimation) -> JSON:
+def _step_json(a: Step) -> JSON:
+    if isinstance(a, BotSpeech):
+        return {"kind": "say", "seq": a.seq, "player": a.player, "unit_id": a.unit_id, "text": a.text}
     if isinstance(a, MoveAnimation):
         return {"kind": "move", "seq": a.seq, "unit_id": a.unit_id, "owner": a.owner, "path": [_xy(p) for p in a.path]}
     return {

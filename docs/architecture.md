@@ -123,8 +123,16 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - `intents.py` maps request JSON to the existing intents: `click` → `ClickTile`, `end_turn` → `EndTurn`.
 - `serializers.py` turns an `Interaction` into the state JSON: board, units, players, `active_unit`, what it can do (`reachable` tiles with cost and path, `targets` with exact damage), message and log. Nothing is recomputed.
 - `app.py`: `create_app(store=None)` returns the Flask app.
-  - `POST /api/games`, `GET /api/games/{id}`, `POST /api/games/{id}/intents`, `DELETE /api/games/{id}`, plus the static page at `/`.
-  - Each intent runs under the game's lock: `interaction.handle(intent)` → `render(...)`.
+  - `POST /api/games` (with `bots: [seat]` for a bot), `GET /api/games/{id}`, `POST /api/games/{id}/intents`,
+    `POST /api/games/{id}/bot-step`, `DELETE /api/games/{id}`, plus the static page at `/`.
+  - Each intent runs under the game's lock: `interaction.handle(intent)` → `render(...)`. Intents are ignored while
+    a bot plays.
+  - `bot-step` (WatchState): under the game's lock the bot whose turn it is plays **one unit turn**
+    (`interaction.tick()`); it does nothing on a human's turn or after the game.
+  - The state has `watching` (a bot plays: the browser blocks the board, End turn and E/Space, and keeps calling
+    `bot-step`, animating each turn, until a human is to move) and `players[i].bot`. `actions.steps` can hold a
+    `{"kind": "say", "seq", "player", "unit_id", "text"}` step after a bot turn: the browser shows it as a speech
+    bubble over the bot's unit (and the log has the line).
 - `static/`: `index.html`, `css/beastborn.css`, `js/beastborn.js` (jQuery), the icons in `img/` and the vendored libraries in `vendor/`.
   - The browser redraws the whole board from every state response.
   - Hover previews (path, cost, damage) come from the last state, so they need no requests.
@@ -132,7 +140,24 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   - Animations: the state has `actions: {seq, steps: [...]}`. `steps` holds only the moves and attacks since the last intent, in the order they happened (a move + attack is a move step, then an attack step; more if bots played). A move step (`kind: "move"`) has the path; an attack step (`kind: "attack"`) has from/to tile, ranged, damage and killed. `Interaction` keeps just these small records (`MoveAnimation`, `AttackAnimation`), not game snapshots, and clears them on the next intent. The browser plays steps newer than the last `seq` it saw (the unit walks its path, an arrow for ranged units, a lunge for melee) on the old board, then draws the new state. A page reload only remembers `seq`, so nothing is replayed.
   - A unit's picture is `img/units/<unit key>.svg`. A unit type without a picture shows its letter `code`.
 
-## Bots
+## Bots (`beastborn/control`)
 
-Implement `PlayerController.choose_command(gsm)` for `gsm.active_unit` using `reachable_tiles` / `attack_plans` / `preview_attack`, then give the session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`). After every intent the web backend calls `run_bots()`, which lets bots act until a human is to move.
-`PassController` is a trivial example: it ends every unit's turn without acting.
+- A bot is a `PlayerController` whose `choose_command(gsm)` returns the command for `gsm.active_unit`. Give the
+  session's `Interaction` the controllers (`Interaction(gsm, controllers={player_index: MyBot()})`); `tick()` lets the
+  bot whose turn it is play one command, and the web client calls it through `bot-step`.
+- `BotPlayerController` (`bot.py`) is the real bot. Only one, and only in 2-player games (`MAX_BOTS`,
+  `BOT_PLAYERS`; the web API checks it). It runs **alpha-beta** search over whole unit turns:
+  - one ply = one action of `gsm.find_all_possible_actions()` (a whole unit turn); depth `BOT_SEARCH_DEPTH` = 5.
+  - each action is tried with `submit` and always undone with `rollback` (in a `finally`), so the game is exactly the
+    same afterwards; `choose_command` checks the command log and `view()` after every search and raises if not.
+  - a node maximises when the bot's player is to move and minimises otherwise (turns do not strictly alternate:
+    a side with more units left plays several in a row).
+  - `evaluate(gsm, me)` = `score(me) - score(opponent)` is the one place that defines a good board. A won game is
+    `+BOT_WIN_SCORE` (a lost one `-BOT_WIN_SCORE`), adjusted so sooner wins and later losses are preferred.
+  - attacks are tried first (more cut-offs); ties go to the first action, so a fixed position gives a fixed move.
+- After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
+  `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
+  never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.
+- `PassController` is a trivial example: it ends every unit's turn without acting.
+- Thinking time grows fast with depth and with fights (many actions per unit turn); lower `BOT_SEARCH_DEPTH` if a
+  server is too slow.

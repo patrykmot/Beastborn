@@ -9,6 +9,7 @@ from beastborn import constant as C
 from beastborn.constant import STATIC_DIR, UNITS_PER_PLAYER
 from beastborn.domain import Board
 from beastborn.game import custom_game
+from beastborn.control import BotPlayerController
 from beastborn.ui.web.app import create_app
 from beastborn.ui.web.sessions import SessionStore
 from tests.conftest import KING, SOLDIER
@@ -23,7 +24,7 @@ def store():
 
 @pytest.fixture
 def client(store):
-    return create_app(store).test_client()
+    return create_app(store, bot_factory=lambda: BotPlayerController(depth=1)).test_client()  # a quick bot
 
 
 def new(client, **body):
@@ -238,3 +239,62 @@ def test_credits_cover_all_icons():
     credits = (STATIC_DIR / "CREDITS.md").read_text(encoding="utf-8")
     for svg in Path(STATIC_DIR, "img").rglob("*.svg"):
         assert svg.relative_to(STATIC_DIR).as_posix() in credits, svg
+
+
+# ---------------------------------------------------------------- bot & WatchState
+def bot_step(client, game_id):
+    response = client.post(f"/api/games/{game_id}/bot-step")
+    assert response.status_code == 200, response.text
+    return response.json
+
+
+def test_new_game_with_a_bot(client):
+    state = new(client, bots=[1])
+    assert [p["bot"] for p in state["players"]] == [False, True]
+    assert state["players"][1]["name"] == C.BOT_NAME_TEMPLATE.format(number=2)
+    assert state["human_turn"] and not state["watching"]
+    assert not any(p["bot"] for p in new(client)["players"])  # the API adds no bot unless asked
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"bots": [0, 1]}, {"bots": [1, 1]}, {"bots": [2]}, {"bots": [-1]}, {"players": 3, "bots": [1]}, {"bots": "x"}],
+)
+def test_invalid_bots(client, body):
+    response = client.post("/api/games", json={"players": 2, **body})
+    assert response.status_code == 422 and response.json["detail"][0]["msg"]
+
+
+def test_watch_the_bot_play(client):
+    state = new(client, bots=[1])
+    state = intent(client, state["game_id"], type="end_turn")
+    assert state["watching"] and not state["human_turn"] and state["active_player"] == 1
+    assert state["reachable"] == [] and state["targets"] == []  # no previews for the bot's unit
+    frozen = intent(client, state["game_id"], type="end_turn")  # input is ignored while watching
+    assert (frozen["active_unit"], frozen["units"]) == (state["active_unit"], state["units"])
+
+    speech = []
+    for _ in range(2 * (1 + UNITS_PER_PLAYER)):
+        if not state["watching"]:
+            break
+        state = bot_step(client, state["game_id"])
+        speech += [s for s in state["actions"]["steps"] if s["kind"] == "say"]
+    assert not state["watching"] and state["human_turn"] and state["active_player"] == 0
+    assert speech and speech[0]["player"] == 1 and speech[0]["text"]
+    assert any(line.startswith(f'{state["players"][1]["name"]}: "') for line in state["log"])
+
+
+def test_bot_in_the_first_seat_starts(client):
+    state = new(client, bots=[0])
+    assert state["watching"] and state["active_player"] == 0
+    state = bot_step(client, state["game_id"])
+    assert state["actions"]["steps"][-1]["kind"] == "say"
+
+
+def test_bot_step_on_a_human_turn_changes_nothing(client):
+    state = new(client, bots=[1])
+    after = bot_step(client, state["game_id"])
+    assert (after["active_unit"], after["units"], after["actions"]["seq"]) == (
+        state["active_unit"], state["units"], state["actions"]["seq"]
+    )
+    assert client.post("/api/games/nope/bot-step").status_code == 404

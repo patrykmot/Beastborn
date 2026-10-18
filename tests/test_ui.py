@@ -118,3 +118,24 @@ def test_plain_move_is_recorded_for_animation():
     assert (walk.seq, walk.unit_id, walk.owner, walk.path) == (1, 1, 0, (Position(0, 0), Position(1, 0)))
     ui.handle(ClickTile(Position(1, 1)))  # any next input clears it
     assert ui.last_actions == []
+
+
+def test_bot_turn_is_watched_and_the_bot_speaks():
+    from beastborn.control import BotPlayerController, BotVoice, Mood
+    from beastborn.ui.interaction import BotSpeech
+
+    gsm = custom_game(FLAT, [(0, KING, (0, 0)), (1, KING, (4, 2))])
+    voice = BotVoice({mood: [f"{mood.value} line"] for mood in Mood})
+    ui = Interaction(gsm, controllers={1: BotPlayerController(2, voice)})
+    assert not ui.watching and ui.is_bot(1) and not ui.is_bot(0)
+    assert ui.tick() is False  # a human's turn: the bot does nothing
+    ui.handle(EndTurn())
+    assert ui.watching and ui.active_unit.owner == 1
+    assert ui.reachable == {} and ui.attack_plans == {}  # no previews for the bot's unit
+    ui.handle(ClickTile(Position(3, 2)))  # the human cannot act in WatchState
+    assert gsm.active_player == 1 and len(gsm.command_log) == 1
+    assert ui.tick() is True
+    assert not ui.watching and gsm.active_player == 0
+    speech = ui.last_actions[-1]
+    assert speech == BotSpeech(ui.action_seq, 1, 2, "start line")
+    assert ui.log[-1] == 'Player 2: "start line"'

@@ -3,6 +3,10 @@
  * The server owns all game state, including which unit acts now (the game picks it, players
  * cannot). This file only sends intents, draws the state JSON it gets back, shows hover
  * previews from that state and animates new moves and attacks before drawing the new state.
+ *
+ * WatchState (state.watching): a bot plays. The board takes no input; the page asks the server for one
+ * bot unit turn at a time (bot-step), animates it, shows what the bot says, and repeats until a human
+ * is to move. Only "New game" (and "Copy link") work meanwhile.
  */
 $(function () {
   "use strict";
@@ -12,12 +16,17 @@ $(function () {
   const PLAYER_COLORS = ["#d6483f", "#3e7cde", "#e2b830", "#a056cc"];
   const SPRITES = new Set(["boss", "big_rat", "peasant", "archer"]);
   const MIN_TILE = 28, MAX_TILE = 64;
+  const BOT_PLAYERS = 2;     // a bot can only play in a 2-player game (constant.BOT_PLAYERS)
 
   let state = null;          // last state from the server
   let busy = false;          // a request is in flight
   let hover = null;          // {x, y} of the tile under the mouse
   let gameOverShown = null;  // game id for which the modal was already shown
   let seenSeq = 0;           // last action already shown; only newer moves and attacks are animated
+  let watchXhr = null;       // the bot-step request in flight (WatchState)
+  let generation = 0;        // bumped on every new / loaded game: late responses of an old game are dropped
+  let watchFailed = false;   // a bot-step failed: show a "Continue" button instead of the spinner
+  const WATCH_PAUSE_MS = 350; // short breath between two bot turns
   const gameOverModal = new bootstrap.Modal("#game-over-modal");
 
   // API
@@ -26,6 +35,7 @@ $(function () {
     create: (body) => request("POST", "/api/games", body),
     get: (id) => request("GET", gameUrl(id)),
     intent: (id, body) => request("POST", `${gameUrl(id)}/intents`, body),
+    botStep: (id) => request("POST", `${gameUrl(id)}/bot-step`),
   };
 
   function request(method, url, body) {
@@ -107,6 +117,7 @@ $(function () {
   }
 
   function showStart() {
+    stopWatching();
     state = null;
     hover = null;
     history.replaceState(null, "", "/");
@@ -125,17 +136,55 @@ $(function () {
       gameOverShown = state.game_id;
       showGameOver();
     }
+    if (state.watching) setTimeout(watchStep, WATCH_PAUSE_MS, generation);
+  }
+
+  // WatchState: the bot plays one unit turn per request, and the page shows each one
+  function watchStep(gen) {
+    if (gen !== generation || !state || !state.watching || watchXhr || watchFailed) return;
+    const xhr = api.botStep(state.game_id);
+    const release = () => { if (watchXhr === xhr) watchXhr = null; };  // never clear a newer game's request
+    watchXhr = xhr;
+    xhr
+      .then((newState) => {
+        if (gen !== generation) return null;  // a new game was started meanwhile
+        return playActions(newSteps(newState)).then(() => newState);
+      })
+      .done((newState) => {
+        release();
+        if (newState && gen === generation) setState(newState);
+      })
+      .fail((failed) => {
+        release();
+        if (gen !== generation || failed.statusText === "abort") return;
+        toast(errorText(failed));
+        if (failed.status === 404) { showStart(); return; }
+        watchFailed = true;  // the "Continue" button restarts the loop
+        renderTurn();
+      });
+  }
+
+  function stopWatching() {
+    generation += 1;
+    watchFailed = false;
+    if (watchXhr) watchXhr.abort();
+    watchXhr = null;
+    $("#fx").empty();  // no bubble or arrow of the old game stays on screen
   }
 
   // Actions
   function startGame() {
     if (busy) return;
     const seed = $("#seed").val();
+    const players = Number($("input[name=players]:checked").val());
+    const bot = $("input[name=bot]:checked").val();
+    stopWatching();
     setBusy(true);
     api.create({
-      players: Number($("input[name=players]:checked").val()),
+      players,
       size: Number($("#size").val()),
       seed: seed === "" ? null : Number(seed),
+      bots: players === BOT_PLAYERS && bot !== "" && bot !== undefined ? [Number(bot)] : [],
     })
       .done(setState)
       .fail((xhr) => toast(errorText(xhr)))
@@ -143,6 +192,7 @@ $(function () {
   }
 
   function loadGame(id) {
+    stopWatching();
     setBusy(true);
     api.get(id)
       .done(setState)
@@ -154,7 +204,7 @@ $(function () {
   }
 
   function sendIntent(body) {
-    if (busy || !state) return;
+    if (busy || !state || state.watching) return;  // WatchState: only the bot plays
     setBusy(true);
     api.intent(state.game_id, body)
       .then((newState) => playActions(newSteps(newState)).then(() => newState))
@@ -179,6 +229,7 @@ $(function () {
     renderActive();
     renderHover();
     renderLog();
+    $("body").toggleClass("watching", state.watching);
     $("#btn-end-turn").prop("disabled", state.phase === "game_over" || !state.human_turn);
   }
 
@@ -219,7 +270,7 @@ $(function () {
     if (u.owner !== state.active_player) classes.push("inactive");
     const venom = u.effects.some((e) => e.kind === "venom") ? '<span class="badge-effect"></span>' : "";
     return `
-      <div class="${classes.join(" ")}" style="${team(u.owner)}">
+      <div class="${classes.join(" ")}" data-unit="${u.id}" style="${team(u.owner)}">
         <div class="disc">${spriteHtml(u)}</div>
         ${venom}
         <div class="bars">
@@ -237,14 +288,25 @@ $(function () {
       (unit ? ` <span class="ms-1">${esc(unit.name)}</span>` : "") +
       ` <span class="ms-1 text-secondary">Round ${state.round}</span>` +
       ` <span class="badge text-bg-dark border ms-1" title="Score of ${esc(active.name)}: enemy HP lost (Boss HP x10) + height of own units">` +
-      `<i class="bi bi-trophy-fill text-warning"></i> ${state.score}</span>`
+      `<i class="bi bi-trophy-fill text-warning"></i> ${state.score}</span>` +
+      watchBadge()
     );
     $("#seed-info").text(state.seed === null ? "" : `seed ${state.seed}`);
     $("#players").html(state.players.map((p) => chipHtml(
       p.index,
-      `${esc(p.name)}: ${p.eliminated ? "out" : plural(p.units, "unit")}`,
+      `${p.bot ? '<i class="bi bi-robot"></i> ' : ""}${esc(p.name)}: ${p.eliminated ? "out" : plural(p.units, "unit")}`,
       p.eliminated ? "eliminated" : ""
     )).join(""));
+  }
+
+  function watchBadge() {
+    if (!state.watching) return "";
+    if (watchFailed) {
+      return ` <button id="btn-watch-continue" class="btn btn-sm btn-warning py-0 ms-1">` +
+        `<i class="bi bi-play-circle"></i> Continue</button>`;
+    }
+    return ` <span class="badge text-bg-info ms-1 bot-thinking"><i class="bi bi-robot"></i> Bot is thinking… ` +
+      `<span class="spinner-border" role="status" aria-hidden="true"></span></span>`;
   }
 
   function statRow(icon, barClass, value, max, extra = "") {
@@ -291,6 +353,10 @@ $(function () {
     const u = state.units.find((unit) => unit.id === state.active_unit);
     if (!u) {
       $("#active-info").html('<span class="text-secondary">Game over.</span>');
+      return;
+    }
+    if (state.watching) {
+      $("#active-info").html(unitCard(u) + '<div class="small text-secondary mt-1"><i class="bi bi-eye"></i> Watching the bot play…</div>');
       return;
     }
     const moves = state.reachable.length;
@@ -400,6 +466,7 @@ $(function () {
     for (const a of steps) {
       try {
         if (a.kind === "move") await walk(a.path);
+        else if (a.kind === "say") await speak(a);
         else await (a.ranged ? shoot(a) : strike(a));
       } catch (err) {
         console.warn("animation skipped", err);
@@ -496,6 +563,28 @@ $(function () {
     await wait(speed(120));
   }
 
+  /** The bot's line in a bubble above its unit; it stays a moment after the board is redrawn. */
+  async function speak(a) {
+    const tile = $(`#board .unit[data-unit=${a.unit_id}]`).closest(".tile")[0];
+    if (!tile) return;
+    const c = tileCenter([Number(tile.dataset.x), Number(tile.dataset.y)]);
+    if (!c) return;
+    const $bubble = $(`<div class="fx-speech" style="${team(a.player)}">${esc(a.text)}</div>`).appendTo("#fx");
+    const lift = c.size * 0.55 + $bubble.outerHeight() / 2 + 8;
+    // keep the bubble inside the board horizontally
+    const half = $bubble.outerWidth() / 2, maxX = $("#board-wrap")[0].scrollWidth;
+    const x = Math.max(half + 2, Math.min(maxX - half - 2, c.x));
+    const y = Math.max($bubble.outerHeight() / 2 + 2, c.y - lift);
+    const pos = { x, y };
+    runOnce($bubble, [
+      { transform: `${at(pos, 0, 8)} scale(0.85)`, opacity: 0 },
+      { transform: at(pos), opacity: 1, offset: 0.08 },
+      { transform: at(pos), opacity: 1, offset: 0.85 },
+      { transform: at(pos, 0, -6), opacity: 0 },
+    ], { duration: REDUCED_MOTION ? 2200 : 2800, easing: "ease-out", fill: "forwards" });
+    await wait(900);  // time to read it before the next bot turn starts
+  }
+
   function showGameOver() {
     const winner = state.winner;
     $("#winner-text").text(winner === null ? "Draw" : `${state.players[winner].name} wins!`);
@@ -508,6 +597,14 @@ $(function () {
 
   // Events
   $("#start-form").on("submit", (e) => { e.preventDefault(); startGame(); });
+  const syncBotRow = () => $("#bot-row").toggleClass("d-none", Number($("input[name=players]:checked").val()) !== BOT_PLAYERS);
+  $("input[name=players]").on("change", syncBotRow);
+  syncBotRow();
+  $("#turn-info").on("click", "#btn-watch-continue", () => {
+    watchFailed = false;
+    renderTurn();
+    watchStep(generation);
+  });
   $("#btn-new-game").on("click", showStart);
   $("#btn-modal-new-game").on("click", () => { gameOverModal.hide(); showStart(); });
   $("#btn-end-turn").on("click", () => sendIntent({ type: "end_turn" }));
@@ -519,13 +616,14 @@ $(function () {
 
   $("#board")
     .on("click", ".tile", function () {
+      if (state && state.watching) return;  // WatchState
       sendIntent({ type: "click", x: Number(this.dataset.x), y: Number(this.dataset.y) });
     })
     .on("mouseenter", ".tile", function () { setHover({ x: Number(this.dataset.x), y: Number(this.dataset.y) }); })
     .on("mouseleave", () => setHover(null));
 
   $(document).on("keydown", (e) => {
-    if (!state || $(e.target).is("input, select, textarea") || $(".modal.show").length) return;
+    if (!state || state.watching || $(e.target).is("input, select, textarea") || $(".modal.show").length) return;
     if (["e", "E", " "].includes(e.key)) { e.preventDefault(); sendIntent({ type: "end_turn" }); }
   });
 

@@ -93,3 +93,17 @@ def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
     walk, attack = render("x", ui)["actions"]["steps"]  # in order: the walk, then the hit
     assert walk == {"kind": "move", "seq": 3, "unit_id": 2, "owner": 0, "path": [[0, 1], [1, 1], [2, 1]]}
     assert (attack["kind"], attack["seq"], attack["from"], attack["to"]) == ("attack", 3, [2, 1], [3, 1])
+
+
+def test_bot_fields_and_speech_step():
+    from beastborn.control import BotPlayerController, BotVoice, Mood
+
+    gsm = new_game(2, seed=3)
+    ui = Interaction(gsm, controllers={0: BotPlayerController(1, BotVoice({m: ["hi"] for m in Mood}))})
+    state = render("g", ui)
+    assert state["watching"] and [p["bot"] for p in state["players"]] == [True, False]
+    assert ui.tick()
+    state = json.loads(json.dumps(render("g", ui)))
+    say = state["actions"]["steps"][-1]
+    assert say == {"kind": "say", "seq": state["actions"]["seq"], "player": 0, "unit_id": say["unit_id"], "text": "hi"}
+    assert not state["watching"]
