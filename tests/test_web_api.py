@@ -24,7 +24,7 @@ def store():
 
 @pytest.fixture
 def client(store):
-    return create_app(store, bot_factory=lambda: BotPlayerController(depth=1)).test_client()  # a quick bot
+    return create_app(store, bot_factory=lambda rng: BotPlayerController(depth=1, rng=rng)).test_client()  # quick bot
 
 
 def new(client, **body):
@@ -289,6 +289,11 @@ def test_bot_in_the_first_seat_starts(client):
     assert state["watching"] and state["active_player"] == 0
     state = bot_step(client, state["game_id"])
     assert state["actions"]["steps"][-1]["kind"] == "say"
+
+
+def test_same_seed_same_bot_moves(client):
+    first, second = new(client, bots=[0]), new(client, bots=[0])  # seed 42 for both: the bot's rng too
+    assert bot_step(client, first["game_id"])["units"] == bot_step(client, second["game_id"])["units"]
 
 
 def test_bot_step_on_a_human_turn_changes_nothing(client):

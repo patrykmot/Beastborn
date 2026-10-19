@@ -42,9 +42,9 @@ MapSize = Literal[10, 12, 16]
 MAP_SIZES: Final[tuple[int, ...]] = get_args(MapSize)
 DEFAULT_MAP_SIZE: Final[MapSize] = 12  # used when new_game() gets no width / height
 # Every army: one Boss (the unit with "boss": true) + these units next to it, same for every player.
-BIG_RATS_PER_PLAYER: Final[int] = 2
-PEASANTS_PER_PLAYER: Final[int] = 2
-ARCHERS_PER_PLAYER: Final[int] = 2
+BIG_RATS_PER_PLAYER: Final[int] = 1
+PEASANTS_PER_PLAYER: Final[int] = 1
+ARCHERS_PER_PLAYER: Final[int] = 1
 UNITS_PER_PLAYER: Final[int] = BIG_RATS_PER_PLAYER + PEASANTS_PER_PLAYER + ARCHERS_PER_PLAYER  # without the Boss
 MAX_ELEVATION: Final[int] = 2
 SMOOTH_ELEVATION: Final[bool] = True  # neighbouring tiles differ by at most 1 level (D8)
@@ -112,10 +112,11 @@ STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn 
 # Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
 SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
 SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
-SCORE_PER_ELEVATION_LEVEL: Final[int] = 5  # per level above the ground each of my units stands on
+SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of my units stands on
+SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 5  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
 MAX_BOTS: Final[int] = 1  # bots per game
 BOT_PLAYERS: Final[int] = 2  # a bot can play only in games with exactly this many players (2-player search)
@@ -127,6 +128,7 @@ LOG_HISTORY: Final[int] = 200  # log lines kept by Interaction
 LOG_LINES: Final[int] = 50  # log lines sent to the browser
 
 # ====================================================================== web server
+LOG_FORMAT: Final[str] = "%(asctime)s %(levelname)s %(name)s: %(message)s"  # server console (e.g. bot searches)
 DEFAULT_HOST: Final[str] = "127.0.0.1"
 DEFAULT_PORT: Final[int] = 8000
 STATIC_URL_PATH: Final[str] = "/static"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from collections.abc import Callable
 from typing import Any, NoReturn, TypeVar
 
@@ -31,7 +32,7 @@ from beastborn.ui.web.sessions import GameSession, SessionStore, TooManySessions
 
 M = TypeVar("M", bound=BaseModel)
 JsonResponse = tuple[Response, int]
-BotFactory = Callable[[], PlayerController]
+BotFactory = Callable[[random.Random], PlayerController]  # gets the bot's rng, seeded with the game seed
 
 
 class InvalidBody(HTTPException):
@@ -78,8 +79,15 @@ def player_names(players: int, bots: list[int]) -> list[str]:
     ]
 
 
-def create_app(store: SessionStore | None = None, bot_factory: BotFactory = BotPlayerController) -> Flask:
-    """``bot_factory`` makes the controller of each bot seat (tests pass a quicker bot)."""
+def default_bot(rng: random.Random) -> PlayerController:
+    return BotPlayerController(rng=rng)
+
+
+def create_app(store: SessionStore | None = None, bot_factory: BotFactory = default_bot) -> Flask:
+    """``bot_factory(rng)`` makes the controller of each bot seat (tests pass a quicker bot).
+
+    The bot's ``rng`` is seeded with the game seed, so the same seed replays the same bot moves.
+    """
     app: Flask = Flask(
         __name__,
         static_folder=str(C.STATIC_DIR),
@@ -116,7 +124,8 @@ def create_app(store: SessionStore | None = None, bot_factory: BotFactory = BotP
             body.players, seed=body.seed, width=body.size, height=body.size,
             player_names=player_names(body.players, body.bots),
         )
-        controllers: dict[int, PlayerController] = {seat: bot_factory() for seat in body.bots}
+        seed: int | None = gsm.view().seed  # new_game() picks one when the request has none
+        controllers: dict[int, PlayerController] = {seat: bot_factory(random.Random(seed)) for seat in body.bots}
         try:
             session: GameSession = sessions.create(gsm, controllers)
         except TooManySessions as exc:

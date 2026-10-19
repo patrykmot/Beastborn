@@ -33,7 +33,7 @@ All constants (default rule numbers, map and session limits, paths, asset URLs) 
   - `initial_energy`, `regenerate`, `attack_cost`, `in_attack_range`
   - `elevation_modifier`, `current_defense`, `range_multiplier`, `resolve_attack` (the rules in [game_mechanics.md](game_mechanics.md))
   - `tick_effects`
-  - `score(state, player)`: how good a `GameState` is for a player (enemy HP lost, Boss HP ×10, killed enemies count with all their HP lost, + 5 per level of height of own units; numbers in `constant.py`). For bots; the browser shows it for the active player.
+  - `score(state, player)`: how good a `GameState` is for a player (enemy HP lost, Boss HP ×10, killed enemies count with all their HP lost plus a kill bonus, + points per level of height of own units; numbers in `constant.py`). For bots; the browser shows it for the active player.
 - It only computes. It gets snapshots (`CombatantSnapshot`, `Tile`, `UnitStats`) and returns results (`AttackResult`, `TickResult`). It never changes game state.
 - `AttackResult` keeps every step of the calculation (momentum, effective RP, effective DEF, exact fractions). `formula()` turns it into text such as `8 x1.3 height x0.8 range - 2 = 6.32 -> 6`.
 - `StandardCalculationEngine` implements the design document. It reads all its numbers straight from `beastborn/constant.py`.
@@ -88,6 +88,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     Every distinct command sequence is listed (also ones ending on the same board). It is read only: every attack is
     tried with `submit` and undone with `rollback`, so the list is exactly what `submit` accepts. The list is cached
     until the state changes. Typical: ~1 ms, crowded fights up to ~65 ms and several hundred actions.
+    `find_all_possible_actions(rng)` returns the same actions in random order: shuffled with `rng` once per state and
+    cached with the list, so the same state keeps the same order (without `rng` the usual order above).
 - Commands: every command is a `Command` (frozen dataclass) with a `kind` (`CommandType`: `MOVE`, `ATTACK`,
   `END_TURN`, `WRAPPER`); `submit` dispatches on the kind and returns a `CommandResult(ok, events, error)`.
   - A rejected command never changes state (except a `WrapperCommand`, see below).
@@ -154,7 +156,10 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     a side with more units left plays several in a row).
   - `evaluate(gsm, me)` = `score(me) - score(opponent)` is the one place that defines a good board. A won game is
     `+BOT_WIN_SCORE` (a lost one `-BOT_WIN_SCORE`), adjusted so sooner wins and later losses are preferred.
-  - attacks are tried first (more cut-offs); ties go to the first action, so a fixed position gives a fixed move.
+  - the bot asks for the actions in random order (`find_all_possible_actions(rng)`), then tries attacks first (more
+    cut-offs; a stable sort keeps the random order within attacks, moves and waiting). Ties go to the first action,
+    so among equally good actions (e.g. the opening moves) the bot picks one at random. The web app seeds the bot's
+    `rng` with the game seed, so the same seed replays the same bot moves.
 - After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
   `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
   never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.

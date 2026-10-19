@@ -5,9 +5,10 @@ On PythonAnywhere the game is served through gercio_eu_pythonanywhere_com_wsgi.p
 from __future__ import annotations
 
 import argparse
+import logging
 from collections.abc import Sequence
 
-from beastborn.constant import DEFAULT_HOST, DEFAULT_PORT, GAME_TITLE
+from beastborn.constant import DEFAULT_HOST, DEFAULT_PORT, GAME_TITLE, LOG_FORMAT
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -20,6 +21,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     from beastborn.ui.web.app import create_app  # lazy: --help works without Flask installed
+
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)  # INFO logs (e.g. bot searches) on the console
 
     args: argparse.Namespace = parse_args(argv)
     print(f"{GAME_TITLE} running on http://{args.host}:{args.port}  (Ctrl+C to stop)")

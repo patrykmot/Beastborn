@@ -37,6 +37,13 @@ if project_home not in sys.path:
 # os.environ.setdefault("BEASTBORN_SESSION_TTL", "1800")
 # os.environ.setdefault("BEASTBORN_MAX_GAMES", "100")
 
+# INFO logs (e.g. every bot search: best value, moves calculated) go to the server log (Web tab -> Log files).
+import logging  # noqa: E402
+
+from beastborn.constant import LOG_FORMAT  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+
 # PythonAnywhere looks for a WSGI callable called "application".
 from beastborn.ui.web.app import app as application  # noqa: E402
 

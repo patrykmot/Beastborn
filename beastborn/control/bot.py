@@ -7,8 +7,18 @@ this every time.
 
 Turns do not strictly alternate between players (a side with more units left plays several units in a row), so a
 node maximises when the bot's player is to move and minimises otherwise - never by depth parity.
+
+The bot asks for the actions in random order (its ``rng``), so among equally good actions it picks one at random
+(e.g. its opening moves); attacks are still tried before moves and waiting.
+
+Every search is logged (logger ``beastborn.control.bot``, level INFO): the value of the best action and how many
+moves were calculated. ``python main.py`` and the WSGI file show INFO logs on the console / in the server log.
 """
 from __future__ import annotations
+
+import logging
+import random
+import time
 
 from beastborn import constant as C
 from beastborn.control.bot_voice import BotVoice, Mood
@@ -18,6 +28,8 @@ from beastborn.game.state import Phase
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.game.view import GameView
 
+log: logging.Logger = logging.getLogger(__name__)
+
 
 def _parts(command: Command) -> tuple[Command, ...]:
     """The plain commands of an action (a ``WrapperCommand`` is unpacked)."""
@@ -25,7 +37,10 @@ def _parts(command: Command) -> tuple[Command, ...]:
 
 
 def _order_key(command: Command) -> tuple[int, int]:
-    """Strong actions first (alpha-beta cuts more): more attacks, then moves, then waiting."""
+    """Strong actions first (alpha-beta cuts more): more attacks, then moves, then waiting.
+
+    Used with a stable sort, so actions of the same kind keep the random order the GSM returned them in.
+    """
     kinds: list[CommandType] = [c.kind for c in _parts(command)]
     return -kinds.count(CommandType.ATTACK), -kinds.count(CommandType.MOVE)
 
@@ -34,15 +49,21 @@ class BotPlayerController(PlayerController):
     """Chooses the active unit's whole turn with alpha-beta search; says something after every turn.
 
     ``evaluate`` (score of the bot minus score of its opponent) is the one place that defines a good board.
+    ``rng`` orders the actions at random (ties go to the first one) and picks the voice lines when no ``voice`` is
+    given: ``random.Random(seed)`` makes the bot repeat itself for the same game, None = a fresh random one.
     """
 
-    def __init__(self, depth: int = C.BOT_SEARCH_DEPTH, voice: BotVoice | None = None):
+    def __init__(
+        self, depth: int = C.BOT_SEARCH_DEPTH, voice: BotVoice | None = None, rng: random.Random | None = None
+    ):
         if depth < 1:
             raise ValueError("The search depth must be at least 1")
         self.depth: int = depth
         self.last_message: str | None = None  # what the bot says about the command it chose last
         self.last_value: int | None = None  # search value of that command (for logs, tests and future moods)
-        self._voice: BotVoice = voice or BotVoice()
+        self.last_moves: int = 0  # moves calculated (submitted and rolled back) to choose that command
+        self._rng: random.Random = rng or random.Random()
+        self._voice: BotVoice = voice or BotVoice(rng=self._rng)
         self._spoke: bool = False  # has the bot said its START line yet
 
     # ------------------------------------------------------------------ PlayerController
@@ -77,11 +98,17 @@ class BotPlayerController(PlayerController):
 
     # ------------------------------------------------------------------ search (ALG)
     def _best_action(self, gsm: GameStateMachine, me: int) -> tuple[Command, int | None]:
-        """The best action at the root (the first one of the best value); no search if there is only one."""
-        actions: list[Command] = gsm.find_all_possible_actions()
+        """The best action at the root (the first one of the best value); no search if there is only one.
+
+        Logs the value of the best action and how many moves were calculated.
+        """
+        started: float = time.perf_counter()
+        self.last_moves = 0
+        actions: list[Command] = gsm.find_all_possible_actions(self._rng)
         if not actions:
             raise RuntimeError("No possible action while the game accepts commands")
         if len(actions) == 1:
+            log.info("Bot P%d unit %s: only one possible action, no search", me + 1, gsm.active_unit)
             return actions[0], None
         best: Command = actions[0]
         best_value: int = -C.BOT_WIN_SCORE * 2
@@ -91,6 +118,11 @@ class BotPlayerController(PlayerController):
             if value > best_value:
                 best, best_value = action, value
                 alpha = max(alpha, value)
+        log.info(
+            "Bot P%d unit %s: best value %d, %d moves calculated (%d possible now, depth %d) in %.2f s",
+            me + 1, gsm.active_unit, best_value, self.last_moves, len(actions), self.depth,
+            time.perf_counter() - started,
+        )
         return best, best_value
 
     def _alphabeta(self, gsm: GameStateMachine, me: int, depth: int, alpha: int, beta: int) -> int:
@@ -100,7 +132,7 @@ class BotPlayerController(PlayerController):
             return self.evaluate(gsm, me)
         maximising: bool = gsm.active_player == me
         best: int = -C.BOT_WIN_SCORE * 2 if maximising else C.BOT_WIN_SCORE * 2
-        for action in sorted(gsm.find_all_possible_actions(), key=_order_key):
+        for action in sorted(gsm.find_all_possible_actions(self._rng), key=_order_key):
             value: int = self._try(gsm, action, me, depth - 1, alpha, beta)
             if maximising:
                 best = max(best, value)
@@ -115,6 +147,7 @@ class BotPlayerController(PlayerController):
     def _try(self, gsm: GameStateMachine, action: Command, me: int, depth: int, alpha: int, beta: int) -> int:
         """Value of ``action``: submit it, search on, and always roll it back."""
         log_size: int = len(gsm.command_log)
+        self.last_moves += 1
         result: CommandResult = gsm.submit(action)
         if not result.ok:  # cannot happen: possible actions are exactly what submit accepts
             if len(gsm.command_log) > log_size:  # a wrapper rejected part-way is logged: undo it too

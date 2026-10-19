@@ -381,12 +381,15 @@ def test_score(ce):
     state = GameState(board, [Player(i, f"P{i + 1}") for i in range(3)], {u.id: u for u in units}, fallen=fallen)
 
     hp, boss_hp, level = C.SCORE_PER_MISSING_HP, C.SCORE_PER_MISSING_BOSS_HP, C.SCORE_PER_ELEVATION_LEVEL
-    assert ce.score(state, 0) == (1 + 2) * level + 3 * hp + 2 * boss_hp + 1 * hp + 10 * hp  # + dead enemy: all 10 HP
-    assert ce.score(state, 1) == 15 * boss_hp + 1 * hp + 10 * hp  # P0 Boss lost 15 HP, P2 unit 1 HP, P0 dead unit 10
+    kill = C.SCORE_PER_KILL
+    # + dead enemy: all 10 HP and the kill bonus
+    assert ce.score(state, 0) == (1 + 2) * level + 3 * hp + 2 * boss_hp + 1 * hp + 10 * hp + kill
+    # P0 Boss lost 15 HP, P2 unit 1 HP, P0 dead unit 10 HP + the kill bonus
+    assert ce.score(state, 1) == 15 * boss_hp + 1 * hp + 10 * hp + kill
 
 
 def test_score_counts_killed_units():
-    """Killing a unit adds its remaining HP to the score, it does not drop out of it."""
+    """Killing a unit adds its remaining HP and the kill bonus to the score, it does not drop out of it."""
     board = Board.from_strings(["......", "......"])
     gsm = custom_game(board, [(0, ARCHER, (0, 0)), (1, SOLDIER, (2, 0)), (0, KING, (0, 1)), (1, KING, (5, 1))])
     damage = gsm.preview_attack(1, 2).damage
@@ -395,4 +398,4 @@ def test_score_counts_killed_units():
     assert gsm.score(0) == damage * C.SCORE_PER_MISSING_HP
     while gsm.view().unit(2) is not None:
         assert gsm.submit(AttackCommand(1, 2)).ok
-    assert gsm.score(0) == SOLDIER.hp * C.SCORE_PER_MISSING_HP  # overkill does not count
+    assert gsm.score(0) == SOLDIER.hp * C.SCORE_PER_MISSING_HP + C.SCORE_PER_KILL  # overkill does not count

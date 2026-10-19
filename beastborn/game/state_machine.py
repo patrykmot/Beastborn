@@ -10,10 +10,11 @@ In its turn a unit regenerates, its status effects tick, then it moves and attac
 more (the GSM ends its turn) or ``EndTurnCommand`` ends it. When every unit has had its turn, the next round starts.
 
 ``rollback`` undoes the last command exactly. ``find_all_possible_actions`` lists every way the active unit can
-play its whole turn, one command per way.
+play its whole turn, one command per way (in random order when given a ``random.Random``).
 """
 from __future__ import annotations
 
+import random
 from collections.abc import Callable
 from itertools import count
 from typing import Any
@@ -52,7 +53,8 @@ class GameStateMachine:
         self._history: list[tuple[GameState, int]] = []
         self._new_versions: count[int] = count(1)
         self._version: int = 0  # one number per distinct state; ``rollback`` brings the old number back
-        self._actions_cache: tuple[int, tuple[Command, ...]] | None = None  # (version, find_all_possible_actions)
+        # find_all_possible_actions of one state: (version, actions in their usual order, the same shuffled or None)
+        self._actions_cache: tuple[int, tuple[Command, ...], tuple[Command, ...] | None] | None = None
         self._handlers: dict[CommandType, Callable[[Any], tuple[CommandResult, Command]]] = {
             CommandType.MOVE: self._move,
             CommandType.ATTACK: self._attack,
@@ -319,8 +321,12 @@ class GameStateMachine:
         return CommandResult(True, tuple(self._end_unit_turn())), cmd
 
     # ------------------------------------------------------------------ possible actions
-    def find_all_possible_actions(self) -> list[Command]:
+    def find_all_possible_actions(self, rng: random.Random | None = None) -> list[Command]:
         """Every way the active unit can play its whole turn, one command per way (REQ_LOG_08_01).
+
+        ``rng``: return the actions in random order (shuffled with it once per state and cached, so the same state
+        always gives the same order until it changes). A bot uses this to pick among equally good actions at random.
+        Without ``rng`` the order is the one described below.
 
         Every command is valid now and, when submitted, ends the unit's turn (the next unit gets its turn).
         A turn is: attacks (each may move first: ``AttackCommand`` with an explicit ``move_to``), then maybe one
@@ -338,8 +344,14 @@ class GameStateMachine:
         if self._actions_cache is None or self._actions_cache[0] != self._version:
             turns: list[Turn] = self._turns({})
             actions: tuple[Command, ...] = tuple(turn[0] if turn == _WAIT else WrapperCommand(turn) for turn in turns)
-            self._actions_cache = (self._version, actions)
-        return list(self._actions_cache[1])
+            self._actions_cache = (self._version, actions, None)
+        version, ordered, shuffled = self._actions_cache
+        if rng is None:
+            return list(ordered)
+        if shuffled is None:  # shuffled once per state; then the cached order is kept
+            shuffled = tuple(rng.sample(ordered, len(ordered)))
+            self._actions_cache = (version, ordered, shuffled)
+        return list(shuffled)
 
     def _turns(self, memo: dict[tuple[object, ...], list[Turn]]) -> list[Turn]:
         """Every command sequence that finishes the active unit's turn from the current state (all end with end turn).

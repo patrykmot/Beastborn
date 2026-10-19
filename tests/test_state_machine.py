@@ -1,3 +1,4 @@
+import random
 from dataclasses import replace
 from fractions import Fraction
 
@@ -770,6 +771,21 @@ def test_possible_actions_do_not_change_the_game_and_are_cached():
     assert all(unit_ids(a) == {gsm.active_unit} for a in gsm.find_all_possible_actions() if a != EndTurnCommand())
     gsm.rollback()  # back to the first state: the cached list is valid again
     assert gsm.find_all_possible_actions() == neighbours_game().find_all_possible_actions()
+
+
+def test_possible_actions_in_random_order_are_shuffled_once_and_cached():
+    gsm = neighbours_game()
+    ordered = gsm.find_all_possible_actions()
+    rng = random.Random(7)
+    shuffled = gsm.find_all_possible_actions(rng)
+    assert sorted(map(repr, shuffled)) == sorted(map(repr, ordered)) and shuffled != ordered  # same actions, new order
+    assert shuffled == neighbours_game().find_all_possible_actions(random.Random(7))  # same seed, same order
+    rng_state = rng.getstate()
+    assert gsm.find_all_possible_actions(rng) == shuffled and rng.getstate() == rng_state  # cached, not shuffled again
+    assert gsm.find_all_possible_actions() == ordered  # without rng: the usual order
+    gsm.submit(EndTurnCommand())
+    gsm.rollback()  # back to the same state: still the cached order
+    assert gsm.find_all_possible_actions(random.Random(99)) == shuffled
 
 
 def test_unit_that_cannot_act_can_only_end_its_turn():

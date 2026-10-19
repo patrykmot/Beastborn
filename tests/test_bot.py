@@ -129,6 +129,26 @@ def test_bot_prefers_attack_to_waiting():
     assert attacks(command) and all(isinstance(a, AttackCommand) for a in attacks(command))
 
 
+def test_equally_good_actions_are_picked_at_random():
+    # The opening: nothing can be hit, so many moves are worth the same. The rng decides which one the bot plays.
+    def opening(seed):
+        return BotPlayerController(2, BotVoice(LINES), random.Random(seed)).choose_command(new_game(2, seed=7))
+
+    assert opening(1) == opening(1)  # the same rng seed repeats the same game
+    assert len({opening(seed) for seed in range(6)}) > 1
+
+
+def test_search_is_logged(caplog):
+    gsm = winning_hit_game()
+    player = bot(2)
+    with caplog.at_level("INFO", logger="beastborn.control.bot"):
+        player.choose_command(gsm)
+    (record,) = caplog.records
+    assert player.last_moves >= len(gsm.find_all_possible_actions())  # every root action was tried at least
+    assert f"best value {player.last_value}," in record.message
+    assert f"{player.last_moves} moves calculated" in record.message
+
+
 def test_bot_does_nothing_after_game_over():
     gsm = winning_hit_game()
     gsm.submit(AttackCommand(1, 3))
