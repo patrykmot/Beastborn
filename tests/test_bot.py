@@ -1,5 +1,6 @@
 """Bot player: alpha-beta search (ALG) over whole unit turns, and its voice. Simple happy paths + the critical rule:
 the search never changes the game."""
+import multiprocessing
 import random
 from dataclasses import replace
 
@@ -7,6 +8,7 @@ import pytest
 
 from beastborn import constant as C
 from beastborn.control import BotPlayerController, BotVoice, Mood, load_bot_lines
+from beastborn.control import bot as bot_module
 from beastborn.domain import Board
 from beastborn.game import Phase, custom_game, new_game
 from beastborn.game.commands import AttackCommand, CommandType, WrapperCommand
@@ -68,7 +70,7 @@ def test_state_untouched_after_error_in_search():
     gsm = new_game(2, seed=7)
     before = snapshot(gsm)
     with pytest.raises(ZeroDivisionError):
-        Broken(3, BotVoice(LINES)).choose_command(gsm)
+        Broken(3, BotVoice(LINES), workers=1).choose_command(gsm)  # a local class cannot go to worker processes
     assert snapshot(gsm) == before  # every trial move was rolled back on the way out
 
 
@@ -182,3 +184,57 @@ def test_bot_lines_file_has_every_mood(tmp_path):
     broken.write_text('{"start": ["hi"], "attack": ["bonk"]}', encoding="utf-8")
     with pytest.raises(ValueError, match="defense"):
         load_bot_lines(broken)
+
+
+# ---------------------------------------------------------------- several processes
+class FailsInWorker(BotPlayerController):
+    """Module level, so worker processes can load it. Its evaluate fails only in a worker process."""
+
+    def evaluate(self, gsm, me):
+        if multiprocessing.parent_process() is not None:
+            raise ValueError("bug in a worker")
+        return super().evaluate(gsm, me)
+
+
+def positions():
+    """A few real positions: the opening, then turns into the game (played by a quick bot)."""
+    gsm = new_game(2, seed=7)
+    quick = BotPlayerController(1, BotVoice(LINES), random.Random(0), workers=1)
+    for turn in range(4):
+        yield gsm
+        gsm.submit(quick.choose_command(gsm))
+
+
+def test_parallel_search_matches_one_process():
+    for turn, gsm in enumerate(positions()):
+        before = snapshot(gsm)
+        one = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=1)
+        two = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=2)
+        again = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=2)
+        chosen = one.choose_command(gsm)
+        assert two.choose_command(gsm) == chosen == again.choose_command(gsm)  # same move, also run again
+        assert two.last_value == one.last_value
+        assert snapshot(gsm) == before  # the game is never sent to the workers, only a copy of its state
+
+
+def test_error_in_a_worker_comes_back():
+    gsm = new_game(2, seed=7)
+    before = snapshot(gsm)
+    with pytest.raises(ValueError, match="bug in a worker"):
+        FailsInWorker(3, BotVoice(LINES), workers=2).choose_command(gsm)
+    assert snapshot(gsm) == before
+    assert bot(3).choose_command(gsm) in gsm.find_all_possible_actions()  # the workers still work
+
+
+def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
+    def no_processes(workers):
+        raise OSError("processes are not allowed here")
+
+    monkeypatch.setattr(bot_module, "_pool", no_processes)
+    gsm = new_game(2, seed=7)
+    alone = BotPlayerController(3, BotVoice(LINES), random.Random(1), workers=1)
+    fallback = BotPlayerController(3, BotVoice(LINES), random.Random(1), workers=2)
+    with caplog.at_level("WARNING", logger="beastborn.control.bot"):
+        assert fallback.choose_command(gsm) == alone.choose_command(gsm)
+    assert fallback.last_value == alone.last_value
+    assert [r.levelname for r in caplog.records] == ["WARNING"] and "one process" in caplog.records[0].message

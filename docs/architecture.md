@@ -163,6 +163,13 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
   `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
   never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.
+- **Several CPU cores** (`BOT_WORKERS`: None = all cores, 1 = one process; or `BotPlayerController(workers=...)`):
+  the bot searches the first root action itself (its value = alpha), then sends the other root actions to a pool of
+  worker processes (`spawn`, created on the first search and kept), one task each, searched with (alpha, +inf).
+  Workers get a copy of the `GameState` and the engine and build their own GSM, so the real game is never sent or
+  changed. Ties go to the first action in the root order, so the move is the same as with one process (and the same
+  for the same seed). If processes cannot be used (or a worker dies), the bot logs a warning and searches alone.
+  A subclass of the bot (e.g. its own `evaluate`) must be defined at module level to run in worker processes.
 - `PassController` is a trivial example: it ends every unit's turn without acting.
 - Thinking time grows fast with depth and with fights (many actions per unit turn); lower `BOT_SEARCH_DEPTH` if a
   server is too slow.
