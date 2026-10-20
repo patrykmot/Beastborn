@@ -54,7 +54,7 @@
       "max_en": 6,
       "reg_en": 5,
       "range": 4,
-      "move_penalty": 2,
+      "move_penalty": 1,
       "boss": false,
       "on_hit": []
     }
