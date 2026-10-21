@@ -1,0 +1,275 @@
+D:\Project\Beastborn\venv\Scripts\python.exe D:\Project\Beastborn\main.py
+Beastborn v0.9 running on http://127.0.0.1:8000  (Ctrl+C to stop)
+ * Serving Flask app 'beastborn.ui.web.app'
+ * Debug mode: off
+2026-10-19 20:40:53,147 INFO werkzeug: WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:8000
+2026-10-19 20:40:53,147 INFO werkzeug: Press CTRL+C to quit
+2026-10-19 20:40:55,639 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET / HTTP/1.1" 200 -
+2026-10-19 20:40:55,821 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/vendor/jquery/jquery-3.7.1.min.js HTTP/1.1" 304 -
+2026-10-19 20:40:55,821 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/vendor/bootstrap/bootstrap.bundle.min.js HTTP/1.1" 304 -
+2026-10-19 20:40:55,825 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/js/beastborn.js HTTP/1.1" 304 -
+2026-10-19 20:40:55,830 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/vendor/bootstrap/bootstrap.min.css HTTP/1.1" 304 -
+2026-10-19 20:40:55,832 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/css/beastborn.css HTTP/1.1" 304 -
+2026-10-19 20:40:55,832 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/vendor/bootstrap-icons/bootstrap-icons.min.css HTTP/1.1" 304 -
+2026-10-19 20:40:55,845 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/img/units/boss.svg HTTP/1.1" 304 -
+2026-10-19 20:40:55,847 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/img/units/archer.svg HTTP/1.1" 304 -
+2026-10-19 20:40:55,847 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/img/units/peasant.svg HTTP/1.1" 304 -
+2026-10-19 20:40:55,849 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/img/units/big_rat.svg HTTP/1.1" 304 -
+2026-10-19 20:40:55,849 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:55] "GET /static/vendor/bootstrap-icons/fonts/bootstrap-icons.woff2?dd67030699838ea613ee6dbda90effa6 HTTP/1.1" 304 -
+2026-10-19 20:40:58,364 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:58] "POST /api/games HTTP/1.1" 201 -
+2026-10-19 20:40:58,382 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:58] "GET /static/img/terrain/grass.svg HTTP/1.1" 304 -
+2026-10-19 20:40:58,382 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:58] "GET /static/img/terrain/swamp.svg HTTP/1.1" 304 -
+2026-10-19 20:40:58,382 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:58] "GET /static/img/terrain/hills.svg HTTP/1.1" 304 -
+2026-10-19 20:40:59,911 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:40:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:41:01,539 INFO beastborn.control.bot: Bot P2 unit 6: best value 0, 4272 moves calculated (21 possible now, depth 8, 1 workers) in 0.65 s | TT: 0 exact, 0 cut, 0 best-move hints, 2565 positions stored here
+2026-10-19 20:41:01,540 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:01] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:41:18,154 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:18] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:41:20,050 INFO beastborn.control.bot: Bot P2 unit 5: best value 0, 4670 moves calculated (2 possible now, depth 8, 1 workers) in 1.54 s | TT: 0 exact, 0 cut, 97 best-move hints, 3374 positions stored here
+2026-10-19 20:41:20,050 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:20] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:41:35,787 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:35] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:41:42,034 INFO beastborn.control.bot: Bot P2 unit 7: best value 0, 16029 moves calculated (11 possible now, depth 8, 1 workers) in 5.43 s | TT: 0 exact, 0 cut, 197 best-move hints, 9212 positions stored here
+2026-10-19 20:41:42,035 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:42] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:41:56,041 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:41:56] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:42:02,168 INFO beastborn.control.bot: Bot P2 unit 8: best value 0, 27825 moves calculated (3 possible now, depth 8, 1 workers) in 5.77 s | TT: 0 exact, 0 cut, 5 best-move hints, 22507 positions stored here
+2026-10-19 20:42:02,168 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:02] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:42:04,395 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:04] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:42:13,105 INFO beastborn.control.bot: Bot P2 unit 5: best value 0, 47565 moves calculated (4 possible now, depth 8, 1 workers) in 8.35 s | TT: 0 exact, 0 cut, 5 best-move hints, 48800 positions stored here
+2026-10-19 20:42:13,109 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:13] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:42:28,526 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:28] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:42:47,117 INFO beastborn.control.bot: Bot P2 unit 6: best value 0, 41776 moves calculated (43 possible now, depth 8, 1 workers) in 17.60 s | TT: 0 exact, 0 cut, 5 best-move hints, 70016 positions stored here
+2026-10-19 20:42:47,117 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:47] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:42:53,579 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:42:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:43:10,004 INFO beastborn.control.bot: Bot P2 unit 7: best value 0, 38485 moves calculated (17 possible now, depth 8, 1 workers) in 15.60 s | TT: 2 exact, 89 cut, 5 best-move hints, 85142 positions stored here
+2026-10-19 20:43:10,005 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:43:10] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:43:18,187 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:43:18] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:43:32,166 INFO beastborn.control.bot: Bot P2 unit 8: best value 0, 57159 moves calculated (3 possible now, depth 8, 1 workers) in 13.61 s | TT: 1 exact, 7 cut, 5 best-move hints, 112769 positions stored here
+2026-10-19 20:43:32,167 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:43:32] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:43:38,105 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:43:38] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:43:58,181 INFO beastborn.control.bot: Bot P2 unit 5: best value 0, 117384 moves calculated (5 possible now, depth 8, 1 workers) in 19.70 s | TT: 0 exact, 0 cut, 5 best-move hints, 179430 positions stored here
+2026-10-19 20:43:58,182 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:43:58] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+e2026-10-19 20:44:07,066 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:44:07] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:44:53,594 INFO beastborn.control.bot: Bot P2 unit 6: best value 0, 74925 moves calculated (43 possible now, depth 8, 1 workers) in 46.17 s | TT: 0 exact, 0 cut, 5 best-move hints, 216073 positions stored here
+2026-10-19 20:44:53,595 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:44:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:45:00,909 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:45:00] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:45:40,493 INFO beastborn.control.bot: Bot P2 unit 7: best value 0, 94749 moves calculated (27 possible now, depth 8, 1 workers) in 38.91 s | TT: 2 exact, 772 cut, 5 best-move hints, 258126 positions stored here
+2026-10-19 20:45:40,494 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:45:40] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+e2026-10-19 20:45:50,650 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:45:50] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:45:51,025 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:45:51] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:46:17,110 INFO beastborn.control.bot: Bot P2 unit 8: best value 0, 106416 moves calculated (5 possible now, depth 8, 1 workers) in 25.72 s | TT: 0 exact, 66 cut, 5 best-move hints, 311053 positions stored here
+2026-10-19 20:46:17,111 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:46:17] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:46:20,688 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:46:20] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:46:43,629 INFO beastborn.control.bot: Bot P2 unit 5: best value 0, 136370 moves calculated (4 possible now, depth 8, 1 workers) in 22.57 s | TT: 0 exact, 24 cut, 1677 best-move hints, 391084 positions stored here
+2026-10-19 20:46:43,631 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:46:43] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:46:53,260 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:46:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:46:55,607 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:46:55] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:49:15,352 INFO beastborn.control.bot: Bot P2 unit 6: best value 0, 157978 moves calculated (84 possible now, depth 8, 1 workers) in 139.38 s | TT: 0 exact, 5 cut, 151 best-move hints, 433275 positions stored here
+2026-10-19 20:49:15,353 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:49:15] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:49:17,792 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:49:17] "GET /static/img/effects/venom.svg HTTP/1.1" 304 -
+2026-10-19 20:49:44,119 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:49:44] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:50:07,239 INFO beastborn.control.bot: Bot P2 unit 7: best value 4, 63754 moves calculated (24 possible now, depth 8, 1 workers) in 22.30 s | TT: 2 exact, 815 cut, 43 best-move hints, 451944 positions stored here
+2026-10-19 20:50:07,240 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:50:07] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:50:24,514 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:50:24] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:50:48,837 INFO beastborn.control.bot: Bot P2 unit 8: best value 6, 90729 moves calculated (3 possible now, depth 8, 1 workers) in 23.80 s | TT: 0 exact, 97 cut, 1152 best-move hints, 488005 positions stored here
+2026-10-19 20:50:48,837 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:50:48] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:50:58,917 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:50:58] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:51:30,786 INFO beastborn.control.bot: Bot P2 unit 5: best value 6, 154405 moves calculated (3 possible now, depth 8, 1 workers) in 31.50 s | TT: 1 exact, 2389 cut, 2207 best-move hints, 571328 positions stored here
+2026-10-19 20:51:30,787 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:51:30] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:51:59,197 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:51:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:52:01,755 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:52:01] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:52:15,804 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:52:15] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:55:27,131 INFO beastborn.control.bot: Bot P2 unit 6: best value 8, 179916 moves calculated (44 possible now, depth 8, 1 workers) in 190.96 s | TT: 0 exact, 462 cut, 5 best-move hints, 624999 positions stored here
+2026-10-19 20:55:27,132 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:55:27] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 20:56:53,373 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:56:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 20:59:35,155 INFO beastborn.control.bot: Bot P2 unit 7: best value 11, 387795 moves calculated (28 possible now, depth 8, 1 workers) in 160.96 s | TT: 415 exact, 15212 cut, 302 best-move hints, 771741 positions stored here
+2026-10-19 20:59:35,156 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 20:59:35] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:01:09,377 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:01:09] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:03:08,396 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 503471 moves calculated (12 possible now, depth 8, 1 workers) in 118.49 s | TT: 142 exact, 4601 cut, 468 best-move hints, 1004319 positions stored here
+2026-10-19 21:03:08,398 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:03:08] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+e2026-10-19 21:03:27,025 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:03:27] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:03:27,297 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:03:27] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:04:15,720 INFO beastborn.control.bot: Bot P2 unit 5: best value 17, 271616 moves calculated (5 possible now, depth 8, 1 workers) in 48.05 s | TT: 13 exact, 425 cut, 9 best-move hints, 1153079 positions stored here
+2026-10-19 21:04:15,721 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:04:15] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:04:33,662 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:04:33] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:04:34,932 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:04:34] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:04:36,293 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:04:36] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:07:17,752 INFO beastborn.control.bot: Bot P2 unit 6: best value 28, 298810 moves calculated (58 possible now, depth 8, 1 workers) in 160.57 s | TT: 5 exact, 60 cut, 9073 best-move hints, 1205492 positions stored here
+2026-10-19 21:07:17,753 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:07:17] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:07:58,311 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:07:58] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:07:59,333 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:07:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:10:14,551 INFO beastborn.control.bot: Bot P2 unit 7: best value 27, 455246 moves calculated (18 possible now, depth 8, 1 workers) in 134.32 s | TT: 7 exact, 1419 cut, 524 best-move hints, 1240325 positions stored here
+2026-10-19 21:10:14,553 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:10:14] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:11:04,222 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:11:04] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:12:47,154 INFO beastborn.control.bot: Bot P2 unit 8: best value 27, 469282 moves calculated (5 possible now, depth 8, 1 workers) in 102.40 s | TT: 4 exact, 2203 cut, 78 best-move hints, 1334224 positions stored here
+2026-10-19 21:12:47,155 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:12:47] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:13:00,773 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:13:00] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:13:48,468 INFO beastborn.control.bot: Bot P2 unit 5: best value 29, 321447 moves calculated (3 possible now, depth 8, 1 workers) in 47.33 s | TT: 1 exact, 4326 cut, 7 best-move hints, 1455984 positions stored here
+2026-10-19 21:13:48,469 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:13:48] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:18:39,042 INFO beastborn.control.bot: Bot P2 unit 6: best value 11, 667716 moves calculated (65 possible now, depth 8, 1 workers) in 289.15 s | TT: 0 exact, 1587 cut, 34765 best-move hints, 1707030 positions stored here
+2026-10-19 21:18:39,042 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:18:39] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:22:46,608 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:22:46] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:22:47,329 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:22:47] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:23:09,652 INFO beastborn.control.bot: Bot P2 unit 7: best value 29, 70129 moves calculated (23 possible now, depth 8, 1 workers) in 21.43 s | TT: 51 exact, 2394 cut, 945 best-move hints, 1740310 positions stored here
+2026-10-19 21:23:09,653 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:23:09] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:23:51,683 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:23:51] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:24:30,276 INFO beastborn.control.bot: Bot P2 unit 8: best value 29, 205571 moves calculated (6 possible now, depth 8, 1 workers) in 36.18 s | TT: 1 exact, 561 cut, 1508 best-move hints, 1778371 positions stored here
+2026-10-19 21:24:30,276 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:24:30] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:24:35,589 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:24:35] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:24:58,949 INFO beastborn.control.bot: Bot P2 unit 5: best value 34, 160594 moves calculated (4 possible now, depth 8, 1 workers) in 22.99 s | TT: 0 exact, 226 cut, 17 best-move hints, 1832874 positions stored here
+2026-10-19 21:24:58,950 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:24:58] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:25:14,028 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:25:14] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:25:17,471 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:25:17] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:31:06,108 INFO beastborn.control.bot: Bot P2 unit 6: best value 31, 968796 moves calculated (43 possible now, depth 8, 1 workers) in 348.11 s | TT: 1 exact, 72429 cut, 44 best-move hints, 2197706 positions stored here
+2026-10-19 21:31:06,111 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:31:06] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:31:17,287 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:31:17] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:35:52,943 INFO beastborn.control.bot: Bot P2 unit 7: best value 31, 1726631 moves calculated (20 possible now, depth 8, 1 workers) in 275.13 s | TT: 0 exact, 38306 cut, 915 best-move hints, 2518471 positions stored here
+2026-10-19 21:35:52,944 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:52] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:35:53,261 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:53] "GET /static/img/units/peasant.svg HTTP/1.1" 304 -
+2026-10-19 21:35:53,262 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:53] "GET /static/img/effects/venom.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,179 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/terrain/grass.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,180 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/units/boss.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,182 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/terrain/swamp.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,182 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/terrain/hills.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,185 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/units/archer.svg HTTP/1.1" 304 -
+2026-10-19 21:35:54,186 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:35:54] "GET /static/img/units/big_rat.svg HTTP/1.1" 304 -
+2026-10-19 21:36:23,343 INFO beastborn.control.bot: Bot P2 unit 8: best value 31, 173622 moves calculated (4 possible now, depth 8, 1 workers) in 28.81 s | TT: 0 exact, 1169 cut, 18505 best-move hints, 2613951 positions stored here
+2026-10-19 21:36:23,344 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:36:23] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:36:55,021 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:36:55] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:37:39,864 INFO beastborn.control.bot: Bot P2 unit 5: best value 17, 256354 moves calculated (4 possible now, depth 8, 1 workers) in 44.31 s | TT: 0 exact, 0 cut, 3586 best-move hints, 2770041 positions stored here
+2026-10-19 21:37:39,865 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:37:39] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:37:45,079 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:37:45] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:39:56,782 INFO beastborn.control.bot: Bot P2 unit 6: best value 17, 710234 moves calculated (43 possible now, depth 8, 1 workers) in 131.18 s | TT: 6 exact, 191874 cut, 39722 best-move hints, 2902161 positions stored here
+2026-10-19 21:39:56,782 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:39:56] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:40:26,409 INFO beastborn.control.bot: Bot P2 unit 7: best value 17, 131105 moves calculated (32 possible now, depth 8, 1 workers) in 28.04 s | TT: 1 exact, 8781 cut, 14434 best-move hints, 2970509 positions stored here
+2026-10-19 21:40:26,410 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:40:26] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:40:30,418 INFO beastborn.control.bot: Bot P2 unit 8: best value 17, 17284 moves calculated (5 possible now, depth 8, 1 workers) in 2.27 s | TT: 0 exact, 66 cut, 3473 best-move hints, 2976828 positions stored here
+2026-10-19 21:40:30,419 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:40:30] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:41:35,663 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:41:35] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:41:53,161 INFO beastborn.control.bot: Bot P2 unit 5: best value 17, 55643 moves calculated (4 possible now, depth 8, 1 workers) in 16.98 s | TT: 0 exact, 30 cut, 1083 best-move hints, 2981821 positions stored here
+2026-10-19 21:41:53,162 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:41:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:42:00,103 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:42:00] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:42:22,059 INFO beastborn.control.bot: Bot P2 unit 7: best value 17, 133947 moves calculated (30 possible now, depth 8, 1 workers) in 21.43 s | TT: 1 exact, 6288 cut, 1458 best-move hints, 3053592 positions stored here
+2026-10-19 21:42:22,060 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:42:22] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:42:25,145 INFO beastborn.control.bot: Bot P2 unit 8: best value 17, 10543 moves calculated (3 possible now, depth 8, 1 workers) in 1.36 s | TT: 0 exact, 4 cut, 1971 best-move hints, 3057227 positions stored here
+2026-10-19 21:42:25,146 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:42:25] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:42:55,992 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:42:55] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:43:13,573 INFO beastborn.control.bot: Bot P2 unit 5: best value 17, 59842 moves calculated (5 possible now, depth 8, 1 workers) in 17.05 s | TT: 0 exact, 121 cut, 243 best-move hints, 3062990 positions stored here
+2026-10-19 21:43:13,574 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:43:13] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:43:47,319 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:43:47] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:44:06,582 INFO beastborn.control.bot: Bot P2 unit 7: best value 17, 113578 moves calculated (25 possible now, depth 8, 1 workers) in 18.74 s | TT: 4 exact, 3006 cut, 307 best-move hints, 3124503 positions stored here
+2026-10-19 21:44:06,583 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:44:06] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:44:09,389 INFO beastborn.control.bot: Bot P2 unit 8: best value 17, 10477 moves calculated (3 possible now, depth 8, 1 workers) in 1.38 s | TT: 0 exact, 0 cut, 1954 best-move hints, 3128020 positions stored here
+2026-10-19 21:44:09,390 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:44:09] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:44:30,192 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:44:30] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:44:50,550 INFO beastborn.control.bot: Bot P2 unit 5: best value 17, 69983 moves calculated (5 possible now, depth 8, 1 workers) in 19.84 s | TT: 1 exact, 148 cut, 234 best-move hints, 3134841 positions stored here
+2026-10-19 21:44:50,551 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:44:50] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:45:05,918 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:05] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:45:26,173 INFO beastborn.control.bot: Bot P2 unit 7: best value 20, 96236 moves calculated (22 possible now, depth 8, 1 workers) in 16.03 s | TT: 9 exact, 3352 cut, 104 best-move hints, 3186432 positions stored here
+2026-10-19 21:45:26,174 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:26] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:45:29,115 INFO beastborn.control.bot: Bot P2 unit 8: best value 20, 7943 moves calculated (4 possible now, depth 8, 1 workers) in 1.06 s | TT: 2 exact, 21 cut, 1433 best-move hints, 3189209 positions stored here
+2026-10-19 21:45:29,115 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:29] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:45:37,562 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:37] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:45:54,763 INFO beastborn.control.bot: Bot P2 unit 5: best value 24, 61283 moves calculated (4 possible now, depth 8, 1 workers) in 16.66 s | TT: 0 exact, 182 cut, 274 best-move hints, 3196204 positions stored here
+2026-10-19 21:45:54,764 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:54] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:45:59,280 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:45:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:46:09,156 INFO beastborn.control.bot: Bot P2 unit 7: best value 24, 53402 moves calculated (15 possible now, depth 8, 1 workers) in 9.35 s | TT: 0 exact, 1591 cut, 707 best-move hints, 3225303 positions stored here
+2026-10-19 21:46:09,157 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:09] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:12,323 INFO beastborn.control.bot: Bot P2 unit 8: best value 24, 9466 moves calculated (4 possible now, depth 8, 1 workers) in 1.20 s | TT: 1 exact, 52 cut, 1759 best-move hints, 3228573 positions stored here
+2026-10-19 21:46:12,324 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:12] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:16,626 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:16] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:46:23,961 INFO beastborn.control.bot: Bot P2 unit 5: best value 26, 24570 moves calculated (5 possible now, depth 8, 1 workers) in 6.81 s | TT: 0 exact, 463 cut, 210 best-move hints, 3233201 positions stored here
+2026-10-19 21:46:23,962 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:23] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:29,825 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:29] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:46:31,319 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:31] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:46:37,569 INFO beastborn.control.bot: Bot P2 unit 7: best value 26, 29515 moves calculated (19 possible now, depth 8, 1 workers) in 5.01 s | TT: 0 exact, 796 cut, 862 best-move hints, 3248518 positions stored here
+2026-10-19 21:46:37,569 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:37] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:40,985 INFO beastborn.control.bot: Bot P2 unit 8: best value 26, 8007 moves calculated (4 possible now, depth 8, 1 workers) in 1.08 s | TT: 0 exact, 32 cut, 1568 best-move hints, 3251400 positions stored here
+2026-10-19 21:46:40,985 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:40] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:46,144 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:46] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:46:48,783 INFO beastborn.control.bot: Bot P2 unit 5: best value 14, 11028 moves calculated (4 possible now, depth 8, 1 workers) in 2.11 s | TT: 0 exact, 916 cut, 74 best-move hints, 3256423 positions stored here
+2026-10-19 21:46:48,783 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:48] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:46:59,346 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:46:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:01,005 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:01] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:10,361 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:10] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:12,383 INFO beastborn.control.bot: Bot P2 unit 7: best value 15, 5618 moves calculated (19 possible now, depth 8, 1 workers) in 0.78 s | TT: 0 exact, 385 cut, 776 best-move hints, 3258620 positions stored here
+2026-10-19 21:47:12,384 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:12] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:47:14,926 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 1280 moves calculated (4 possible now, depth 8, 1 workers) in 0.23 s | TT: 3 exact, 28 cut, 289 best-move hints, 3259319 positions stored here
+2026-10-19 21:47:14,927 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:14] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:47:30,183 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:30] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:31,035 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 1815 moves calculated (5 possible now, depth 8, 1 workers) in 0.33 s | TT: 3 exact, 35 cut, 141 best-move hints, 3260260 positions stored here
+2026-10-19 21:47:31,037 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:31] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:47:34,345 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:34] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:36,216 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:36] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:37,856 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 2529 moves calculated (4 possible now, depth 8, 1 workers) in 0.40 s | TT: 3 exact, 33 cut, 153 best-move hints, 3261269 positions stored here
+2026-10-19 21:47:37,856 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:37] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:47:44,233 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:44] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:47:44,937 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 1174 moves calculated (5 possible now, depth 8, 1 workers) in 0.18 s | TT: 1 exact, 36 cut, 119 best-move hints, 3261894 positions stored here
+2026-10-19 21:47:44,938 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:47:44] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:22,886 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:22] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:23,563 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 1000 moves calculated (4 possible now, depth 8, 1 workers) in 0.15 s | TT: 1 exact, 10 cut, 43 best-move hints, 3262341 positions stored here
+2026-10-19 21:55:23,563 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:23] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:33,926 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:33] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:34,774 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 2468 moves calculated (3 possible now, depth 8, 1 workers) in 0.33 s | TT: 0 exact, 44 cut, 146 best-move hints, 3263366 positions stored here
+2026-10-19 21:55:34,774 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:34] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:37,016 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:37] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:37,735 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 1137 moves calculated (3 possible now, depth 8, 1 workers) in 0.19 s | TT: 1 exact, 14 cut, 124 best-move hints, 3263844 positions stored here
+2026-10-19 21:55:37,735 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:37] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:39,831 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:39] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:40,600 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 1846 moves calculated (4 possible now, depth 8, 1 workers) in 0.24 s | TT: 1 exact, 38 cut, 148 best-move hints, 3264729 positions stored here
+2026-10-19 21:55:40,600 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:40] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:42,358 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:42] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:43,159 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 1531 moves calculated (4 possible now, depth 8, 1 workers) in 0.27 s | TT: 1 exact, 30 cut, 26 best-move hints, 3265384 positions stored here
+2026-10-19 21:55:43,159 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:43] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:45,395 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:45] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:46,344 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:46] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:47,107 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 1598 moves calculated (4 possible now, depth 8, 1 workers) in 0.24 s | TT: 0 exact, 66 cut, 58 best-move hints, 3266227 positions stored here
+2026-10-19 21:55:47,107 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:47] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:48,973 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:48] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:49,953 INFO beastborn.control.bot: Bot P2 unit 8: best value 15, 2082 moves calculated (5 possible now, depth 8, 1 workers) in 0.46 s | TT: 2 exact, 40 cut, 156 best-move hints, 3267066 positions stored here
+2026-10-19 21:55:49,953 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:49] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:53,657 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:55:56,041 INFO beastborn.control.bot: Bot P2 unit 5: best value 15, 9893 moves calculated (4 possible now, depth 8, 1 workers) in 1.86 s | TT: 107 exact, 894 cut, 296 best-move hints, 3271333 positions stored here
+2026-10-19 21:55:56,041 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:56] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:55:59,754 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:55:59] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:04,980 INFO beastborn.control.bot: Bot P2 unit 8: best value 21, 9687 moves calculated (13 possible now, depth 8, 1 workers) in 3.48 s | TT: 21 exact, 333 cut, 113 best-move hints, 3275912 positions stored here
+2026-10-19 21:56:04,984 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:04] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:56:11,552 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:11] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:13,916 INFO beastborn.control.bot: Bot P2 unit 5: best value 23, 7273 moves calculated (4 possible now, depth 8, 1 workers) in 1.84 s | TT: 24 exact, 589 cut, 299 best-move hints, 3278975 positions stored here
+2026-10-19 21:56:13,916 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:13] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:56:16,788 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:16] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:18,518 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:18] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:21,213 INFO beastborn.control.bot: Bot P2 unit 8: best value 26, 6028 moves calculated (6 possible now, depth 8, 1 workers) in 1.11 s | TT: 4 exact, 218 cut, 134 best-move hints, 3281046 positions stored here
+2026-10-19 21:56:21,213 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:21] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:56:24,876 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:24] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:31,998 INFO beastborn.control.bot: Bot P2 unit 5: best value 66, 36826 moves calculated (3 possible now, depth 8, 1 workers) in 6.60 s | TT: 150 exact, 1704 cut, 290 best-move hints, 3286897 positions stored here
+2026-10-19 21:56:31,999 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:31] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:56:35,732 INFO beastborn.control.bot: Bot P2 unit 8: best value 66, 13151 moves calculated (14 possible now, depth 8, 1 workers) in 2.28 s | TT: 4 exact, 2410 cut, 1548 best-move hints, 3292943 positions stored here
+2026-10-19 21:56:35,734 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:35] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:56:43,457 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:43] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:56:53,404 INFO beastborn.control.bot: Bot P2 unit 5: best value 106, 51272 moves calculated (4 possible now, depth 8, 1 workers) in 9.43 s | TT: 59 exact, 1904 cut, 259 best-move hints, 3300972 positions stored here
+2026-10-19 21:56:53,414 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:56:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:57:00,904 INFO beastborn.control.bot: Bot P2 unit 8: best value 106, 23439 moves calculated (7 possible now, depth 8, 1 workers) in 6.06 s | TT: 0 exact, 2395 cut, 2110 best-move hints, 3312432 positions stored here
+2026-10-19 21:57:00,904 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:57:00] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:57:05,023 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:57:05] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:57:26,173 INFO beastborn.control.bot: Bot P2 unit 5: best value 186, 107497 moves calculated (4 possible now, depth 8, 1 workers) in 20.63 s | TT: 27 exact, 3599 cut, 603 best-move hints, 3326801 positions stored here
+2026-10-19 21:57:26,174 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:57:26] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:58:02,477 INFO beastborn.control.bot: Bot P2 unit 8: best value 179, 95084 moves calculated (16 possible now, depth 8, 1 workers) in 34.86 s | TT: 9 exact, 12299 cut, 6845 best-move hints, 3370980 positions stored here
+2026-10-19 21:58:02,477 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:02] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:58:10,058 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:10] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:58:10,755 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:10] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:58:22,456 INFO beastborn.control.bot: Bot P2 unit 5: best value 212, 56273 moves calculated (5 possible now, depth 8, 1 workers) in 10.81 s | TT: 19 exact, 2105 cut, 1462 best-move hints, 3379018 positions stored here
+2026-10-19 21:58:22,456 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:22] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:58:43,184 INFO beastborn.control.bot: Bot P2 unit 8: best value 196, 53995 moves calculated (5 possible now, depth 8, 1 workers) in 19.30 s | TT: 7 exact, 6842 cut, 3329 best-move hints, 3403333 positions stored here
+2026-10-19 21:58:43,188 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:43] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 21:58:48,450 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:48] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:58:49,862 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:49] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:58:53,404 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:58:53] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 21:59:24,744 INFO beastborn.control.bot: Bot P2 unit 5: best value 243, 156732 moves calculated (5 possible now, depth 8, 1 workers) in 30.97 s | TT: 48 exact, 7334 cut, 1246 best-move hints, 3422984 positions stored here
+2026-10-19 21:59:24,744 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 21:59:24] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 22:00:06,152 INFO beastborn.control.bot: Bot P2 unit 8: best value 217, 113292 moves calculated (13 possible now, depth 8, 1 workers) in 39.45 s | TT: 13 exact, 19719 cut, 6854 best-move hints, 3472392 positions stored here
+2026-10-19 22:00:06,153 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 22:00:06] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -
+2026-10-19 22:02:17,940 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 22:02:17] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 22:02:19,306 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 22:02:19] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 22:02:20,471 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 22:02:20] "POST /api/games/3fec0a9999d649be94da284f16b667f5/intents HTTP/1.1" 200 -
+2026-10-19 22:03:05,319 INFO beastborn.control.bot: Bot P2 unit 5: best value 290, 222367 moves calculated (10 possible now, depth 8, 1 workers) in 43.96 s | TT: 36 exact, 8699 cut, 624 best-move hints, 3500679 positions stored here
+2026-10-19 22:03:05,324 INFO werkzeug: 127.0.0.1 - - [19/Oct/2026 22:03:05] "POST /api/games/3fec0a9999d649be94da284f16b667f5/bot-step HTTP/1.1" 200 -

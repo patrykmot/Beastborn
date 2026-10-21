@@ -170,6 +170,15 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   changed. Ties go to the first action in the root order, so the move is the same as with one process (and the same
   for the same seed). If processes cannot be used (or a worker dies), the bot logs a warning and searches alone.
   A subclass of the bot (e.g. its own `evaluate`) must be defined at module level to run in worker processes.
+- **Transposition table** (`BotPlayerController(tt=True)`, the default): every searched position is stored as
+  (position, depth left) -> (value, EXACT/LOWER/UPPER) plus position -> best action. The same position with the same
+  depth left reuses the value or narrows alpha/beta; at any depth the stored best action is tried first. Only the same
+  depth is reused, so values and moves are exactly those of plain alpha-beta. One table per bot for its whole game
+  (a worker process keeps one per bot for the last few bots; the table is never pickled to workers). Measured: in
+  this game positions almost never repeat (the GSM fixes the unit order), so the table rarely saves anything; it
+  helps when the same position is searched again. The log line shows its hits.
+- **Same seed, same game:** each search draws one seed from the bot's `rng` for everything inside the search, so the
+  bot's `rng` advances the same way every turn: the TT on or off and the number of workers never change the game.
 - `PassController` is a trivial example: it ends every unit's turn without acting.
 - Thinking time grows fast with depth and with fights (many actions per unit turn); lower `BOT_SEARCH_DEPTH` if a
   server is too slow.

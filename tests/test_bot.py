@@ -1,6 +1,7 @@
 """Bot player: alpha-beta search (ALG) over whole unit turns, and its voice. Simple happy paths + the critical rule:
 the search never changes the game."""
 import multiprocessing
+import pickle
 import random
 from dataclasses import replace
 
@@ -238,3 +239,43 @@ def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
         assert fallback.choose_command(gsm) == alone.choose_command(gsm)
     assert fallback.last_value == alone.last_value
     assert [r.levelname for r in caplog.records] == ["WARNING"] and "one process" in caplog.records[0].message
+
+
+# ---------------------------------------------------------------- transposition table
+def bot_game(turns, depth=3, **options):
+    """Two bots play ``turns`` unit turns from seed 7; the moves and values they chose."""
+    gsm = new_game(2, seed=7)
+    bots = {p: BotPlayerController(depth, BotVoice(LINES), random.Random(p), **options) for p in (0, 1)}
+    chosen = []
+    for _ in range(turns):
+        player = bots[gsm.active_player]
+        command = player.choose_command(gsm)
+        chosen.append((command, player.last_value))
+        assert gsm.submit(command).ok
+    return chosen
+
+
+def test_same_game_with_or_without_table_and_workers():
+    # The table only reuses values of the same depth, and every search draws the same random numbers, so the
+    # same seed plays the same game: with or without the table, with one process or several.
+    plain = bot_game(8, tt=False, workers=1)
+    assert bot_game(8, tt=True, workers=1) == plain
+    assert bot_game(8, tt=True, workers=2) == plain
+
+
+def test_a_position_searched_again_comes_from_the_table():
+    gsm = new_game(2, seed=7)
+    player = BotPlayerController(4, BotVoice(LINES), random.Random(1), workers=1)
+    player.choose_command(gsm)
+    first_value, first_moves = player.last_value, player.last_moves
+    player.choose_command(gsm)  # the same position again (e.g. the same turn asked twice)
+    assert player.last_value == first_value
+    assert player.last_tt.exact > 0 and player.last_moves < first_moves
+
+
+def test_the_table_stays_out_of_worker_tasks():
+    player = BotPlayerController(3, BotVoice(LINES), random.Random(1), workers=1)
+    player.choose_command(new_game(2, seed=7))
+    assert len(player._tt) > 0
+    copy = pickle.loads(pickle.dumps(player))  # what a worker process gets
+    assert copy._tt is None and copy._tt_token == player._tt_token
