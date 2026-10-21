@@ -1,7 +1,8 @@
 """Who decides the moves for a player.
 
 Humans act through a frontend. A bot implements ``choose_command`` for the GSM's active unit
-(``gsm.active_unit``); ``gsm.find_all_possible_actions()`` lists every whole turn that unit can play, one command each.
+(``gsm.active_unit``); a ``FindActionStrategy`` (control/find_action_strategy.py), e.g.
+``AllFindActionStrategy().find_all_possible_actions(gsm)``, lists every whole turn that unit can play, one command each.
 The real bot is ``BotPlayerController`` (control/bot.py, alpha-beta search); ``PassController`` is a trivial one.
 """
 from __future__ import annotations

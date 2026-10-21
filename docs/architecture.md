@@ -81,15 +81,11 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     as `AttackPlan`s (tile it attacks from, the move, the exact result). `plan_attack(a, t, move_to=None)` returns one.
   - `preview_attack(a, t)` returns the exact result, because combat has no RNG.
   - `score(player)` returns the CE score of the current board for that player.
-  - `find_all_possible_actions()` returns every way the active unit can play its **whole turn**, one command per way
-    (for bots: one command = one unit turn, the next unit acts after it). A turn is: attacks (each may move first, as
-    `AttackCommand` with an explicit `move_to`), then maybe one `MoveCommand`, then always `EndTurnCommand`. Every
-    command is a `WrapperCommand` that ends with `EndTurnCommand`, except waiting: `EndTurnCommand` alone (listed first).
-    Every distinct command sequence is listed (also ones ending on the same board). It is read only: every attack is
-    tried with `submit` and undone with `rollback`, so the list is exactly what `submit` accepts. The list is cached
-    until the state changes. Typical: ~1 ms, crowded fights up to ~65 ms and several hundred actions.
-    `find_all_possible_actions(rng)` returns the same actions in random order: shuffled with `rng` once per state and
-    cached with the list, so the same state keeps the same order (without `rng` the usual order above).
+  - For action strategies (below, Bots): `attack_commands(unit_id, reach=None)` lists every single attack the active
+    unit can make now (from where it stands, and after a move with an explicit `move_to`); `turn_situation()` is
+    everything the rest of the unit's turn depends on (to search a situation reached twice only once);
+    `turn_over(unit_id, events)` says whether a command's events ended that unit's turn (or the game); `version` is one
+    number per distinct state (`rollback` brings the old number back), to cache results of a state.
 - Commands: every command is a `Command` (frozen dataclass) with a `kind` (`CommandType`: `MOVE`, `ATTACK`,
   `END_TURN`, `WRAPPER`); `submit` dispatches on the kind and returns a `CommandResult(ok, events, error)`.
   - A rejected command never changes state (except a `WrapperCommand`, see below).
@@ -149,17 +145,30 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   bot whose turn it is play one command, and the web client calls it through `bot-step`.
 - `BotPlayerController` (`bot.py`) is the real bot. Only one, and only in 2-player games (`MAX_BOTS`,
   `BOT_PLAYERS`; the web API checks it). It runs **alpha-beta** search over whole unit turns:
-  - one ply = one action of `gsm.find_all_possible_actions()` (a whole unit turn); depth `BOT_SEARCH_DEPTH` = 5.
+  - one ply = one action of its `FindActionStrategy` (a whole unit turn); depth `BOT_SEARCH_DEPTH` = 5.
   - each action is tried with `submit` and always undone with `rollback` (in a `finally`), so the game is exactly the
     same afterwards; `choose_command` checks the command log and `view()` after every search and raises if not.
   - a node maximises when the bot's player is to move and minimises otherwise (turns do not strictly alternate:
     a side with more units left plays several in a row).
   - `evaluate(gsm, me)` = `score(me) - score(opponent)` is the one place that defines a good board. A won game is
     `+BOT_WIN_SCORE` (a lost one `-BOT_WIN_SCORE`), adjusted so sooner wins and later losses are preferred.
-  - the bot asks for the actions in random order (`find_all_possible_actions(rng)`), then tries attacks first (more
+  - the default strategy gives the actions in random order (`RandomAllFindActionStrategy(rng)`); the bot tries attacks first (more
     cut-offs; a stable sort keeps the random order within attacks, moves and waiting). Ties go to the first action,
     so among equally good actions (e.g. the opening moves) the bot picks one at random. The web app seeds the bot's
     `rng` with the game seed, so the same seed replays the same bot moves.
+- **Action strategies** (`find_action_strategy.py`): `FindActionStrategy.find_all_possible_actions(gsm)` lists the
+  actions (whole turns of `gsm.active_unit`) a bot searches; `BotPlayerController(find_action_strategy=...)` takes one.
+  - `AllFindActionStrategy` returns every way the active unit can play its **whole turn**, one command per way
+    (REQ_LOG_08_01). A turn is: attacks (each may move first, as `AttackCommand` with an explicit `move_to`), then maybe
+    one `MoveCommand`, then always `EndTurnCommand`. Every command is a `WrapperCommand` that ends with `EndTurnCommand`,
+    except waiting: `EndTurnCommand` alone (listed first). Every distinct command sequence is listed (also ones ending
+    on the same board). It is read only (REQ_LOG_08_02): every attack is tried with `submit` and undone with
+    `rollback`, so the list is exactly what `submit` accepts. The list is cached for the last state asked about (one
+    GSM and its `version`). Typical: ~1 ms, crowded fights up to ~65 ms and several hundred actions.
+  - `RandomAllFindActionStrategy(rng)` (the bot's default, with the bot's `rng`) returns the same actions in random
+    order: shuffled with `rng` once per state and cached, so the same state keeps the same order.
+  - A strategy must leave the game exactly as it was, be picklable (module level; the cache is not pickled) and gives
+    worker processes `for_worker(seed)` (a copy with its own repeatable randomness; a strategy without one returns itself).
 - After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
   `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
   never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.

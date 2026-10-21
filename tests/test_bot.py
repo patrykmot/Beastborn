@@ -1,17 +1,21 @@
 """Bot player: alpha-beta search (ALG) over whole unit turns, and its voice. Simple happy paths + the critical rule:
 the search never changes the game."""
 import multiprocessing
+import pickle
 import random
 from dataclasses import replace
 
 import pytest
 
 from beastborn import constant as C
-from beastborn.control import BotPlayerController, BotVoice, Mood, load_bot_lines
+from beastborn.control import (
+    AllFindActionStrategy, BotPlayerController, BotVoice, FindActionStrategy, Mood, RandomAllFindActionStrategy,
+    load_bot_lines,
+)
 from beastborn.control import bot as bot_module
 from beastborn.domain import Board
 from beastborn.game import Phase, custom_game, new_game
-from beastborn.game.commands import AttackCommand, CommandType, WrapperCommand
+from beastborn.game.commands import AttackCommand, CommandType, EndTurnCommand, WrapperCommand
 from tests.conftest import KING, SOLDIER
 
 pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
@@ -24,9 +28,13 @@ def bot(depth=C.BOT_SEARCH_DEPTH):
     return BotPlayerController(depth, BotVoice(LINES, random.Random(0)))
 
 
+def possible_actions(gsm):
+    return AllFindActionStrategy().find_all_possible_actions(gsm)
+
+
 def snapshot(gsm):
     """Everything a search could change by mistake."""
-    return list(gsm.command_log), gsm.view(), gsm.score(0), gsm.score(1), gsm.find_all_possible_actions()
+    return list(gsm.command_log), gsm.view(), gsm.score(0), gsm.score(1), gsm.version, possible_actions(gsm)
 
 
 def attacks(command):
@@ -44,7 +52,7 @@ def winning_hit_game():
 def test_bot_returns_a_possible_action():
     gsm = new_game(2, seed=7)
     command = bot().choose_command(gsm)
-    assert command in gsm.find_all_possible_actions()
+    assert command in possible_actions(gsm)
     assert gsm.submit(command).ok
 
 
@@ -82,7 +90,7 @@ def minimax(gsm, me, depth, seen_twice):
     if depth == 0:
         return gsm.score(me) - gsm.score(1 - me)
     player = gsm.active_player
-    values = [_value_after(gsm, action, me, depth, seen_twice) for action in gsm.find_all_possible_actions()]
+    values = [_value_after(gsm, action, me, depth, seen_twice) for action in possible_actions(gsm)]
     return max(values) if player == me else min(values)
 
 
@@ -101,8 +109,8 @@ def _value_after(gsm, action, me, depth, seen_twice):
 def test_alphabeta_equals_minimax(depth):
     # P1 has 2 units, P2 only 1: in the turn order P1 Soldier (2) and then (new round) P1 King (1) play in a row.
     gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (1, 1)), (1, KING, (4, 2))])
-    gsm.submit(gsm.find_all_possible_actions()[0])  # P1 King waits
-    gsm.submit(gsm.find_all_possible_actions()[0])  # P2 King waits: now P1 Soldier
+    gsm.submit(possible_actions(gsm)[0])  # P1 King waits
+    gsm.submit(possible_actions(gsm)[0])  # P2 King waits: now P1 Soldier
     seen_twice = []
     expected = minimax(gsm, gsm.active_player, depth, seen_twice)
     player = bot(depth)
@@ -124,8 +132,8 @@ def test_bot_takes_the_winning_hit(depth):
 def test_bot_prefers_attack_to_waiting():
     # P1 Soldier (2) next to the P2 Soldier (4); the Kings are far away. Unit 1 (P1 King) waits first.
     gsm = custom_game(FLAT, [(0, KING, (0, 0)), (0, SOLDIER, (2, 1)), (1, KING, (4, 2)), (1, SOLDIER, (3, 1))])
-    gsm.submit(gsm.find_all_possible_actions()[0])
-    gsm.submit(gsm.find_all_possible_actions()[0])
+    gsm.submit(possible_actions(gsm)[0])
+    gsm.submit(possible_actions(gsm)[0])
     assert gsm.active_unit == 2
     command = bot(2).choose_command(gsm)
     assert attacks(command) and all(isinstance(a, AttackCommand) for a in attacks(command))
@@ -146,7 +154,7 @@ def test_search_is_logged(caplog):
     with caplog.at_level("INFO", logger="beastborn.control.bot"):
         player.choose_command(gsm)
     (record,) = caplog.records
-    assert player.last_moves >= len(gsm.find_all_possible_actions())  # every root action was tried at least
+    assert player.last_moves >= len(possible_actions(gsm))  # every root action was tried at least
     assert f"best value {player.last_value}," in record.message
     assert f"{player.last_moves} moves calculated" in record.message
 
@@ -223,7 +231,7 @@ def test_error_in_a_worker_comes_back():
     with pytest.raises(ValueError, match="bug in a worker"):
         FailsInWorker(3, BotVoice(LINES), workers=2).choose_command(gsm)
     assert snapshot(gsm) == before
-    assert bot(3).choose_command(gsm) in gsm.find_all_possible_actions()  # the workers still work
+    assert bot(3).choose_command(gsm) in possible_actions(gsm)  # the workers still work
 
 
 def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
@@ -238,3 +246,63 @@ def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
         assert fallback.choose_command(gsm) == alone.choose_command(gsm)
     assert fallback.last_value == alone.last_value
     assert [r.levelname for r in caplog.records] == ["WARNING"] and "one process" in caplog.records[0].message
+
+
+# ---------------------------------------------------------------- action strategies
+class NoMoves(AllFindActionStrategy):
+    """Module level, so worker processes can load it: only waiting and the turns that start with an attack."""
+
+    def find_all_possible_actions(self, gsm):
+        return [a for a in super().find_all_possible_actions(gsm) if not _starts_with_move(a)]
+
+
+class Recording(FindActionStrategy):
+    """Only waiting; remembers the GSMs it was asked about."""
+
+    def __init__(self):
+        self.asked = []
+
+    def find_all_possible_actions(self, gsm):
+        self.asked.append(gsm)
+        return [EndTurnCommand()] if gsm.phase is Phase.AWAITING_COMMAND else []
+
+
+def _starts_with_move(action):
+    return isinstance(action, WrapperCommand) and action.commands[0].kind is CommandType.MOVE
+
+
+def test_default_strategy_is_random_all_with_the_bots_rng():
+    rng = random.Random(3)
+    player = BotPlayerController(2, BotVoice(LINES), rng)
+    assert isinstance(player.find_action_strategy, RandomAllFindActionStrategy)
+    assert player.find_action_strategy.rng is rng
+
+
+def test_bot_uses_the_given_strategy():
+    gsm = new_game(2, seed=7)
+    strategy = Recording()
+    player = BotPlayerController(3, BotVoice(LINES), random.Random(0), find_action_strategy=strategy)
+    assert player.choose_command(gsm) == EndTurnCommand()  # the only action it was given: no search
+    assert strategy.asked == [gsm] and player.last_value is None
+
+
+def test_bot_searches_only_the_actions_of_its_strategy():
+    for turn, gsm in enumerate(positions()):
+        before = snapshot(gsm)
+        one = BotPlayerController(2, BotVoice(LINES), workers=1, find_action_strategy=NoMoves())
+        two = BotPlayerController(2, BotVoice(LINES), workers=2, find_action_strategy=NoMoves())
+        chosen = one.choose_command(gsm)
+        assert not _starts_with_move(chosen)
+        assert two.choose_command(gsm) == chosen and two.last_value == one.last_value  # workers use it too
+        assert snapshot(gsm) == before
+
+
+def test_random_strategy_for_a_worker_is_seeded():
+    gsm = new_game(2, seed=7)
+    strategy = RandomAllFindActionStrategy(random.Random(0))
+    strategy.find_all_possible_actions(gsm)  # fills the cache: it is not sent with the strategy
+    first, again = strategy.for_worker(5), strategy.for_worker(5)
+    assert first is not strategy and first.find_all_possible_actions(gsm) == again.find_all_possible_actions(gsm)
+    assert pickle.loads(pickle.dumps(strategy))._shuffled is None
+    plain = AllFindActionStrategy()
+    assert plain.for_worker(5) is plain

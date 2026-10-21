@@ -1,15 +1,17 @@
 """The bot player: alpha-beta search (ALG) over whole unit turns.
 
-One ply = one unit turn: every action from ``GameStateMachine.find_all_possible_actions`` plays the active unit's whole
-turn, then the GSM gives the next unit its turn. The search tries an action with ``submit`` and always undoes it with
+One ply = one unit turn: every action from the bot's ``FindActionStrategy`` (``find_all_possible_actions(gsm)``,
+control/find_action_strategy.py) plays the active unit's whole turn, then the GSM gives the next unit its turn.
+The search tries an action with ``submit`` and always undoes it with
 ``rollback`` (in a ``finally``), so the game is exactly the same after the bot has chosen; ``choose_command`` checks
 this every time.
 
 Turns do not strictly alternate between players (a side with more units left plays several units in a row), so a
 node maximises when the bot's player is to move and minimises otherwise - never by depth parity.
 
-The bot asks for the actions in random order (its ``rng``), so among equally good actions it picks one at random
-(e.g. its opening moves); attacks are still tried before moves and waiting.
+The default strategy, ``RandomAllFindActionStrategy`` with the bot's ``rng``, lists every action in random order, so
+among equally good actions the bot picks one at random (e.g. its opening moves); attacks are still tried before
+moves and waiting.
 
 Every search is logged (logger ``beastborn.control.bot``, level INFO): the value of the best action and how many
 moves were calculated. ``python main.py`` and the WSGI file show INFO logs on the console / in the server log.
@@ -19,7 +21,8 @@ itself, which gives the value to beat (alpha). The other root actions go to a po
 each, searched with the window (alpha, +inf), as the one-process search would: a result > alpha is exact, a result
 <= alpha can at best tie the first action, and ties go to the first action. Between equal exact values the first in
 the root order wins, never the first to finish, so the move is the same as with one process (and the same for the
-same seed). Workers get a copy of the game state, never the GSM, so the game is untouched.
+same seed). Workers get a copy of the game state, never the GSM, so the game is untouched. Each task uses
+``strategy.for_worker(seed)`` (its own repeatable random order).
 If processes cannot be used, the bot logs a warning and searches with one process.
 """
 from __future__ import annotations
@@ -37,6 +40,7 @@ from concurrent.futures.process import BrokenProcessPool
 from beastborn import constant as C
 from beastborn.control.bot_voice import BotVoice, Mood
 from beastborn.control.controller import PlayerController
+from beastborn.control.find_action_strategy import FindActionStrategy, RandomAllFindActionStrategy
 from beastborn.engine.interface import CalculationEngine
 from beastborn.game.commands import Command, CommandResult, CommandType, WrapperCommand
 from beastborn.game.state import GameState, Phase
@@ -91,7 +95,8 @@ def _search_task(
 
     ``state`` is the worker's own copy, so its GSM (built here, with an empty history) can play and roll back freely.
     """
-    bot._rng = random.Random(seed)  # the worker's copy of the bot: its own repeatable action order
+    bot._rng = random.Random(seed)  # the worker's copy of the bot: its own repeatable randomness
+    bot.find_action_strategy = bot.find_action_strategy.for_worker(seed)  # and its own repeatable action order
     bot.last_moves = 0
     value: int = bot._try(GameStateMachine(state, engine), action, me, bot.depth - 1, alpha, _INFINITY)
     return value, bot.last_moves
@@ -115,15 +120,17 @@ class BotPlayerController(PlayerController):
     """Chooses the active unit's whole turn with alpha-beta search; says something after every turn.
 
     ``evaluate`` (score of the bot minus score of its opponent) is the one place that defines a good board.
-    ``rng`` orders the actions at random (ties go to the first one) and picks the voice lines when no ``voice`` is
-    given: ``random.Random(seed)`` makes the bot repeat itself for the same game, None = a fresh random one.
+    ``find_action_strategy`` lists the actions searched in each state (ties go to the first one); default:
+    ``RandomAllFindActionStrategy(rng)``, every action in random order. ``rng`` also picks the voice lines when no
+    ``voice`` is given: ``random.Random(seed)`` makes the bot repeat itself for the same game, None = a fresh one.
     ``workers``: processes for one search (None = ``constant.BOT_WORKERS``; that None = all CPU cores; 1 = only this one).
-    A subclass (e.g. with its own ``evaluate``) must be defined at module level to run in worker processes.
+    A subclass (e.g. with its own ``evaluate``) or a strategy must be defined at module level to run in worker
+    processes.
     """
 
     def __init__(
         self, depth: int = C.BOT_SEARCH_DEPTH, voice: BotVoice | None = None, rng: random.Random | None = None,
-        workers: int | None = None,
+        workers: int | None = None, find_action_strategy: FindActionStrategy | None = None,
     ):
         if depth < 1:
             raise ValueError("The search depth must be at least 1")
@@ -134,6 +141,10 @@ class BotPlayerController(PlayerController):
         self.last_moves: int = 0  # moves calculated (submitted and rolled back) to choose that command
         self._rng: random.Random = rng or random.Random()
         self._voice: BotVoice = voice or BotVoice(rng=self._rng)
+        # default: shares the bot's rng (as before strategies existed), so the same seed still gives the same games
+        self.find_action_strategy: FindActionStrategy = (
+            find_action_strategy or RandomAllFindActionStrategy(self._rng)
+        )
         self._spoke: bool = False  # has the bot said its START line yet
 
     # ------------------------------------------------------------------ PlayerController
@@ -175,7 +186,7 @@ class BotPlayerController(PlayerController):
         """
         started: float = time.perf_counter()
         self.last_moves = 0
-        actions: list[Command] = gsm.find_all_possible_actions(self._rng)
+        actions: list[Command] = self.find_action_strategy.find_all_possible_actions(gsm)
         if not actions:
             raise RuntimeError("No possible action while the game accepts commands")
         if len(actions) == 1:
@@ -252,7 +263,7 @@ class BotPlayerController(PlayerController):
             return self.evaluate(gsm, me)
         maximising: bool = gsm.active_player == me
         best: int = -C.BOT_WIN_SCORE * 2 if maximising else C.BOT_WIN_SCORE * 2
-        for action in sorted(gsm.find_all_possible_actions(self._rng), key=_order_key):
+        for action in sorted(self.find_action_strategy.find_all_possible_actions(gsm), key=_order_key):
             value: int = self._try(gsm, action, me, depth - 1, alpha, beta)
             if maximising:
                 best = max(best, value)

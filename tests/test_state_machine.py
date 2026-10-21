@@ -5,6 +5,7 @@ from fractions import Fraction
 import pytest
 
 from beastborn import constant as C
+from beastborn.control import AllFindActionStrategy, RandomAllFindActionStrategy
 from beastborn.domain import Board, EffectKind, EffectSpec, Position, StatusEffect
 from beastborn.engine import StandardCalculationEngine
 from beastborn.game import (
@@ -715,6 +716,14 @@ def test_wrapper_rules_are_checked_before_anything_runs():
 
 
 # ---------------------------------------------------------------- possible actions
+STRATEGY = AllFindActionStrategy()  # one instance: its cache is shared by the tests (it is per GSM and state)
+
+
+def possible_actions(gsm):
+    """Every possible action in the usual order (``AllFindActionStrategy``)."""
+    return STRATEGY.find_all_possible_actions(gsm)
+
+
 def unit_ids(action):
     """Ids of the units an action uses."""
     steps = action.commands if isinstance(action, WrapperCommand) else (action,)
@@ -724,7 +733,7 @@ def unit_ids(action):
 
 def test_possible_actions_are_whole_turns_that_end_with_end_turn():
     gsm = neighbours_game()
-    actions = gsm.find_all_possible_actions()
+    actions = possible_actions(gsm)
     end, hit = EndTurnCommand(), AttackCommand(2, 4)
     assert actions[0] == end  # wait: the only command that is not a wrapper
     assert all(isinstance(a, WrapperCommand) for a in actions[1:])
@@ -742,7 +751,7 @@ def test_possible_actions_are_whole_turns_that_end_with_end_turn():
 
 
 def test_every_possible_action_is_accepted_and_ends_the_turn():
-    for action in neighbours_game().find_all_possible_actions():
+    for action in possible_actions(neighbours_game()):
         gsm = neighbours_game()  # one action per game: an action changes the state
         result = gsm.submit(action)
         assert result.ok, (action, result.error)
@@ -752,7 +761,7 @@ def test_every_possible_action_is_accepted_and_ends_the_turn():
 
 def test_possible_actions_move_first_with_an_explicit_tile():
     gsm = far_game()  # only (2,1) is in reach and next to the target
-    actions = gsm.find_all_possible_actions()
+    actions = possible_actions(gsm)
     move_and_hit = WrapperCommand((AttackCommand(2, 4, Position(2, 1)), EndTurnCommand()))
     moves = [a for a in actions[1:] if a.commands[0].kind is CommandType.MOVE]
     assert actions == [EndTurnCommand(), *moves, move_and_hit]  # the only attack: move to (2,1), then hit
@@ -763,47 +772,63 @@ def test_possible_actions_do_not_change_the_game_and_are_cached():
     gsm = neighbours_game()
     state, log = gsm._state, list(gsm.command_log)
     expected = state.copy()
-    actions = gsm.find_all_possible_actions()
+    version = gsm.version
+    actions = STRATEGY.find_all_possible_actions(gsm)
     assert gsm._state is state and state == expected and gsm.command_log == log  # every try was rolled back
+    assert gsm.version == version
+    assert STRATEGY.find_all_possible_actions(gsm) is not actions and STRATEGY._cache[2] is STRATEGY._ordered(gsm)
     actions.clear()  # the caller gets its own list
-    assert gsm.find_all_possible_actions() == neighbours_game().find_all_possible_actions()
+    assert possible_actions(gsm) == possible_actions(neighbours_game())
     gsm.submit(EndTurnCommand())
-    assert all(unit_ids(a) == {gsm.active_unit} for a in gsm.find_all_possible_actions() if a != EndTurnCommand())
+    assert all(unit_ids(a) == {gsm.active_unit} for a in possible_actions(gsm) if a != EndTurnCommand())
     gsm.rollback()  # back to the first state: the cached list is valid again
-    assert gsm.find_all_possible_actions() == neighbours_game().find_all_possible_actions()
+    assert possible_actions(gsm) == possible_actions(neighbours_game())
 
 
 def test_possible_actions_in_random_order_are_shuffled_once_and_cached():
     gsm = neighbours_game()
-    ordered = gsm.find_all_possible_actions()
+    ordered = possible_actions(gsm)
     rng = random.Random(7)
-    shuffled = gsm.find_all_possible_actions(rng)
+    strategy = RandomAllFindActionStrategy(rng)
+    shuffled = strategy.find_all_possible_actions(gsm)
     assert sorted(map(repr, shuffled)) == sorted(map(repr, ordered)) and shuffled != ordered  # same actions, new order
-    assert shuffled == neighbours_game().find_all_possible_actions(random.Random(7))  # same seed, same order
+    same_seed = RandomAllFindActionStrategy(random.Random(7)).find_all_possible_actions(neighbours_game())
+    assert shuffled == same_seed  # same seed, same order
     rng_state = rng.getstate()
-    assert gsm.find_all_possible_actions(rng) == shuffled and rng.getstate() == rng_state  # cached, not shuffled again
-    assert gsm.find_all_possible_actions() == ordered  # without rng: the usual order
+    assert strategy.find_all_possible_actions(gsm) == shuffled and rng.getstate() == rng_state  # cached, not shuffled
+    assert possible_actions(gsm) == ordered  # AllFindActionStrategy: the usual order
     gsm.submit(EndTurnCommand())
     gsm.rollback()  # back to the same state: still the cached order
-    assert gsm.find_all_possible_actions(random.Random(99)) == shuffled
+    assert strategy.find_all_possible_actions(gsm) == shuffled and rng.getstate() == rng_state
+    other = neighbours_game()  # another game in the same state: its own shuffle (the cache is for one GSM)
+    assert sorted(map(repr, strategy.find_all_possible_actions(other))) == sorted(map(repr, ordered))
+    assert rng.getstate() != rng_state
+
+
+def test_possible_actions_are_empty_after_game_over_without_using_the_rng():
+    gsm = neighbours_game()
+    gsm._state.phase = Phase.GAME_OVER
+    rng = random.Random(1)
+    rng_state = rng.getstate()
+    assert RandomAllFindActionStrategy(rng).find_all_possible_actions(gsm) == [] and rng.getstate() == rng_state
 
 
 def test_unit_that_cannot_act_can_only_end_its_turn():
     gsm = neighbours_game()
     gsm._state.units[2].energy = 0
-    assert gsm.find_all_possible_actions() == [EndTurnCommand()]
+    assert possible_actions(gsm) == [EndTurnCommand()]
 
 
 def test_killing_the_last_boss_ends_the_list_of_commands():
     gsm = two_player_game(p0_soldier=(3, 2))  # next to the P1 King (4,2) and the P1 Soldier (3,1)
     gsm._state.units[3].hp = 1
     turn_of(gsm, 2)
-    actions = gsm.find_all_possible_actions()
+    actions = possible_actions(gsm)
     win = WrapperCommand((AttackCommand(2, 3), EndTurnCommand()))  # nothing can follow the winning hit
     assert [a for a in actions if a != EndTurnCommand() and a.commands[0] == AttackCommand(2, 3)] == [win]
     result = gsm.submit(win)
     assert result.ok and isinstance(result.events[-1], ev.GameOver)
-    assert gsm.find_all_possible_actions() == []
+    assert possible_actions(gsm) == []
 
 
 # ---------------------------------------------------------------- rollback

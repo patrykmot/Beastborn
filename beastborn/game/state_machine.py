@@ -9,13 +9,13 @@ cannot move or attack right now is put off until no unit that can act is left th
 In its turn a unit regenerates, its status effects tick, then it moves and attacks until it cannot do anything
 more (the GSM ends its turn) or ``EndTurnCommand`` ends it. When every unit has had its turn, the next round starts.
 
-``rollback`` undoes the last command exactly. ``find_all_possible_actions`` lists every way the active unit can
-play its whole turn, one command per way (in random order when given a ``random.Random``).
+``rollback`` undoes the last command exactly. Which whole turns the active unit can play is found by a
+``FindActionStrategy`` (beastborn/control/find_action_strategy.py) with the queries in "possible actions" below:
+``reachable_tiles``, ``attack_commands``, ``turn_situation``, ``turn_over`` and ``version``.
 """
 from __future__ import annotations
 
-import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from itertools import count
 from typing import Any
 
@@ -40,9 +40,6 @@ from beastborn.game.view import GameView, PlayerView, UnitView
 _OUT_OF_RANGE: str = "Target is out of range"
 _OUT_OF_REACH: str = "Target is out of range and cannot be reached this turn"
 
-Turn = tuple[Command, ...]  # the commands of one whole unit turn, in order (the last one is EndTurnCommand)
-_WAIT: Turn = (EndTurnCommand(),)  # the turn without acting
-
 
 class GameStateMachine:
     def __init__(self, state: GameState, engine: CalculationEngine):
@@ -53,8 +50,6 @@ class GameStateMachine:
         self._history: list[tuple[GameState, int]] = []
         self._new_versions: count[int] = count(1)
         self._version: int = 0  # one number per distinct state; ``rollback`` brings the old number back
-        # find_all_possible_actions of one state: (version, actions in their usual order, the same shuffled or None)
-        self._actions_cache: tuple[int, tuple[Command, ...], tuple[Command, ...] | None] | None = None
         self._handlers: dict[CommandType, Callable[[Any], tuple[CommandResult, Command]]] = {
             CommandType.MOVE: self._move,
             CommandType.ATTACK: self._attack,
@@ -233,7 +228,7 @@ class GameStateMachine:
         for number, command in enumerate(wrapper.commands, start=1):
             result: CommandResult
             logged: Command | None = None
-            if not self._turn_over(unit_id, events):
+            if not self.turn_over(unit_id, events):
                 result, logged = self._run(command)
             elif command.kind is CommandType.END_TURN:
                 result, logged = CommandResult(True), command  # the turn already ended: nothing left to end
@@ -245,12 +240,6 @@ class GameStateMachine:
             events += result.events
             done.append(logged)
         return CommandResult(True, tuple(events)), WrapperCommand(tuple(done))
-
-    def _turn_over(self, unit_id: int | None, events: list[ev.GameEvent] | tuple[ev.GameEvent, ...]) -> bool:
-        """Did ``unit_id``'s turn end in ``events`` (the events since its turn started), or is the game over?"""
-        return self._state.phase is Phase.GAME_OVER or any(
-            isinstance(e, ev.TurnEnded) and e.unit_id == unit_id for e in events
-        )
 
     @staticmethod
     def _wrapper_error(wrapper: WrapperCommand) -> str | None:
@@ -321,76 +310,33 @@ class GameStateMachine:
         return CommandResult(True, tuple(self._end_unit_turn())), cmd
 
     # ------------------------------------------------------------------ possible actions
-    def find_all_possible_actions(self, rng: random.Random | None = None) -> list[Command]:
-        """Every way the active unit can play its whole turn, one command per way (REQ_LOG_08_01).
+    # Read-only queries a ``FindActionStrategy`` (control layer) builds whole unit turns from.
+    @property
+    def version(self) -> int:
+        """One number per distinct state: a logged command gives a new one, ``rollback`` brings the old one back.
 
-        ``rng``: return the actions in random order (shuffled with it once per state and cached, so the same state
-        always gives the same order until it changes). A bot uses this to pick among equally good actions at random.
-        Without ``rng`` the order is the one described below.
-
-        Every command is valid now and, when submitted, ends the unit's turn (the next unit gets its turn).
-        A turn is: attacks (each may move first: ``AttackCommand`` with an explicit ``move_to``), then maybe one
-        ``MoveCommand``, then always ``EndTurnCommand`` (accepted also when the GSM already ended the turn by itself).
-        So every command is a ``WrapperCommand`` ending with ``EndTurnCommand``, except waiting: ``EndTurnCommand``
-        alone (listed first). Moves are never chained (one ``MoveCommand`` already takes the cheapest path).
-        Every distinct command sequence is listed, also those that end on the same board (e.g. two attacks in the
-        other order). Empty when no command is accepted (game over).
-
-        Read only (REQ_LOG_08_02): every attack is tried with ``submit`` and undone with ``rollback``, so the game is
-        the same afterwards and the list cannot differ from what ``submit`` accepts. Cached until the state changes.
+        Equal versions of one GSM = the same state, so a strategy can cache what it found for a state by it.
         """
-        if self._state.phase is not Phase.AWAITING_COMMAND or self._state.active_unit is None:
-            return []
-        if self._actions_cache is None or self._actions_cache[0] != self._version:
-            turns: list[Turn] = self._turns({})
-            actions: tuple[Command, ...] = tuple(turn[0] if turn == _WAIT else WrapperCommand(turn) for turn in turns)
-            self._actions_cache = (self._version, actions, None)
-        version, ordered, shuffled = self._actions_cache
-        if rng is None:
-            return list(ordered)
-        if shuffled is None:  # shuffled once per state; then the cached order is kept
-            shuffled = tuple(rng.sample(ordered, len(ordered)))
-            self._actions_cache = (version, ordered, shuffled)
-        return list(shuffled)
+        return self._version
 
-    def _turns(self, memo: dict[tuple[object, ...], list[Turn]]) -> list[Turn]:
-        """Every command sequence that finishes the active unit's turn from the current state (all end with end turn).
-
-        ``memo``: a situation reached twice (e.g. the same two attacks in the other order) is searched only once.
-        """
-        unit: UnitState = self._state.units[self._state.active_unit]
-        situation: tuple[object, ...] = self._situation(unit)
-        known: list[Turn] | None = memo.get(situation)
-        if known is not None:
-            return known
-        reach: dict[Position, PathInfo] = self._reachable(unit, unit.energy)
-        turns: list[Turn] = [_WAIT]
-        turns += [(MoveCommand(unit.id, move.path[-1]), EndTurnCommand()) for move in reach.values()]
-        for attack in self._attack_commands(unit, reach):
-            turns += [(attack, *rest) for rest in self._turns_after(attack, memo)]
-        memo[situation] = turns
-        return turns
-
-    def _turns_after(self, command: Command, memo: dict[tuple[object, ...], list[Turn]]) -> list[Turn]:
-        """Every way to finish the turn after ``command``: it is submitted, searched on, then rolled back."""
-        unit_id: int | None = self._state.active_unit
-        result: CommandResult = self.submit(command)
-        if not result.ok:  # cannot happen: commands are built with the checks submit uses
-            raise RuntimeError(f"Possible action {command!r} was rejected: {result.error}")
-        try:
-            return [_WAIT] if self._turn_over(unit_id, result.events) else self._turns(memo)
-        finally:
-            self.rollback()
-
-    def _situation(self, unit: UnitState) -> tuple[object, ...]:
-        """Everything the rest of the active unit's turn depends on (its own other units do not change)."""
-        enemies: tuple[tuple[object, ...], ...] = tuple(
-            (u.id, u.hp, u.defense, u.effects) for u in self._state.sorted_units() if u.owner != unit.owner
+    def turn_over(self, unit_id: int | None, events: Sequence[ev.GameEvent]) -> bool:
+        """Did ``unit_id``'s turn end in ``events`` (e.g. the events of a submitted command), or is the game over?"""
+        return self._state.phase is Phase.GAME_OVER or any(
+            isinstance(e, ev.TurnEnded) and e.unit_id == unit_id for e in events
         )
-        return unit.position, unit.energy, self._state.attacks_this_turn, enemies
 
-    def _attack_commands(self, unit: UnitState, reach: dict[Position, PathInfo]) -> list[AttackCommand]:
-        """Every attack the unit can make now: from where it stands, and after a move to each tile it can hit from."""
+    def attack_commands(self, unit_id: int, reach: dict[Position, PathInfo] | None = None) -> list[AttackCommand]:
+        """Every single attack the active unit can make now, one command each (empty for any other unit).
+
+        From where it stands (``AttackCommand`` without ``move_to``), and after a move to each tile it can hit the
+        target from (explicit ``move_to``). Targets in id order. Each one is accepted by ``submit`` now.
+        ``reach``: ``reachable_tiles(unit_id)``, if already computed.
+        """
+        unit: UnitState | None = self._own_unit(unit_id)
+        if unit is None:
+            return []
+        if reach is None:
+            reach = self._reachable(unit, unit.energy)
         budget: int = unit.energy - self._engine.attack_cost(unit.stats)  # energy left for a move first
         commands: list[AttackCommand] = []
         for target in self._state.sorted_units():
@@ -404,6 +350,22 @@ class GameStateMachine:
                 if move.cost <= budget and self._in_range_from(unit, origin, target)
             ]
         return commands
+
+    def turn_situation(self) -> tuple[object, ...] | None:
+        """Everything the rest of the active unit's turn depends on (None = no turn is running).
+
+        Two states of the same unit turn with the same situation allow the same commands for the rest of that turn
+        (e.g. after the same two attacks in the other order), so a search can do them once. Only compare situations
+        within one unit turn: the active player's other units are not in it (they cannot change during the turn).
+        """
+        s: GameState = self._state
+        if s.phase is not Phase.AWAITING_COMMAND or s.active_unit is None:
+            return None
+        unit: UnitState = s.units[s.active_unit]
+        enemies: tuple[tuple[object, ...], ...] = tuple(
+            (u.id, u.hp, u.defense, u.effects) for u in s.sorted_units() if u.owner != unit.owner
+        )
+        return unit.position, unit.energy, s.attacks_this_turn, enemies
 
     # ------------------------------------------------------------------ turn flow
     def _end_unit_turn(self) -> list[ev.GameEvent]:
