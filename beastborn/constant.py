@@ -116,8 +116,8 @@ SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of 
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 7  # unit turns the bot searches ahead (one ply = one whole unit turn)
-BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
+BOT_SEARCH_DEPTH: Final[int] = 4  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_WORKERS: Final[int | None] = 1  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
 MAX_BOTS: Final[int] = 1  # bots per game
 BOT_PLAYERS: Final[int] = 2  # a bot can play only in games with exactly this many players (2-player search)
