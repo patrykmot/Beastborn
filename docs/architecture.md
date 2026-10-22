@@ -145,7 +145,7 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   bot whose turn it is play one command, and the web client calls it through `bot-step`.
 - `BotPlayerController` (`bot.py`) is the real bot. Only one, and only in 2-player games (`MAX_BOTS`,
   `BOT_PLAYERS`; the web API checks it). It runs **alpha-beta** search over whole unit turns:
-  - one ply = one action of its `FindActionStrategy` (a whole unit turn); depth `BOT_SEARCH_DEPTH` = 5.
+  - one ply = one action of its `FindActionStrategy` (a whole unit turn); depth `BOT_SEARCH_DEPTH` = 4.
   - each action is tried with `submit` and always undone with `rollback` (in a `finally`), so the game is exactly the
     same afterwards; `choose_command` checks the command log and `view()` after every search and raises if not.
   - a node maximises when the bot's player is to move and minimises otherwise (turns do not strictly alternate:
@@ -169,6 +169,26 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     order: shuffled with `rng` once per state and cached, so the same state keeps the same order.
   - A strategy must leave the game exactly as it was, be picklable (module level; the cache is not pickled) and gives
     worker processes `for_worker(seed)` (a copy with its own repeatable randomness; a strategy without one returns itself).
+  - `AIFindActionStrategy` (`ai_find_action_strategy.py`, tinygrad + numpy) returns its base strategy's actions
+    (default `AllFindActionStrategy`) **best first** by the value of the board right after each action, for the player
+    who moves now: `value = score difference / AI_SCORE_SCALE + net(afterstate)`. The score part is exact; the network
+    (`AfterstateNet`, a small ResNet over 10 planes of 10x10: terrain, both sides' units with HP and energy, both
+    Bosses) only guesses how the score will change later. Its last layer starts at zero, so a new network gives the
+    exact score order. A won game is `+inf`, a lost one `-inf`. **10x10 boards only** (`AI_BOARD_SIZE`; other sizes
+    raise `ValueError`), 2-player games. Each action is tried with `submit` and undone with `rollback`; the ranking is
+    cached per state. Network calls are batched, padded to 16, 32, 64... and compiled with `TinyJit`.
+    - The bot finds the same value with any order of the same actions (alpha-beta); the order only changes how many
+      branches are cut. The bot still sorts attacks, then moves, then waiting; the AI order counts inside each group.
+    - `AIMode.WORKING` rates and sorts (`weights=` a `.safetensors` file, default `AI_WEIGHTS_FILE`; None = a new
+      network). `AIMode.LEARNING` also keeps a replay memory (`remember(state, reward, next_state, done)`) and trains
+      (`train_step()`: target = reward + `AI_GAMMA` * net(next afterstate), MSE, Adam); `save(path)` writes the weights.
+    - Training: `tools/train_ai_bot.py` (self-play against a random or a frozen AI opponent, logs to the console and a
+      file, continue with `--load`). A WORKING strategy can go to worker processes (they load the weights again).
+    - tinygrad (0.11.0) on CPU compiles with `clang` (on the PATH, or the `CC` environment variable). `LLVM=1` (its
+      LLVM device) failed with LLVM 15 on the Linux VM. Measured (step M5 of `Prompts/12_AIBoot_PLAN.md`, new network,
+      depth 4 and 6): the same values and the same number of moves as `RandomAllFindActionStrategy`, but 12-33 ms more
+      per search node (trying every action + the network), so a search takes 20-70x longer. The web bot keeps
+      `RandomAllFindActionStrategy`.
 - After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
   `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
   never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.

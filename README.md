@@ -18,7 +18,7 @@ python main.py                   # then open http://127.0.0.1:8000 and press Sta
 python main.py --port 9000 --reload   # other port, auto-restart on code changes
 ```
 
-Requires Python 3.10+ and Flask. Choose players (2–4), map size and an optional seed, then press **Start**.
+Requires Python 3.10+, Flask, numpy and tinygrad. Choose players (2–4), map size and an optional seed, then press **Start**.
 Every game gets its own id in the URL (`/?game=<id>`). Refreshing the page keeps the game, and several games can run at once.
 Games live in server memory. They are lost when the server stops and expire after 2 h without activity.
 Settings: `BEASTBORN_SESSION_TTL` (seconds, default 7200) and `BEASTBORN_MAX_GAMES` (default 500).
@@ -45,6 +45,21 @@ python -m beastborn.reports.report   # or run beastborn/reports/report.py in PyC
 - **Attack simulation:** one unit against another, step by step, with both units' stats, the next hit and an HP chart.
 
 The attacker stands still and hits while it has energy; the target does nothing. Fights run on the real game engine.
+
+## AI move ordering (training)
+
+`AIFindActionStrategy` sorts the bot's candidate moves with a small neural network (tinygrad), 10x10 maps only.
+Train it by playing games; progress and results go to the console and `train_ai_bot.log`:
+
+```bash
+python tools/train_ai_bot.py --games 200 --opponent random --seed 1          # a new network
+python tools/train_ai_bot.py --games 200 --opponent ai --load beastborn/data/ai_bot.safetensors --seed 201
+```
+
+The weights are saved to `beastborn/data/ai_bot.safetensors` every 10 games, at the end and on Ctrl+C; the last log
+line tells you how to continue (`--load ... --seed ...`). tinygrad (0.11.0, the newest for Python 3.10) runs its CPU device with
+`clang`: it must be on the PATH (Windows: install LLVM, which includes clang), or name it with the `CC` environment
+variable. The AI tests need it too; the rest of the game does not. Details: `docs/architecture.md`, Bots.
 
 ## Rules in short
 
@@ -77,13 +92,13 @@ beastborn/
   domain/    pure data: Position, Tile, Board, UnitStats/UnitState, effects, roster loader
   engine/    Calculation Engine (CE): interface + StandardCalculationEngine (numbers in constant.py)
   game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
-  control/   player controllers: human, and the alpha-beta bot (bot.py, bot_voice.py)
+  control/   player controllers: human, and the alpha-beta bot (bot.py, bot_voice.py), AI move ordering
   ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
     web/     Flask backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
-  data/      units.json
+  data/      units.json, bot_lines.json, ai_bot.safetensors (AI network weights)
   reports/   report.py - desktop balance report (tkinter)
 tests/       pytest suite (engine, GSM, map, UI, web API, balance report, architecture rules)
-tools/       fetch_assets.py - re-downloads vendor libraries and icons
+tools/       fetch_assets.py - re-downloads vendor libraries and icons; train_ai_bot.py - trains the AI network
 docs/        architecture.md
 main.py      entry point (local web server)
 gercio_eu_pythonanywhere_com_wsgi.py   PythonAnywhere WSGI entry point (production)

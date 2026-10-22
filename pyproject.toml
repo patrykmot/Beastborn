@@ -3,7 +3,7 @@ name = "beastborn"
 version = "0.1.0"
 description = "Turn-based beast tactics with zero combat RNG"
 requires-python = ">=3.10"
-dependencies = ["flask==3.0.3", "pydantic==2.13.5"]
+dependencies = ["flask==3.0.3", "pydantic==2.13.5", "numpy==2.2.6", "tinygrad==0.11.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

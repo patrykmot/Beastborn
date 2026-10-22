@@ -124,6 +124,22 @@ BOT_PLAYERS: Final[int] = 2  # a bot can play only in games with exactly this ma
 BOT_NAME_TEMPLATE: Final[str] = "Player {number} (Bot)"  # number = index + 1
 BOT_LINES_FILE: Final[Path] = PACKAGE_DIR / "data" / "bot_lines.json"  # what the bot says, by mood
 
+# ====================================================================== AI (control/ai_find_action_strategy.py)
+# A small tinygrad network rates the board after each possible action; the bot's strategy lists actions best first.
+AI_BOARD_SIZE: Final[int] = 10  # the network reads only AI_BOARD_SIZE x AI_BOARD_SIZE boards
+AI_CHANNELS: Final[int] = 10  # input planes: terrain (2), my units (3), enemy units (3), my Boss, enemy Boss
+AI_FILTERS: Final[int] = 32  # filters of every 3x3 convolution
+AI_BLOCKS: Final[int] = 3  # residual blocks
+AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
+AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
+AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value
+AI_EPSILON: Final[float] = 0.1  # training: chance of a random action instead of the best one
+AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
+AI_MEMORY_SIZE: Final[int] = 20_000  # replay memory (transitions)
+AI_BATCH_SIZE: Final[int] = 64  # transitions per training step
+AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
+AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"
+
 # ====================================================================== ui
 LOG_HISTORY: Final[int] = 200  # log lines kept by Interaction
 LOG_LINES: Final[int] = 50  # log lines sent to the browser
