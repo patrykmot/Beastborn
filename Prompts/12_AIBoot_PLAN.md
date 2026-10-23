@@ -16,6 +16,10 @@
 >   project). **On Windows: install LLVM (it includes clang) so `clang` is on the PATH**, then check M0 there.
 > - The training script's learner uses `RandomAllFindActionStrategy` as its base: with a fixed order, a new network
 >   (every move worth 0 later) always picks the first action, waiting, and never walks towards the enemy.
+> - **Fix 2026-10-23 (Windows, WinError 32 on the second save):** tinygrad's `safe_save` / `safe_load` memory-map
+>   the file and keep it open, and Windows cannot delete or replace an open file. Weights are now read and written
+>   with plain file I/O (`write_weights` / `read_weights`, same `.safetensors` format; written to `<file>.tmp`, then
+>   `os.replace`). New test: the file is not kept open after save and load.
 > - "tests force `DEV=CPU`" was dropped: tinygrad 0.11 has no `DEV` variable, and its default device is CPU.
 > - **M5** (VM, 2 cores, new network, the bot unchanged as decided in Q3, 10x10 positions):
 >

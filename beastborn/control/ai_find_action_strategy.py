@@ -19,20 +19,29 @@ Only 10x10 boards (``constant.AI_BOARD_SIZE``): any other size raises ``ValueErr
 Read only, like every strategy: each action is tried with ``submit`` and always undone with ``rollback``.
 
 tinygrad picks its device itself (its CPU device compiles with ``clang``: on the PATH, or named by ``CC``).
+
+tinygrad is not thread-safe (its compile cache is one SQLite connection, usable only by the thread that opened it), but
+the web server answers each request on its own thread. So every tinygrad call of this module runs on one thread of its
+own (``_on_tinygrad_thread``), whatever thread asks.
 """
 from __future__ import annotations
 
+import functools
+import json
+import os
 import random
+import threading
 import weakref
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, NamedTuple, ParamSpec, TypeVar
 
 import numpy as np
 from tinygrad import Tensor, TinyJit, nn
-from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict, safe_load, safe_save
+from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict
 
 from beastborn import constant as C
 from beastborn.control.find_action_strategy import AllFindActionStrategy, FindActionStrategy
@@ -77,6 +86,72 @@ def score_difference(gsm: GameStateMachine, me: int) -> int:
         raise ValueError(f"The AI strategy needs a {C.BOT_PLAYERS}-player game, got {len(players)} players")
     opponent: int = next(p for p in players if p != me)
     return gsm.score(me) - gsm.score(opponent)
+
+
+# ---------------------------------------------------------------------- one thread for tinygrad
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_tinygrad_pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tinygrad")
+_tinygrad_thread: threading.local = threading.local()  # .inside = True on the tinygrad thread
+
+
+def _on_tinygrad_thread(function: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Run ``function`` on the one tinygrad thread and wait for it (directly when already there)."""
+    def run(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        _tinygrad_thread.inside = True
+        return function(*args, **kwargs)
+
+    @functools.wraps(function)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        if getattr(_tinygrad_thread, "inside", False):
+            return function(*args, **kwargs)
+        return _tinygrad_pool.submit(run, *args, **kwargs).result()
+
+    return wrapper
+
+
+# ---------------------------------------------------------------------- weights files (.safetensors)
+# Read and written with plain file I/O, not tinygrad's safe_load / safe_save: those go through tinygrad's "disk"
+# device, which memory-maps the file and keeps it open, so on Windows the next save of the same file fails
+# (WinError 32, "the file is used by another process").
+_SAFETENSORS_F32: str = "F32"
+
+
+def write_weights(path: Path, tensors: dict[str, Tensor]) -> None:
+    """Save float32 tensors as a ``.safetensors`` file: written next to it first, then put in its place."""
+    arrays: dict[str, np.ndarray] = {name: t.numpy().astype("<f4") for name, t in tensors.items()}
+    header: dict[str, Any] = {}
+    offset: int = 0
+    for name, array in arrays.items():
+        header[name] = {"dtype": _SAFETENSORS_F32, "shape": list(array.shape),
+                        "data_offsets": [offset, offset + array.nbytes]}
+        offset += array.nbytes
+    text: bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    text += b" " * (-len(text) % 8)  # the format pads the header to 8 bytes
+    temporary: Path = path.with_name(path.name + ".tmp")
+    with open(temporary, "wb") as file:
+        file.write(len(text).to_bytes(8, "little"))
+        file.write(text)
+        for array in arrays.values():
+            file.write(array.tobytes())
+    os.replace(temporary, path)  # a save stopped half-way never leaves a broken weights file
+
+
+def read_weights(path: Path) -> dict[str, Tensor]:
+    """Load a ``.safetensors`` file of float32 tensors into memory (the file is closed afterwards)."""
+    data: bytes = path.read_bytes()
+    size: int = int.from_bytes(data[:8], "little")
+    header: dict[str, Any] = json.loads(data[8:8 + size])
+    body: memoryview = memoryview(data)[8 + size:]
+    tensors: dict[str, Tensor] = {}
+    for name, info in header.items():
+        if name == "__metadata__":
+            continue
+        if info["dtype"] != _SAFETENSORS_F32:
+            raise ValueError(f"{path}: {name} is {info['dtype']}, only {_SAFETENSORS_F32} weights are supported")
+        start, end = info["data_offsets"]
+        tensors[name] = Tensor(np.frombuffer(body[start:end], dtype="<f4").reshape(info["shape"]).copy())
+    return tensors
 
 
 # ---------------------------------------------------------------------- the network
@@ -212,6 +287,7 @@ class AIFindActionStrategy(FindActionStrategy):
 
     _state_to_tensor = state_to_tensor  # the name used in the request (12_AIBoot.md)
 
+    @_on_tinygrad_thread
     def predict(self, states: np.ndarray) -> np.ndarray:
         """The network's part of the value for each afterstate (no training). The batch is padded to 16, 32, 64...
         so only a few shapes are ever compiled."""
@@ -252,12 +328,13 @@ class AIFindActionStrategy(FindActionStrategy):
             if unit.stats.is_boss:
                 out[CH_MY_BOSS if mine else CH_ENEMY_BOSS, y, x] = 1.0
 
+    @_on_tinygrad_thread
     def _model(self) -> AfterstateNet:
         if self._net is None:
             Tensor.manual_seed(self.seed)
             net: AfterstateNet = AfterstateNet()
             if self.weights is not None:
-                load_state_dict(net, safe_load(str(self.weights)), verbose=False)
+                load_state_dict(net, read_weights(self.weights), verbose=False)
             self._net = net
         return self._net
 
@@ -268,6 +345,7 @@ class AIFindActionStrategy(FindActionStrategy):
         self.memory.append(Transition(state.astype(np.float16), float(reward), next_state.astype(np.float16),
                                       bool(done)))
 
+    @_on_tinygrad_thread
     def train_step(self, batch_size: int = C.AI_BATCH_SIZE) -> float | None:
         """One Adam step on a random batch from memory; the loss (MSE), or None while the memory is too small."""
         self._require_learning()
@@ -300,11 +378,12 @@ class AIFindActionStrategy(FindActionStrategy):
         following: np.ndarray = self.predict(np.stack([t.next_state for t in batch]).astype(np.float32))
         return (rewards + self.gamma * following * (1.0 - done)).astype(np.float32)
 
+    @_on_tinygrad_thread
     def save(self, path: Path | str) -> Path:
         """Write the network's weights (``.safetensors``); a later WORKING strategy can load them."""
         target: Path = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        safe_save(get_state_dict(self._model()), str(target))
+        write_weights(target, get_state_dict(self._model()))
         return target
 
     def _require_learning(self) -> None:

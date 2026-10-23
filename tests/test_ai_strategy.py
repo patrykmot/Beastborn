@@ -1,12 +1,16 @@
 """AIFindActionStrategy: the same actions as its base, best first by a tinygrad afterstate network; never changes the
 game. The order never changes the bot's search value. LEARNING mode: replay memory, training, save / load."""
+import os
 import pickle
 import random
+import threading
 from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
+from tinygrad.nn.state import safe_load
 
 from beastborn import constant as C
 from beastborn.control import AIFindActionStrategy, AIMode, AllFindActionStrategy, BotPlayerController, BotVoice, Mood
@@ -175,6 +179,43 @@ def test_save_load_and_pickle(tmp_path):
     assert copy.find_all_possible_actions(gsm) == worker.find_all_possible_actions(gsm)
     with pytest.raises(TypeError):
         pickle.dumps(learner)
+
+
+@pytest.mark.skipif(not Path("/proc/self/maps").exists(), reason="checks open files through Linux /proc")
+def test_weights_files_are_not_kept_open(tmp_path):
+    """Windows cannot replace a file that is still open or mapped (the error of --load X --out X, or a second save)."""
+    path = tmp_path / "net.safetensors"
+    learner = AIFindActionStrategy(AIMode.LEARNING, seed=3)
+    learner.save(path)
+    loaded = AIFindActionStrategy(weights=path)
+    loaded.predict(np.stack([planes(0)]))  # loads the file
+    learner.save(path)  # the same file again
+    open_files = {os.path.realpath(f"/proc/self/fd/{fd}") for fd in os.listdir("/proc/self/fd")}
+    maps = Path("/proc/self/maps").read_text()
+    assert str(path) not in open_files and str(path) not in maps
+    assert not path.with_name(path.name + ".tmp").exists()
+    # still a normal .safetensors file (tinygrad calls only on the tinygrad thread, as in the module)
+    names = ai._on_tinygrad_thread(lambda: (set(safe_load(str(path))), set(ai.get_state_dict(ai.AfterstateNet()))))()
+    assert names[0] == names[1]
+
+
+def test_works_from_any_thread():
+    """The web server asks from a new thread per request; tinygrad may only be used by one thread."""
+    strategy = AIFindActionStrategy()
+    batch = np.stack([planes(i) for i in range(70)])  # a batch size (128) no other test compiles
+    here = strategy.predict(batch[:5])
+    results, errors = [], []
+
+    def request():
+        try:
+            results.append(strategy.predict(batch))
+        except Exception as error:  # pragma: no cover - only when the fix is missing
+            errors.append(error)
+
+    thread = threading.Thread(target=request)
+    thread.start()
+    thread.join()
+    assert not errors and np.allclose(results[0][:5], here)
 
 
 # ---------------------------------------------------------------- training script (tools/train_ai_bot.py)

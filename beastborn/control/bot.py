@@ -38,6 +38,7 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
 from beastborn import constant as C
+from beastborn.control import AIFindActionStrategy
 from beastborn.control.bot_voice import BotVoice, Mood
 from beastborn.control.controller import PlayerController
 from beastborn.control.find_action_strategy import FindActionStrategy, RandomAllFindActionStrategy
@@ -143,7 +144,8 @@ class BotPlayerController(PlayerController):
         self._voice: BotVoice = voice or BotVoice(rng=self._rng)
         # default: shares the bot's rng (as before strategies existed), so the same seed still gives the same games
         self.find_action_strategy: FindActionStrategy = (
-            find_action_strategy or RandomAllFindActionStrategy(self._rng)
+            # find_action_strategy or RandomAllFindActionStrategy(self._rng)
+                find_action_strategy or AIFindActionStrategy(weights=C.AI_WEIGHTS_FILE)
         )
         self._spoke: bool = False  # has the bot said its START line yet
 
