@@ -194,21 +194,20 @@ class BotPlayerController(PlayerController):
         if len(actions) == 1:
             log.info("Bot P%d unit %s: only one possible action, no search", me + 1, gsm.active_unit)
             return actions[0], None
-        ordered: list[Command] = sorted(actions, key=_order_key)
-        workers: int = min(self.workers, len(ordered) - 1)  # the first action is searched here
+        workers: int = min(self.workers, len(actions) - 1)  # the first action is searched here
         best: Command
         best_value: int
         if workers > 1:
             try:
-                best, best_value = self._search_parallel(gsm, me, ordered, workers)
+                best, best_value = self._search_parallel(gsm, me, actions, workers)
             except _POOL_ERRORS as error:
                 log.warning("Bot: worker processes failed (%r); searching with one process", error)
                 _drop_pool(self.workers)
                 self.last_moves, workers = 0, 1
-                best, best_value = self._search_sequential(gsm, me, ordered)
+                best, best_value = self._search_sequential(gsm, me, actions)
         else:
             workers = 1
-            best, best_value = self._search_sequential(gsm, me, ordered)
+            best, best_value = self._search_sequential(gsm, me, actions)
         log.info(
             "Bot P%d unit %s: best value %d, %d moves calculated (%d possible now, depth %d, %d workers) in %.2f s",
             me + 1, gsm.active_unit, best_value, self.last_moves, len(actions), self.depth, workers,
@@ -265,7 +264,7 @@ class BotPlayerController(PlayerController):
             return self.evaluate(gsm, me)
         maximising: bool = gsm.active_player == me
         best: int = -C.BOT_WIN_SCORE * 2 if maximising else C.BOT_WIN_SCORE * 2
-        for action in sorted(self.find_action_strategy.find_all_possible_actions(gsm), key=_order_key):
+        for action in self.find_action_strategy.find_all_possible_actions(gsm):
             value: int = self._try(gsm, action, me, depth - 1, alpha, beta)
             if maximising:
                 best = max(best, value)
