@@ -80,7 +80,7 @@ def test_same_actions_and_the_game_untouched():
     for seed, turns in ((7, 0), (11, 6), (5, 15)):
         gsm = game_after(seed, turns)
         before = snapshot(gsm)
-        actions = AIFindActionStrategy().find_all_possible_actions(gsm)
+        actions = AIFindActionStrategy(max_returned_commands=None).find_all_possible_actions(gsm)
         assert snapshot(gsm) == before
         assert Counter(actions) == Counter(AllFindActionStrategy().find_all_possible_actions(gsm))
 
@@ -95,6 +95,17 @@ def test_new_network_gives_the_exact_score_order():
         gsm.submit(r.action)
         assert r.score == ai.score_difference(gsm, me)
         gsm.rollback()
+
+
+def test_only_the_best_commands_are_returned():
+    gsm = game_after(11, 10)
+    strategy = AIFindActionStrategy()
+    assert strategy.max_returned_commands == C.AI_MAX_RETURNED_COMMANDS == 3
+    ranked = [r.action for r in strategy.rank(gsm)]
+    assert len(ranked) > 3 and strategy.find_all_possible_actions(gsm) == ranked[:3]
+    assert AIFindActionStrategy(max_returned_commands=1).find_all_possible_actions(gsm) == ranked[:1]
+    with pytest.raises(ValueError, match="max_returned_commands"):
+        AIFindActionStrategy(max_returned_commands=0)
 
 
 def test_a_winning_hit_comes_first():
@@ -118,7 +129,8 @@ def test_the_bot_finds_the_same_value_with_the_ai_order():
     for seed, turns in ((7, 0), (11, 8), (5, 14)):
         gsm = game_after(seed, turns)
         plain = BotPlayerController(3, BotVoice(LINES), random.Random(0), 1, AllFindActionStrategy())
-        smart = BotPlayerController(3, BotVoice(LINES), random.Random(0), 1, AIFindActionStrategy())
+        smart = BotPlayerController(3, BotVoice(LINES), random.Random(0), 1,
+                                    AIFindActionStrategy(max_returned_commands=None))
         before = snapshot(gsm)
         plain.choose_command(gsm)
         command = smart.choose_command(gsm)

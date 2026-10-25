@@ -91,7 +91,7 @@ def train(
         started: float = time.perf_counter()
         try:
             for index in range(games):
-                _play(index, games, seed + index, learner, frozen, rng, max_turns, epsilon, summary)
+                _play(index, games, (index % 10) + 1, learner, frozen, rng, max_turns, epsilon, summary)
                 summary.next_seed = seed + index + 1
                 if summary.games % SUMMARY_EVERY == 0:
                     _log_summary(summary)

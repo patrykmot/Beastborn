@@ -135,8 +135,9 @@ AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this 
 AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value
 AI_EPSILON: Final[float] = 0.1  # training: chance of a random action instead of the best one
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 20_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 200_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 64  # transitions per training step
+AI_MAX_RETURNED_COMMANDS: Final[int | None] = 3  # find_all_possible_actions returns only the best N (None = all)
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"
 

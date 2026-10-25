@@ -8,7 +8,8 @@ the **value of the afterstate** (the board right after the action) for the playe
 ``evaluate`` is the exact score difference (my score minus my opponent's, as the bot's ``evaluate``); the network
 (``AfterstateNet``, a Mini-ResNet) only guesses how that score will change later. Its last layer starts at zero, so a
 new network predicts 0 and the order is the exact score order. A won game is ``+inf``, a lost one ``-inf``.
-The alpha-beta bot finds the same value with any order of the same actions; a better order only cuts more branches.
+``find_all_possible_actions`` returns only the best ``max_returned_commands`` actions (default
+``AI_MAX_RETURNED_COMMANDS`` = 3; None = all of them); ``rank`` always lists every action.
 
 Modes (``AIMode``): WORKING rates and sorts. LEARNING also keeps a replay memory (``remember``) and trains the network
 (``train_step``): target = reward + gamma * net(best next afterstate of the same player), MSE loss, Adam.
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
 import random
 import threading
@@ -56,6 +58,7 @@ CH_MY_UNITS, CH_MY_HP, CH_MY_ENERGY = 2, 3, 4
 CH_ENEMY_UNITS, CH_ENEMY_HP, CH_ENEMY_ENERGY = 5, 6, 7
 CH_MY_BOSS, CH_ENEMY_BOSS = 8, 9
 
+log: logging.Logger = logging.getLogger("find_action_strategy")
 
 class AIMode(str, Enum):
     WORKING = "WORKING"  # rate and sort the actions
@@ -194,6 +197,7 @@ class AIFindActionStrategy(FindActionStrategy):
 
     ``weights``: a ``.safetensors`` file to load (a missing file raises ``FileNotFoundError``); None = a new network
     (built from ``seed``, so it is the same every time). The network is built on first use.
+    ``max_returned_commands``: how many of the best actions ``find_all_possible_actions`` returns (None = all).
     The ranking is cached for the last state asked about (one GSM, one ``version``).
     A WORKING strategy can be sent to the bot's worker processes (they load ``weights`` again); a LEARNING one cannot.
     """
@@ -202,7 +206,11 @@ class AIFindActionStrategy(FindActionStrategy):
         self, mode: AIMode | str = AIMode.WORKING, weights: Path | str | None = None,
         base: FindActionStrategy | None = None, seed: int = 0, gamma: float = C.AI_GAMMA,
         learning_rate: float = C.AI_LEARNING_RATE, memory_size: int = C.AI_MEMORY_SIZE,
+        max_returned_commands: int | None = C.AI_MAX_RETURNED_COMMANDS,
     ) -> None:
+        if max_returned_commands is not None and max_returned_commands < 1:
+            raise ValueError(f"max_returned_commands must be at least 1 or None, got {max_returned_commands}")
+        self.max_returned_commands: int | None = max_returned_commands
         self.mode: AIMode = AIMode(mode)
         self.weights: Path | None = Path(weights) if weights is not None else None
         if self.weights is not None and not self.weights.is_file():
@@ -223,7 +231,8 @@ class AIFindActionStrategy(FindActionStrategy):
 
     # ------------------------------------------------------------------ FindActionStrategy
     def find_all_possible_actions(self, gsm: GameStateMachine) -> list[Command]:
-        return [r.action for r in self.rank(gsm)]
+        """The best actions first, at most ``max_returned_commands`` of them."""
+        return [r.action for r in self.rank(gsm)[:self.max_returned_commands]]
 
     def __getstate__(self) -> dict[str, Any]:
         """Settings and the weights path only; a worker process builds or loads the network again."""
@@ -269,6 +278,8 @@ class AIFindActionStrategy(FindActionStrategy):
             finally:
                 gsm.rollback()
         predicted: np.ndarray = self.predict(states)
+        formatted = [(s, round(float(p), 4)) for s, p in zip(scores, predicted)]
+        # log.info("rank -> (score, predicted) = " + str(formatted))
         values: list[float] = [
             e if e is not None else s / C.AI_SCORE_SCALE + float(p) for e, s, p in zip(exact, scores, predicted)
         ]
