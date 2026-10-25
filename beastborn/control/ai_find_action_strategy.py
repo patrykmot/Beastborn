@@ -90,6 +90,8 @@ def score_difference(gsm: GameStateMachine, me: int) -> int:
     opponent: int = next(p for p in players if p != me)
     return gsm.score(me) - gsm.score(opponent)
 
+def scale_score_for_ai(score):
+    return score / C.AI_SCORE_SCALE
 
 # ---------------------------------------------------------------------- one thread for tinygrad
 _P = ParamSpec("_P")
@@ -281,7 +283,7 @@ class AIFindActionStrategy(FindActionStrategy):
         formatted = [(s, round(float(p), 4)) for s, p in zip(scores, predicted)]
         # log.info("rank -> (score, predicted) = " + str(formatted))
         values: list[float] = [
-            e if e is not None else s / C.AI_SCORE_SCALE + float(p) for e, s, p in zip(exact, scores, predicted)
+            e if e is not None else scale_score_for_ai(s) + float(p) for e, s, p in zip(exact, scores, predicted) # WHy this is  scale_score_for_ai(s) + float(p) ?
         ]
         order: list[int] = sorted(range(len(actions)), key=lambda i: -values[i])  # stable: ties keep the base order
         ranked: tuple[Ranked, ...] = tuple(Ranked(actions[i], values[i], scores[i], states[i]) for i in order)

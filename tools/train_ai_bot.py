@@ -40,7 +40,7 @@ from beastborn import constant as C  # noqa: E402
 from beastborn.control import (  # noqa: E402
     AIFindActionStrategy, AIMode, AllFindActionStrategy, RandomAllFindActionStrategy,
 )
-from beastborn.control.ai_find_action_strategy import Ranked, score_difference  # noqa: E402
+from beastborn.control.ai_find_action_strategy import Ranked, score_difference, scale_score_for_ai  # noqa: E402
 from beastborn.game import Phase, new_game  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
 from beastborn.game.state_machine import GameStateMachine  # noqa: E402
@@ -91,7 +91,7 @@ def train(
         started: float = time.perf_counter()
         try:
             for index in range(games):
-                _play(index, games, (index % 10) + 1, learner, frozen, rng, max_turns, epsilon, summary)
+                _play(index, games, 1, learner, frozen, rng, max_turns, epsilon, summary)
                 summary.next_seed = seed + index + 1
                 if summary.games % SUMMARY_EVERY == 0:
                     _log_summary(summary)
@@ -130,14 +130,14 @@ def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
             continue
         ranked: list[Ranked] = learner.rank(gsm)
         if pending is not None:  # the best afterstate now is the "max" of the Bellman target
-            learner.remember(pending.afterstate, (ranked[0].score - pending.score) / C.AI_SCORE_SCALE,
+            learner.remember(pending.afterstate, scale_score_for_ai(ranked[0].score - pending.score),
                              ranked[0].afterstate, done=False)
         pending = ranked[0] if rng.random() >= epsilon else rng.choice(ranked)
         _submit(gsm, pending.action)
-        loss: float | None = learner.train_step()
-        if loss is not None:
-            losses.append(loss)
-            summary.steps += 1
+        summary.steps += 1
+    loss: float | None = learner.train_step()
+    if loss is not None:
+        losses.append(loss)
 
     winner: int | None = gsm.view().winner if gsm.phase is Phase.GAME_OVER else None
     result: str
@@ -156,7 +156,7 @@ def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
         summary.losses += 1
     final: int = score_difference(gsm, seat)
     if pending is not None:
-        learner.remember(pending.afterstate, (final - pending.score) / C.AI_SCORE_SCALE + bonus,
+        learner.remember(pending.afterstate, scale_score_for_ai(final - pending.score) + bonus,
                          np.zeros_like(pending.afterstate), done=True)
     summary.games += 1
     summary.results.append(result)

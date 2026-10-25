@@ -15,6 +15,7 @@ from tinygrad.nn.state import safe_load
 from beastborn import constant as C
 from beastborn.control import AIFindActionStrategy, AIMode, AllFindActionStrategy, BotPlayerController, BotVoice, Mood
 from beastborn.control import ai_find_action_strategy as ai
+from beastborn.control.ai_find_action_strategy import scale_score_for_ai
 from beastborn.domain import Board
 from beastborn.game import custom_game, new_game
 from beastborn.game.commands import AttackCommand, WrapperCommand
@@ -88,7 +89,7 @@ def test_same_actions_and_the_game_untouched():
 def test_new_network_gives_the_exact_score_order():
     gsm = game_after(11, 10)
     ranked = AIFindActionStrategy().rank(gsm)
-    assert all(r.value == r.score / C.AI_SCORE_SCALE for r in ranked if abs(r.value) != float("inf"))
+    assert all(r.value == scale_score_for_ai(r.score) for r in ranked if abs(r.value) != float("inf"))
     assert [r.value for r in ranked] == sorted((r.value for r in ranked), reverse=True)
     me = gsm.active_player
     for r in ranked[:3]:  # the score is the mover's score difference right after that action
