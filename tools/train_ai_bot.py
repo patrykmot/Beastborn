@@ -29,6 +29,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from random import Random
 
 if not __package__:  # run as a file: make the 'beastborn' package importable
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -41,7 +42,7 @@ from beastborn.control import (  # noqa: E402
     AIFindActionStrategy, AIMode, AllFindActionStrategy, RandomAllFindActionStrategy,
 )
 from beastborn.control.ai_find_action_strategy import Ranked, score_difference, scale_score_for_ai  # noqa: E402
-from beastborn.game import Phase, new_game  # noqa: E402
+from beastborn.game import Phase, new_game, Command, GameStateMachine  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
 from beastborn.game.state_machine import GameStateMachine  # noqa: E402
 
@@ -111,7 +112,7 @@ def train(
             handler.close()
 
 
-def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy, frozen: AIFindActionStrategy | None,
+def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy, opponent_strategy: AIFindActionStrategy | None,
           rng: random.Random, max_turns: int, epsilon: float, summary: Summary) -> None:
     """One game; the learner remembers its transitions and trains after each of its turns."""
     started: float = time.perf_counter()
@@ -124,8 +125,7 @@ def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
     while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
         turns += 1
         if gsm.active_player != seat:
-            action: Command = (frozen.rank(gsm)[0].action if frozen is not None
-                               else rng.choice(everything.find_all_possible_actions(gsm)))
+            action = get_opponent_move(everything, gsm, opponent_strategy, rng)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)
@@ -164,6 +164,15 @@ def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
     log.info("game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, loss %s, memory %d, %.1f s",
              index + 1, games, game_seed, seat + 1, result, turns, final, mean_loss, len(learner.memory),
              time.perf_counter() - started)
+
+
+def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
+                      opponent_strategy: AIFindActionStrategy | None, rng: Random) -> Command:
+    if opponent_strategy is not None:
+        # Return randomly two best possible actions:
+        return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
+    else:
+        return rng.choice(everything.find_all_possible_actions(gsm))
 
 
 def _submit(gsm: GameStateMachine, action: Command) -> None:

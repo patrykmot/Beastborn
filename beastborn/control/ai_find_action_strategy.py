@@ -382,7 +382,7 @@ class AIFindActionStrategy(FindActionStrategy):
         with Tensor.train():
             self._optimizer.zero_grad()
             loss: Tensor = ((net(states) - targets) ** 2).mean().backward()
-            return loss.realize(*self._optimizer.schedule_step())
+            return loss.realize(*self._optimizer.schedule_step()) #FIXME is this one step enough to train? Where is bigger loop?
 
     def targets(self, batch: list[Transition]) -> np.ndarray:
         """reward + gamma * net(next_state); just the reward when the game ended (``done``)."""

@@ -184,11 +184,6 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
       (`train_step()`: target = reward + `AI_GAMMA` * net(next afterstate), MSE, Adam); `save(path)` writes the weights.
     - Training: `tools/train_ai_bot.py` (self-play against a random or a frozen AI opponent, logs to the console and a
       file, continue with `--load`). A WORKING strategy can go to worker processes (they load the weights again).
-    - tinygrad (0.11.0) on CPU compiles with `clang` (on the PATH, or the `CC` environment variable). `LLVM=1` (its
-      LLVM device) failed with LLVM 15 on the Linux VM. Measured (step M5 of `Prompts/12_AIBoot_PLAN.md`, new network,
-      depth 4 and 6): the same values and the same number of moves as `RandomAllFindActionStrategy`, but 12-33 ms more
-      per search node (trying every action + the network), so a search takes 20-70x longer. The web bot keeps
-      `RandomAllFindActionStrategy`.
 - After each of its turns the bot says something (`last_message`): `BotVoice` (`bot_voice.py`) picks a line by
   `Mood` (`START` = its first turn, `ATTACK`, `DEFENSE` = moved or waited) from `beastborn/data/bot_lines.json`,
   never the same line twice in a row. More text = more lines in the JSON; a new kind of message = a new `Mood` + key.

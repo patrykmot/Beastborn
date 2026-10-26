@@ -167,8 +167,7 @@ class StandardCalculationEngine(CalculationEngine):
 
     # ---------- Score ----------
     def score(self, state: BoardState, player: int) -> int:
-        """Points for ``player``: HP the opponents' units have lost (Bosses count more) + height of own units.
-
+        """Points for ``player``: HP the opponents' units have lost (Bosses count more)
         A fallen opponent (killed, or its Boss died) counts with all of its HP missing, plus a bonus for the kill.
         """
         points: int = 0
