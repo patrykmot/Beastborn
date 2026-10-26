@@ -9,8 +9,8 @@ import pytest
 
 from beastborn import constant as C
 from beastborn.control import (
-    AllFindActionStrategy, BotPlayerController, BotVoice, FindActionStrategy, Mood, RandomAllFindActionStrategy,
-    load_bot_lines,
+    AIFindActionStrategy, AllFindActionStrategy, BotPlayerController, BotVoice, FindActionStrategy, Mood,
+    RandomAllFindActionStrategy, load_bot_lines,
 )
 from beastborn.control import bot as bot_module
 from beastborn.domain import Board
@@ -24,8 +24,19 @@ FLAT = Board.from_strings([".....", ".....", "....."])
 LINES = {Mood.START: ["start!"], Mood.ATTACK: ["attack!"], Mood.DEFENSE: ["defense!"]}
 
 
+class Bot(BotPlayerController):
+    """The bot with the random strategy: these tests check the search, not the AI (it reads only 10x10 boards).
+
+    Module level, so worker processes can load it.
+    """
+
+    def __init__(self, depth=C.BOT_SEARCH_DEPTH, voice=None, rng=None, workers=None, find_action_strategy=None):
+        rng = rng or random.Random()
+        super().__init__(depth, voice, rng, workers, find_action_strategy or RandomAllFindActionStrategy(rng))
+
+
 def bot(depth=C.BOT_SEARCH_DEPTH):
-    return BotPlayerController(depth, BotVoice(LINES, random.Random(0)))
+    return Bot(depth, BotVoice(LINES, random.Random(0)))
 
 
 def possible_actions(gsm):
@@ -66,7 +77,7 @@ def test_search_leaves_state_untouched():
 
 
 def test_state_untouched_after_error_in_search():
-    class Broken(BotPlayerController):
+    class Broken(Bot):
         calls = 0
 
         def evaluate(self, gsm, me):
@@ -142,7 +153,7 @@ def test_bot_prefers_attack_to_waiting():
 def test_equally_good_actions_are_picked_at_random():
     # The opening: nothing can be hit, so many moves are worth the same. The rng decides which one the bot plays.
     def opening(seed):
-        return BotPlayerController(2, BotVoice(LINES), random.Random(seed)).choose_command(new_game(2, seed=7))
+        return Bot(2, BotVoice(LINES), random.Random(seed)).choose_command(new_game(2, seed=7))
 
     assert opening(1) == opening(1)  # the same rng seed repeats the same game
     assert len({opening(seed) for seed in range(6)}) > 1
@@ -195,7 +206,7 @@ def test_bot_lines_file_has_every_mood(tmp_path):
 
 
 # ---------------------------------------------------------------- several processes
-class FailsInWorker(BotPlayerController):
+class FailsInWorker(Bot):
     """Module level, so worker processes can load it. Its evaluate fails only in a worker process."""
 
     def evaluate(self, gsm, me):
@@ -207,7 +218,7 @@ class FailsInWorker(BotPlayerController):
 def positions():
     """A few real positions: the opening, then turns into the game (played by a quick bot)."""
     gsm = new_game(2, seed=7)
-    quick = BotPlayerController(1, BotVoice(LINES), random.Random(0), workers=1)
+    quick = Bot(1, BotVoice(LINES), random.Random(0), workers=1)
     for turn in range(4):
         yield gsm
         gsm.submit(quick.choose_command(gsm))
@@ -216,9 +227,9 @@ def positions():
 def test_parallel_search_matches_one_process():
     for turn, gsm in enumerate(positions()):
         before = snapshot(gsm)
-        one = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=1)
-        two = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=2)
-        again = BotPlayerController(3, BotVoice(LINES), random.Random(turn), workers=2)
+        one = Bot(3, BotVoice(LINES), random.Random(turn), workers=1)
+        two = Bot(3, BotVoice(LINES), random.Random(turn), workers=2)
+        again = Bot(3, BotVoice(LINES), random.Random(turn), workers=2)
         chosen = one.choose_command(gsm)
         assert two.choose_command(gsm) == chosen == again.choose_command(gsm)  # same move, also run again
         assert two.last_value == one.last_value
@@ -240,8 +251,8 @@ def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
 
     monkeypatch.setattr(bot_module, "_pool", no_processes)
     gsm = new_game(2, seed=7)
-    alone = BotPlayerController(3, BotVoice(LINES), random.Random(1), workers=1)
-    fallback = BotPlayerController(3, BotVoice(LINES), random.Random(1), workers=2)
+    alone = Bot(3, BotVoice(LINES), random.Random(1), workers=1)
+    fallback = Bot(3, BotVoice(LINES), random.Random(1), workers=2)
     with caplog.at_level("WARNING", logger="beastborn.control.bot"):
         assert fallback.choose_command(gsm) == alone.choose_command(gsm)
     assert fallback.last_value == alone.last_value
@@ -271,17 +282,16 @@ def _starts_with_move(action):
     return isinstance(action, WrapperCommand) and action.commands[0].kind is CommandType.MOVE
 
 
-def test_default_strategy_is_random_all_with_the_bots_rng():
-    rng = random.Random(3)
-    player = BotPlayerController(2, BotVoice(LINES), rng)
-    assert isinstance(player.find_action_strategy, RandomAllFindActionStrategy)
-    assert player.find_action_strategy.rng is rng
+def test_default_strategy_is_the_ai():
+    player = BotPlayerController(2, BotVoice(LINES), random.Random(3))
+    assert isinstance(player.find_action_strategy, AIFindActionStrategy)
+    assert player.find_action_strategy.weights == C.AI_WEIGHTS_FILE
 
 
 def test_bot_uses_the_given_strategy():
     gsm = new_game(2, seed=7)
     strategy = Recording()
-    player = BotPlayerController(3, BotVoice(LINES), random.Random(0), find_action_strategy=strategy)
+    player = Bot(3, BotVoice(LINES), random.Random(0), find_action_strategy=strategy)
     assert player.choose_command(gsm) == EndTurnCommand()  # the only action it was given: no search
     assert strategy.asked == [gsm] and player.last_value is None
 
@@ -289,8 +299,8 @@ def test_bot_uses_the_given_strategy():
 def test_bot_searches_only_the_actions_of_its_strategy():
     for turn, gsm in enumerate(positions()):
         before = snapshot(gsm)
-        one = BotPlayerController(2, BotVoice(LINES), workers=1, find_action_strategy=NoMoves())
-        two = BotPlayerController(2, BotVoice(LINES), workers=2, find_action_strategy=NoMoves())
+        one = Bot(2, BotVoice(LINES), workers=1, find_action_strategy=NoMoves())
+        two = Bot(2, BotVoice(LINES), workers=2, find_action_strategy=NoMoves())
         chosen = one.choose_command(gsm)
         assert not _starts_with_move(chosen)
         assert two.choose_command(gsm) == chosen and two.last_value == one.last_value  # workers use it too

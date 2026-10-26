@@ -9,7 +9,7 @@ from beastborn import constant as C
 from beastborn.constant import STATIC_DIR, UNITS_PER_PLAYER
 from beastborn.domain import Board
 from beastborn.game import custom_game
-from beastborn.control import BotPlayerController
+from beastborn.control import BotPlayerController, RandomAllFindActionStrategy
 from beastborn.ui.web.app import create_app
 from beastborn.ui.web.sessions import SessionStore
 from tests.conftest import KING, SOLDIER
@@ -24,7 +24,10 @@ def store():
 
 @pytest.fixture
 def client(store):
-    return create_app(store, bot_factory=lambda rng: BotPlayerController(depth=1, rng=rng)).test_client()  # quick bot
+    def quick_bot(rng):  # depth 1 and the random strategy: the AI reads only 10x10 boards
+        return BotPlayerController(depth=1, rng=rng, find_action_strategy=RandomAllFindActionStrategy(rng))
+
+    return create_app(store, bot_factory=quick_bot).test_client()
 
 
 def new(client, **body):

@@ -96,10 +96,11 @@ def test_targets_after_a_move_carry_the_move_and_the_walk_is_animated():
 
 
 def test_bot_fields_and_speech_step():
-    from beastborn.control import BotPlayerController, BotVoice, Mood
+    from beastborn.control import BotPlayerController, BotVoice, Mood, RandomAllFindActionStrategy
 
     gsm = new_game(2, seed=3)
-    ui = Interaction(gsm, controllers={0: BotPlayerController(1, BotVoice({m: ["hi"] for m in Mood}))})
+    ui = Interaction(gsm, controllers={0: BotPlayerController(1, BotVoice({m: ["hi"] for m in Mood}),
+                                                         find_action_strategy=RandomAllFindActionStrategy())})
     state = render("g", ui)
     assert state["watching"] and [p["bot"] for p in state["players"]] == [True, False]
     assert ui.tick()

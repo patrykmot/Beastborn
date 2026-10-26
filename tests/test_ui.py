@@ -121,12 +121,12 @@ def test_plain_move_is_recorded_for_animation():
 
 
 def test_bot_turn_is_watched_and_the_bot_speaks():
-    from beastborn.control import BotPlayerController, BotVoice, Mood
+    from beastborn.control import BotPlayerController, BotVoice, Mood, RandomAllFindActionStrategy
     from beastborn.ui.interaction import BotSpeech
 
     gsm = custom_game(FLAT, [(0, KING, (0, 0)), (1, KING, (4, 2))])
     voice = BotVoice({mood: [f"{mood.value} line"] for mood in Mood})
-    ui = Interaction(gsm, controllers={1: BotPlayerController(2, voice)})
+    ui = Interaction(gsm, controllers={1: BotPlayerController(2, voice, find_action_strategy=RandomAllFindActionStrategy())})
     assert not ui.watching and ui.is_bot(1) and not ui.is_bot(0)
     assert ui.tick() is False  # a human's turn: the bot does nothing
     ui.handle(EndTurn())
