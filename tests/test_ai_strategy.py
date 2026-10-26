@@ -222,9 +222,9 @@ def test_training_script_plays_saves_and_logs(tmp_path):
     from tools.train_ai_bot import train
 
     out, log_file = tmp_path / "ai.safetensors", tmp_path / "train.log"
-    summary = train(games=2, max_turns=12, out=out, log_file=log_file, seed=5)
+    summary = train(games=2, max_turns=12, out=out, log_file=log_file, seed=5, epochs=1)
     assert summary.games == 2 and summary.next_seed == 7 and out.is_file()
     text = log_file.read_text(encoding="utf-8")
     assert "game 1/2 seed" in text and "game 2/2 seed" in text and "--load" in text  # the map seed is fixed now
-    again = train(games=1, opponent="ai", load=out, out=out, log_file=None, max_turns=6)  # continue from the file
+    again = train(games=1, opponent="ai", load=out, out=out, log_file=None, max_turns=6, epochs=1)  # continue
     assert again.games == 1

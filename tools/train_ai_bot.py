@@ -4,6 +4,12 @@ Run from the project root::
 
     python tools/train_ai_bot.py --games 200 --opponent random --seed 1
     python tools/train_ai_bot.py --games 200 --opponent ai --load beastborn/data/ai_bot.safetensors --seed 201
+    python tools/train_ai_bot.py --games 100 --epochs 20 --opponent ai --opponent-weights beastborn/data/ai_bot.opponent.safetensors
+
+Training runs in ``--epochs`` rounds (default 10) of ``--games`` games each, so ``--games 100 --epochs 20`` plays
+2000 games. After every epoch the learner's weights are written to the ``ai`` opponent's file (``--opponent-weights``,
+default ``<out>.opponent.safetensors`` next to ``--out``) and the opponent is loaded again from that file, so it
+gets smarter epoch by epoch. Each epoch ends with one summary line in the log.
 
 The learner (a LEARNING ``AIFindActionStrategy``) plays one side of 10x10 games: P1 in even games, P2 in odd ones,
 so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays its best afterstate, or a random
@@ -50,6 +56,17 @@ log: logging.Logger = logging.getLogger("train_ai_bot")
 
 OPPONENTS: tuple[str, ...] = ("random", "ai")
 SUMMARY_EVERY: int = 10  # games per summary line
+DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the ai opponent is refreshed after each one
+
+
+@dataclass(frozen=True)
+class GameResult:
+    """One game, as the learner saw it (for the epoch summary)."""
+
+    result: str  # win, loss, draw or stopped
+    turns: int
+    score: int  # the learner's final score difference
+    loss: float | None  # mean training loss of the game (None = no training step)
 
 
 @dataclass
@@ -69,11 +86,18 @@ class Summary:
 def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
-    log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON,
+    log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON, epochs: int = DEFAULT_EPOCHS,
 ) -> Summary:
-    """Play ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops."""
+    """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
+
+    After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
+    """
     if opponent not in OPPONENTS:
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
+    if epochs < 1:
+        raise ValueError("epochs must be at least 1")
+    opponent_file: Path = (Path(opponent_weights) if opponent_weights is not None
+                           else Path(out).with_name(Path(out).stem + ".opponent.safetensors"))
     handler: logging.Handler | None = _log_to_file(log_file)
     try:
         rng = random.Random(seed)
@@ -83,21 +107,31 @@ def train(
         if opponent == "ai":
             frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
                                           base=RandomAllFindActionStrategy(random.Random(rng.random())))
-        log.info("Training: %d games from seed %d vs %s%s, max %d unit turns, epsilon %.2f, save every %d to %s",
-                 games, seed, opponent,
+        log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, epsilon %.2f, "
+                 "save every %d to %s", epochs, games, seed, opponent,
                  f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns, epsilon,
                  save_every, out)
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
         try:
-            for index in range(games):
-                _play(index, games, 1, learner, frozen, rng, max_turns, epsilon, summary)
-                summary.next_seed = seed + index + 1
-                if summary.games % SUMMARY_EVERY == 0:
-                    _log_summary(summary)
-                if summary.games % save_every == 0:
-                    log.info("Saved %s", learner.save(out))
+            for epoch in range(epochs):
+                epoch_started: float = time.perf_counter()
+                played: list[GameResult] = []
+                for index in range(games):
+                    played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
+                                        summary))
+                    summary.next_seed = seed + summary.games
+                    if summary.games % SUMMARY_EVERY == 0:
+                        _log_summary(summary)
+                    if summary.games % save_every == 0:
+                        log.info("Saved %s", learner.save(out))
+                _log_epoch(epoch, epochs, played, len(learner.memory), time.perf_counter() - epoch_started)
+                if frozen is not None:  # a smarter opponent for the next epoch: the learner as it is now
+                    learner.save(opponent_file)
+                    frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
+                                                  base=RandomAllFindActionStrategy(random.Random(rng.random())))
+                    log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
         except KeyboardInterrupt:
             log.info("Stopped by Ctrl+C after %d games", summary.games)
         log.info("Saved %s", learner.save(out))
@@ -112,12 +146,13 @@ def train(
             handler.close()
 
 
-def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy, opponent_strategy: AIFindActionStrategy | None,
-          rng: random.Random, max_turns: int, epsilon: float, summary: Summary) -> None:
-    """One game; the learner remembers its transitions and trains after each of its turns."""
+def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
+          opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, epsilon: float,
+          summary: Summary) -> GameResult:
+    """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
     started: float = time.perf_counter()
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
-    seat: int = index % 2  # the learner: P1 in even games, P2 in odd ones
+    seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
     everything = AllFindActionStrategy()
     pending: Ranked | None = None  # the learner's last afterstate
     losses: list[float] = []
@@ -161,9 +196,10 @@ def _play(index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
     summary.games += 1
     summary.results.append(result)
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
-    log.info("game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, loss %s, memory %d, %.1f s",
-             index + 1, games, game_seed, seat + 1, result, turns, final, mean_loss, len(learner.memory),
-             time.perf_counter() - started)
+    log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, loss %s, memory %d, %.1f s",
+             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, mean_loss,
+             len(learner.memory), time.perf_counter() - started)
+    return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
 
 
 def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
@@ -187,6 +223,18 @@ def _log_summary(summary: Summary) -> None:
              summary.games, summary.wins)
 
 
+def _log_epoch(epoch: int, epochs: int, played: list[GameResult], memory: int, seconds: float) -> None:
+    """One line per epoch, like the game line: results, mean unit turns, mean score, mean loss."""
+    results: list[str] = [g.result for g in played]
+    losses: list[float] = [g.loss for g in played if g.loss is not None]
+    mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
+    log.info("epoch %d/%d: %d games, %d wins, %d losses, %d draws, %d stopped, %.1f unit turns, score %+.1f, "
+             "loss %s, memory %d, %.1f s",
+             epoch + 1, epochs, len(played), results.count("win"), results.count("loss"), results.count("draw"),
+             results.count("stopped"), np.mean([g.turns for g in played]) if played else 0.0,
+             np.mean([g.score for g in played]) if played else 0.0, mean_loss, memory, seconds)
+
+
 def _log_to_file(log_file: Path | None) -> logging.Handler | None:
     log.setLevel(logging.INFO)
     if log_file is None:
@@ -199,9 +247,12 @@ def _log_to_file(log_file: Path | None) -> logging.Handler | None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--games", type=int, default=100, help="games to play in this run")
+    parser.add_argument("--games", type=int, default=100, help="games per epoch")
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS,
+                        help="rounds of --games games; the ai opponent gets the learner's weights after each one")
     parser.add_argument("--opponent", choices=OPPONENTS, default="random")
-    parser.add_argument("--opponent-weights", type=Path, help="weights of the 'ai' opponent (default: --load)")
+    parser.add_argument("--opponent-weights", type=Path,
+                        help="weights of the 'ai' opponent (default: --load); overwritten after every epoch")
     parser.add_argument("--load", type=Path, help="weights to continue from (default: a new network)")
     parser.add_argument("--out", type=Path, default=C.AI_WEIGHTS_FILE, help="where the weights are saved")
     parser.add_argument("--seed", type=int, default=1, help="seed of the first game (game i uses seed + i)")
@@ -211,7 +262,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
     train(args.games, args.opponent, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
-          args.max_turns, args.log)
+          args.max_turns, args.log, epochs=args.epochs)
 
 
 if __name__ == "__main__":
