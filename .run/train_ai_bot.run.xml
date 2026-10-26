@@ -14,7 +14,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tools/train_ai_bot.py" />
-    <option name="PARAMETERS" value="--games 100 --load ../beastborn/data/ai_bot.safetensors --seed 8 --opponent ai --opponent-weights ../beastborn/data/ai_bot.opponent.safetensors --epochs 20" />
+    <option name="PARAMETERS" value="--games 100 --load ../beastborn/data/ai_bot.safetensors --seed 2 --opponent ai --opponent-weights ../beastborn/data/ai_bot.opponent.safetensors --epochs 20 --max-turns 120" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

@@ -19,8 +19,13 @@ the tie, and a new network (all moves worth 0) would never walk towards the enem
 random legal turn) or ``ai`` (a frozen WORKING copy loaded from ``--opponent-weights``, default the ``--load`` file;
 without a file: a new network = best score).
 
-After every learner turn it remembers (previous afterstate, score change / AI_SCORE_SCALE, best afterstate now) and
-does one training step. At the end of a game: (last afterstate, final score change +- AI_WIN_REWARD, done).
+After every learner turn it collects (previous afterstate, reward, best afterstate now); at the end of a game
+(last afterstate, final reward, done). reward = score change / AI_SCORE_SCALE - AI_STEP_COST (every turn costs a
+little: quicker is better) + AI_PROGRESS_REWARD x how much closer its unit nearest to the enemy Boss got (not in the
+last transition); the last one also gets +- AI_WIN_REWARD for a win / loss. A game stopped at ``--max-turns`` did
+not really end, so its last afterstate (it has no next one) is left out and there is no end reward: the turn cost
+already makes stalling worse than moving on. After each game the learner does one ``train_step`` per
+AI_TRANSITIONS_PER_TRAIN_STEP transitions it stored (batches of AI_BATCH_SIZE).
 
 The weights are saved every ``--save-every`` games, at the end, and on Ctrl+C. Continue a run with ``--load`` (only
 the weights are loaded; the replay memory and Adam start empty). Logs: console and ``--log`` (default
@@ -36,6 +41,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
+from typing import Tuple
 
 if not __package__:  # run as a file: make the 'beastborn' package importable
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -47,6 +53,7 @@ from beastborn import constant as C  # noqa: E402
 from beastborn.control import (  # noqa: E402
     AIFindActionStrategy, AIMode, AllFindActionStrategy, RandomAllFindActionStrategy,
 )
+from beastborn.control import ai_find_action_strategy as ai  # noqa: E402
 from beastborn.control.ai_find_action_strategy import Ranked, score_difference, scale_score_for_ai  # noqa: E402
 from beastborn.game import Phase, new_game, Command, GameStateMachine  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
@@ -151,11 +158,13 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
           summary: Summary) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
     started: float = time.perf_counter()
+    game_seed = 1
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
     seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
     everything = AllFindActionStrategy()
     pending: Ranked | None = None  # the learner's last afterstate
     losses: list[float] = []
+    results: list = []
     turns: int = 0
     while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
         turns += 1
@@ -165,23 +174,21 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
             continue
         ranked: list[Ranked] = learner.rank(gsm)
         if pending is not None:  # the best afterstate now is the "max" of the Bellman target
-            learner.remember(pending.afterstate, scale_score_for_ai(ranked[0].score - pending.score),
-                             ranked[0].afterstate, done=False)
+            reward: float = (scale_score_for_ai(ranked[0].score - pending.score) - C.AI_STEP_COST
+                             + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate))
+            results.append((pending.afterstate, reward, ranked[0].afterstate, False))
         pending = ranked[0] if rng.random() >= epsilon else rng.choice(ranked)
         _submit(gsm, pending.action)
-        summary.steps += 1
-    loss: float | None = learner.train_step()
-    if loss is not None:
-        losses.append(loss)
 
     winner: int | None = gsm.view().winner if gsm.phase is Phase.GAME_OVER else None
     result: str
     bonus: float
-    if gsm.phase is not Phase.GAME_OVER:
-        result, bonus = "stopped", 0.0
+    game_was_stopped = gsm.phase is not Phase.GAME_OVER
+    if game_was_stopped:
+        result, bonus = "stopped", 0.0  # no end reward: the game did not end (the turn cost pushes the bot on)
         summary.stopped += 1
     elif winner is None:
-        result, bonus = "draw", 0.0
+        result, bonus = "draw", 0
         summary.draws += 1
     elif winner == seat:
         result, bonus = "win", C.AI_WIN_REWARD
@@ -190,16 +197,49 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         result, bonus = "loss", -C.AI_WIN_REWARD
         summary.losses += 1
     final: int = score_difference(gsm, seat)
-    if pending is not None:
-        learner.remember(pending.afterstate, scale_score_for_ai(final - pending.score) + bonus,
-                         np.zeros_like(pending.afterstate), done=True)
+    score_for_network = 0
+    if pending is not None and not game_was_stopped:  # a stopped game's last afterstate has no next one: left out
+        score_for_network = scale_score_for_ai(final - pending.score) + bonus - C.AI_STEP_COST
+        results.append((pending.afterstate, score_for_network,
+                        np.zeros_like(pending.afterstate), True))
+
+    for r in results:  # every turn cost and every step towards the enemy Boss is worth learning
+        learner.remember(*r)
+    for _ in range(-(-len(results) // C.AI_TRANSITIONS_PER_TRAIN_STEP)):  # ceil: more data, more steps
+        loss: float | None = learner.train_step()
+        if loss is None:
+            break
+        losses.append(loss)
+        summary.steps += 1
+
     summary.games += 1
     summary.results.append(result)
+
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
-    log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, loss %s, memory %d, %.1f s",
-             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, mean_loss,
-             len(learner.memory), time.perf_counter() - started)
+    log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
+             "loss %s (%d steps), memory %d, %.1f s",
+             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
+             mean_loss, len(losses), len(learner.memory), time.perf_counter() - started)
     return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
+
+
+def _boss_distance(planes: np.ndarray) -> float | None:
+    """Distance (Manhattan, / width + height) from my unit nearest to the enemy Boss, in the learner's planes.
+
+    My own Boss does not count (it should not lead the attack). None when there is no such unit or no enemy Boss.
+    """
+    mine: np.ndarray = np.argwhere((planes[ai.CH_MY_UNITS] > 0) & (planes[ai.CH_MY_BOSS] == 0))
+    boss: np.ndarray = np.argwhere(planes[ai.CH_ENEMY_BOSS] > 0)
+    if len(mine) == 0 or len(boss) == 0:
+        return None
+    return float(np.abs(mine - boss[0]).sum(axis=1).min()) / (planes.shape[1] + planes.shape[2])
+
+
+def _progress(before: np.ndarray, after: np.ndarray) -> float:
+    """How much closer (0..1) my nearest unit got to the enemy Boss from one afterstate to the next (< 0 = away)."""
+    start: float | None = _boss_distance(before)
+    end: float | None = _boss_distance(after)
+    return 0.0 if start is None or end is None else start - end
 
 
 def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,

@@ -130,14 +130,17 @@ AI_BOARD_SIZE: Final[int] = 10  # the network reads only AI_BOARD_SIZE x AI_BOAR
 AI_CHANNELS: Final[int] = 10  # input planes: terrain (2), my units (3), enemy units (3), my Boss, enemy Boss
 AI_FILTERS: Final[int] = 32  # filters of every 3x3 convolution
 AI_BLOCKS: Final[int] = 3  # residual blocks
-AI_SCORE_SCALE: Final[int] = 2  # value of an afterstate = score difference / AI_SCORE_SCALE + network
+AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
-AI_GAMMA: Final[float] = 0.6  # discount of the next afterstate's value
+AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value (low = only rewards a few turns away count)
 AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
 AI_MEMORY_SIZE: Final[int] = 200_000  # replay memory (transitions)
-AI_BATCH_SIZE: Final[int] = 1024  # transitions per training step
-AI_MAX_RETURNED_COMMANDS: Final[int | None] = 2  # find_all_possible_actions returns only the best N (None = all)
+AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
+AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
+AI_STEP_COST: Final[float] = 0.01  # training: reward taken off every learner turn (= 1 HP of score): be quick
+AI_PROGRESS_REWARD: Final[float] = 0.2  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
+AI_MAX_RETURNED_COMMANDS: Final[int | None] = 1  # find_all_possible_actions returns only the best N (None = all)
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"
 
