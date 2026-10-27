@@ -138,7 +138,7 @@ AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this 
 AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value (low = only rewards a few turns away count)
 AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 200_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 500_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.02  # training: reward taken off every learner turn (= 1 HP of score): be quick
