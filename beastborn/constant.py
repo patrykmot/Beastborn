@@ -143,6 +143,8 @@ AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.02  # training: reward taken off every learner turn (= 1 HP of score): be quick
 AI_PROGRESS_REWARD: Final[float] = 0.2  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
+AI_WARMUP_MEMORY: Final[int] = 20_000  # training with --load: no train_step until the memory holds this many transitions
+AI_SNAPSHOT_EVERY_EPOCHS: Final[int] = 25  # training: a copy of the weights in data/snapshots every N epochs (0 = never)
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"

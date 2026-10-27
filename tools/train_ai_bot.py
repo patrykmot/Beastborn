@@ -7,9 +7,22 @@ Run from the project root::
     python tools/train_ai_bot.py --games 100 --epochs 20 --opponent ai --opponent-weights beastborn/data/ai_bot.opponent.safetensors
 
 Training runs in ``--epochs`` rounds (default 10) of ``--games`` games each, so ``--games 100 --epochs 20`` plays
-2000 games. After every epoch the learner's weights are written to the ``ai`` opponent's file (``--opponent-weights``,
-default ``<out>.opponent.safetensors`` next to ``--out``) and the opponent is loaded again from that file, so it
-gets smarter epoch by epoch. Each epoch ends with one summary line in the log.
+2000 games. Every game is on a new map: game i of a run uses map seed ``--seed`` + i, and the last log line says
+which ``--seed`` continues with new maps.
+
+Opponent pool (``--opponent ai``): each game is against one of, picked at random: the latest AI copy (file
+``--opponent-weights``, default ``<out>.opponent.safetensors`` next to ``--out``), the copy before it
+(``<that file>.previous.safetensors``, once there is one) and a random player. After every epoch the latest copy
+becomes the previous one and the learner as it is now becomes the latest (both saved and loaded again), so the
+opponents get smarter epoch by epoch while the older one and the random player keep the learner from forgetting how
+to beat other styles. Each epoch ends with a summary line and a line per opponent.
+
+Every ``--snapshot-every`` epochs (default AI_SNAPSHOT_EVERY_EPOCHS) a copy of the learner's weights goes to
+``data/snapshots/<out name>.<run start>.epochNNN.safetensors``: compare them with ``tools/eval_ai_bot.py``.
+
+Continuing with ``--load``: the replay memory starts empty, so there is no training until it holds ``--warmup``
+transitions (default AI_WARMUP_MEMORY): training hard on the first few games would make the network forget what it
+knew. A new network trains from the first full batch.
 
 The learner (a LEARNING ``AIFindActionStrategy``) plays one side of 10x10 games: P1 in even games, P2 in odd ones,
 so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays its best afterstate, or a random
@@ -74,6 +87,15 @@ class GameResult:
     turns: int
     score: int  # the learner's final score difference
     loss: float | None  # mean training loss of the game (None = no training step)
+    opponent: str = "random"  # which one of the opponent pool it played
+
+
+@dataclass(frozen=True)
+class Opponent:
+    """One member of the opponent pool: a name for the log and its strategy (None = random legal turns)."""
+
+    name: str
+    strategy: AIFindActionStrategy | None
 
 
 @dataclass
@@ -94,10 +116,13 @@ def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
     log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON, epochs: int = DEFAULT_EPOCHS,
+    warmup: int | None = None, snapshot_every: int = C.AI_SNAPSHOT_EVERY_EPOCHS,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
-    After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
+    After every epoch the ``ai`` opponent pool moves on: the latest copy becomes the previous one, the learner the
+    latest (saved and loaded again). ``warmup``: transitions in memory before the first training step (None =
+    AI_WARMUP_MEMORY with ``load``, else none). ``snapshot_every``: a copy of the weights every N epochs (0 = never).
     """
     if opponent not in OPPONENTS:
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
@@ -105,20 +130,28 @@ def train(
         raise ValueError("epochs must be at least 1")
     opponent_file: Path = (Path(opponent_weights) if opponent_weights is not None
                            else Path(out).with_name(Path(out).stem + ".opponent.safetensors"))
+    previous_file: Path = opponent_file.with_name(opponent_file.stem + ".previous.safetensors")
+    snapshots: Path = Path(out).parent / "snapshots"
+    run_name: str = time.strftime("%Y%m%d-%H%M")
+    train_from: int = (C.AI_WARMUP_MEMORY if load is not None else 0) if warmup is None else warmup
     handler: logging.Handler | None = _log_to_file(log_file)
     try:
         rng = random.Random(seed)
         learner = AIFindActionStrategy(AIMode.LEARNING, weights=load, seed=seed,
                                        base=RandomAllFindActionStrategy(random.Random(rng.random())))
-        frozen: AIFindActionStrategy | None = None
+        latest: AIFindActionStrategy | None = None  # the newest AI opponent (None = only the random player)
+        pool: list[Opponent] = [Opponent("random", None)]
         if opponent == "ai":
-            frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
-                                          base=RandomAllFindActionStrategy(random.Random(rng.random())))
-        log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, epsilon %.2f, "
-                 "save every %d to %s", epochs, games, seed, opponent,
-                 f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns, epsilon,
-                 save_every, out)
+            latest_weights: Path | None = opponent_weights or load
+            latest = _ai_opponent(latest_weights, seed, rng)
+            pool = _pool(latest, previous_file, seed, rng)
+        log.info("Training: %d epochs x %d games from seed %d vs %s, max %d unit turns, epsilon %.2f, "
+                 "save every %d to %s", epochs, games, seed,
+                 ", ".join(f"{o.name} ({o.strategy.weights or 'new network'})" if o.strategy else o.name
+                           for o in pool), max_turns, epsilon, save_every, out)
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
+        if train_from > C.AI_BATCH_SIZE:
+            log.info("Warm-up: no training until the memory holds %d transitions", train_from)
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
         try:
@@ -126,19 +159,27 @@ def train(
                 epoch_started: float = time.perf_counter()
                 played: list[GameResult] = []
                 for index in range(games):
-                    played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
-                                        summary))
+                    warming: bool = len(learner.memory) < train_from
+                    played.append(_play(epoch, epochs, index, games, seed + summary.games, learner, rng.choice(pool),
+                                        rng, max_turns, epsilon, summary, train=not warming))
+                    if warming and len(learner.memory) >= train_from:
+                        log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
                     if summary.games % SUMMARY_EVERY == 0:
                         _log_summary(summary)
                     if summary.games % save_every == 0:
                         log.info("Saved %s", learner.save(out))
                 _log_epoch(epoch, epochs, played, len(learner.memory), time.perf_counter() - epoch_started)
-                if frozen is not None:  # a smarter opponent for the next epoch: the learner as it is now
+                if latest is not None:  # smarter opponents: the latest becomes the previous, the learner the latest
+                    latest.save(previous_file)  # first, while the latest's own file is still unchanged
                     learner.save(opponent_file)
-                    frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
-                                                  base=RandomAllFindActionStrategy(random.Random(rng.random())))
-                    log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
+                    latest = _ai_opponent(opponent_file, seed, rng)
+                    pool = _pool(latest, previous_file, seed, rng)
+                    log.info("epoch %d/%d: opponents updated: latest %s, previous %s", epoch + 1, epochs,
+                             opponent_file, previous_file)
+                if snapshot_every > 0 and (epoch + 1) % snapshot_every == 0:
+                    copy: Path = snapshots / f"{Path(out).stem}.{run_name}.epoch{epoch + 1:03d}.safetensors"
+                    log.info("epoch %d/%d: snapshot %s", epoch + 1, epochs, learner.save(copy))
         except KeyboardInterrupt:
             log.info("Stopped by Ctrl+C after %d games", summary.games)
         log.info("Saved %s", learner.save(out))
@@ -154,9 +195,12 @@ def train(
 
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
-          opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, epsilon: float,
-          summary: Summary) -> GameResult:
-    """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
+          opponent: Opponent, rng: random.Random, max_turns: int, epsilon: float, summary: Summary,
+          train: bool = True) -> GameResult:
+    """Game ``index`` of epoch ``epoch`` (both from 0) on map ``game_seed`` against ``opponent``.
+
+    The learner remembers its transitions and, if ``train`` (not during the warm-up), trains after it.
+    """
     started: float = time.perf_counter()
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
     seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
@@ -168,7 +212,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
     while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
         turns += 1
         if gsm.active_player != seat:
-            action = get_opponent_move(everything, gsm, opponent_strategy, rng)
+            action = get_opponent_move(everything, gsm, opponent.strategy, rng)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)
@@ -204,7 +248,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
     for r in results:  # every turn cost and every step towards the enemy Boss is worth learning
         learner.remember(*r)
-    for _ in range(-(-len(results) // C.AI_TRANSITIONS_PER_TRAIN_STEP)):  # ceil: more data, more steps
+    for _ in range(-(-len(results) // C.AI_TRANSITIONS_PER_TRAIN_STEP) if train else 0):  # ceil: more data, more steps
         loss: float | None = learner.train_step()
         if loss is None:
             break
@@ -215,11 +259,26 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
     summary.results.append(result)
 
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
-    log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
+    log.info("epoch %d/%d game %d/%d seed %d as P%d vs %s: %s after %d unit turns, score %+d, score for net %+.2f, "
              "loss %s (%d steps), memory %d, %.1f s",
-             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
-             mean_loss, len(losses), len(learner.memory), time.perf_counter() - started)
-    return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
+             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, opponent.name, result, turns, final,
+             score_for_network, mean_loss, len(losses), len(learner.memory), time.perf_counter() - started)
+    return GameResult(result, turns, final, float(np.mean(losses)) if losses else None, opponent.name)
+
+
+def _ai_opponent(weights: Path | None, seed: int, rng: random.Random) -> AIFindActionStrategy:
+    """A frozen (WORKING) AI opponent from a weights file (None = a new network)."""
+    return AIFindActionStrategy(AIMode.WORKING, weights=weights, seed=seed,
+                                base=RandomAllFindActionStrategy(random.Random(rng.random())))
+
+
+def _pool(latest: AIFindActionStrategy, previous_file: Path, seed: int, rng: random.Random) -> list[Opponent]:
+    """The opponent pool: the latest AI copy, the one before it (once its file exists) and a random player."""
+    pool: list[Opponent] = [Opponent("latest", latest)]
+    if previous_file.is_file():
+        pool.append(Opponent("previous", _ai_opponent(previous_file, seed, rng)))
+    pool.append(Opponent("random", None))
+    return pool
 
 
 def _boss_distance(planes: np.ndarray) -> float | None:
@@ -272,6 +331,13 @@ def _log_epoch(epoch: int, epochs: int, played: list[GameResult], memory: int, s
              epoch + 1, epochs, len(played), results.count("win"), results.count("loss"), results.count("draw"),
              results.count("stopped"), np.mean([g.turns for g in played]) if played else 0.0,
              np.mean([g.score for g in played]) if played else 0.0, mean_loss, memory, seconds)
+    names: list[str] = list(dict.fromkeys(g.opponent for g in played))  # in the order they first played
+    if len(names) > 1:
+        log.info("epoch %d/%d by opponent: %s", epoch + 1, epochs, "; ".join(
+            f"{name} {len(mine)} games, {r.count('win')} wins, {r.count('loss')} losses, {r.count('stopped')} stopped"
+            for name in names
+            for mine in [[g for g in played if g.opponent == name]]
+            for r in [[g.result for g in mine]]))
 
 
 def _log_to_file(log_file: Path | None) -> logging.Handler | None:
@@ -291,17 +357,21 @@ def main(argv: list[str] | None = None) -> None:
                         help="rounds of --games games; the ai opponent gets the learner's weights after each one")
     parser.add_argument("--opponent", choices=OPPONENTS, default="random")
     parser.add_argument("--opponent-weights", type=Path,
-                        help="weights of the 'ai' opponent (default: --load); overwritten after every epoch")
+                        help="weights of the latest 'ai' opponent (default: --load); overwritten after every epoch")
     parser.add_argument("--load", type=Path, help="weights to continue from (default: a new network)")
     parser.add_argument("--out", type=Path, default=C.AI_WEIGHTS_FILE, help="where the weights are saved")
     parser.add_argument("--seed", type=int, default=1, help="seed of the first game (game i uses seed + i)")
     parser.add_argument("--save-every", type=int, default=10, help="save the weights every N games")
     parser.add_argument("--max-turns", type=int, default=300, help="unit turns before a game is stopped")
     parser.add_argument("--log", type=Path, default=Path("train_ai_bot.log"), help="log file")
+    parser.add_argument("--warmup", type=int, help="transitions in memory before training starts "
+                        f"(default: {C.AI_WARMUP_MEMORY} with --load, else none)")
+    parser.add_argument("--snapshot-every", type=int, default=C.AI_SNAPSHOT_EVERY_EPOCHS,
+                        help="copy of the weights in data/snapshots every N epochs (0 = never)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
     train(args.games, args.opponent, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
-          args.max_turns, args.log, epochs=args.epochs)
+          args.max_turns, args.log, epochs=args.epochs, warmup=args.warmup, snapshot_every=args.snapshot_every)
 
 
 if __name__ == "__main__":

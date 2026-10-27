@@ -35,8 +35,13 @@ class Bot(BotPlayerController):
         super().__init__(depth, voice, rng, workers, find_action_strategy or RandomAllFindActionStrategy(rng))
 
 
-def bot(depth=C.BOT_SEARCH_DEPTH):
-    return Bot(depth, BotVoice(LINES, random.Random(0)))
+# These tests check the search, not how deep the real bot looks: BOT_SEARCH_DEPTH is a tuning number, and every level
+# costs ~10x more (depth 8 can take many minutes). A seeded rng keeps the action order, and so the time, the same.
+DEPTH = 3
+
+
+def bot(depth=DEPTH):
+    return Bot(depth, BotVoice(LINES, random.Random(0)), random.Random(0))
 
 
 def possible_actions(gsm):
@@ -131,7 +136,7 @@ def test_alphabeta_equals_minimax(depth):
         assert seen_twice, "the scenario must contain a player moving twice in a row"
 
 
-@pytest.mark.parametrize("depth", [1, C.BOT_SEARCH_DEPTH])
+@pytest.mark.parametrize("depth", [1, DEPTH + 1])
 def test_bot_takes_the_winning_hit(depth):
     gsm = winning_hit_game()
     command = bot(depth).choose_command(gsm)
