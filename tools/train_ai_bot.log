@@ -47530,3 +47530,35 @@
 2026-10-27 20:29:02,662 INFO train_ai_bot: Saved D:\Project\Beastborn\beastborn\data\ai_bot.safetensors
 2026-10-27 20:29:02,662 INFO train_ai_bot: Done: 4965 games (1682 wins, 919 losses, 0 draws, 2364 stopped), 66040 training steps, 6212 s
 2026-10-27 20:29:02,662 INFO train_ai_bot: continue with: --load D:\Project\Beastborn\beastborn\data\ai_bot.safetensors --seed 4977
+2026-10-27 20:48:04,088 INFO train_ai_bot: Training: 100 epochs x 100 games from seed 12 vs ai (..\beastborn\data\ai_bot.opponent.safetensors), max 120 unit turns, epsilon 0.05, save every 10 to D:\Project\Beastborn\beastborn\data\ai_bot.safetensors
+2026-10-27 20:48:04,230 INFO train_ai_bot: Learner weights: ..\beastborn\data\ai_bot.safetensors; device: GPU
+2026-10-27 20:48:06,981 INFO train_ai_bot: epoch 1/100 game 1/100 seed 0 as P1: loss after 83 unit turns, score -437, score for net -6.08, loss - (0 steps), memory 35, 2.8 s
+2026-10-27 20:48:07,624 INFO train_ai_bot: epoch 1/100 game 2/100 seed 1 as P2: stopped after 120 unit turns, score +320, score for net +0.00, loss - (0 steps), memory 95, 0.6 s
+2026-10-27 20:48:09,687 INFO train_ai_bot: epoch 1/100 game 3/100 seed 2 as P1: loss after 81 unit turns, score -363, score for net -6.29, loss 0.3374 (10 steps), memory 133, 2.1 s
+2026-10-27 20:48:11,095 INFO train_ai_bot: epoch 1/100 game 4/100 seed 3 as P2: stopped after 120 unit turns, score +197, score for net +0.00, loss 0.1433 (15 steps), memory 191, 1.4 s
+2026-10-27 20:48:11,992 INFO train_ai_bot: epoch 1/100 game 5/100 seed 4 as P1: stopped after 120 unit turns, score +50, score for net +0.00, loss 0.0953 (16 steps), memory 252, 0.9 s
+2026-10-27 20:48:12,934 INFO train_ai_bot: epoch 1/100 game 6/100 seed 5 as P2: stopped after 120 unit turns, score +69, score for net +0.00, loss 0.0606 (15 steps), memory 309, 0.9 s
+2026-10-27 20:48:13,760 INFO train_ai_bot: epoch 1/100 game 7/100 seed 6 as P1: win after 105 unit turns, score +161, score for net +4.98, loss 0.0766 (14 steps), memory 365, 0.8 s
+2026-10-27 20:48:14,735 INFO train_ai_bot: epoch 1/100 game 8/100 seed 7 as P2: stopped after 120 unit turns, score +119, score for net +0.00, loss 0.0648 (17 steps), memory 432, 1.0 s
+2026-10-27 20:48:15,449 INFO train_ai_bot: epoch 1/100 game 9/100 seed 8 as P1: loss after 72 unit turns, score -373, score for net -5.45, loss 0.1058 (9 steps), memory 467, 0.7 s
+2026-10-27 20:48:16,386 INFO train_ai_bot: epoch 1/100 game 10/100 seed 9 as P2: stopped after 120 unit turns, score -85, score for net +0.00, loss 0.1149 (16 steps), memory 530, 0.9 s
+2026-10-27 20:48:16,387 INFO train_ai_bot: last 10 games: 1 wins, 3 losses, 0 draws, 6 stopped (total 10 games, 1 wins)
+2026-10-27 20:48:16,408 INFO train_ai_bot: Saved D:\Project\Beastborn\beastborn\data\ai_bot.safetensors
+2026-10-27 20:48:17,394 INFO train_ai_bot: epoch 1/100 game 11/100 seed 10 as P1: stopped after 120 unit turns, score +100, score for net +0.00, loss 0.0584 (18 steps), memory 601, 1.0 s
+2026-10-27 20:48:18,294 INFO train_ai_bot: epoch 1/100 game 12/100 seed 11 as P2: stopped after 120 unit turns, score -225, score for net +0.00, loss 0.0558 (13 steps), memory 653, 0.9 s
+2026-10-27 20:48:19,107 INFO train_ai_bot: epoch 1/100 game 13/100 seed 12 as P1: loss after 106 unit turns, score -165, score for net -6.17, loss 0.1047 (13 steps), memory 705, 0.8 s
+2026-10-27 20:48:19,998 INFO train_ai_bot: epoch 1/100 game 14/100 seed 13 as P2: stopped after 120 unit turns, score +215, score for net +0.00, loss 0.0611 (17 steps), memory 772, 0.9 s
+2026-10-27 20:48:20,882 INFO train_ai_bot: epoch 1/100 game 15/100 seed 14 as P1: stopped after 120 unit turns, score -28, score for net +0.00, loss 0.0804 (14 steps), memory 826, 0.9 s
+2026-10-27 20:48:21,757 INFO train_ai_bot: epoch 1/100 game 16/100 seed 15 as P2: stopped after 120 unit turns, score +154, score for net +0.00, loss 0.0663 (14 steps), memory 881, 0.9 s
+2026-10-27 20:48:22,844 INFO train_ai_bot: epoch 1/100 game 17/100 seed 16 as P1: stopped after 120 unit turns, score +168, score for net +0.00, loss 0.0702 (19 steps), memory 956, 1.1 s
+2026-10-27 20:48:23,848 INFO train_ai_bot: epoch 1/100 game 18/100 seed 17 as P2: win after 113 unit turns, score +303, score for net +4.98, loss 0.0685 (17 steps), memory 1024, 1.0 s
+2026-10-27 20:48:24,491 INFO train_ai_bot: epoch 1/100 game 19/100 seed 18 as P1: win after 76 unit turns, score +274, score for net +4.98, loss 0.0596 (11 steps), memory 1065, 0.6 s
+2026-10-27 20:48:25,409 INFO train_ai_bot: epoch 1/100 game 20/100 seed 19 as P2: stopped after 120 unit turns, score +234, score for net +0.00, loss 0.1018 (17 steps), memory 1132, 0.9 s
+2026-10-27 20:48:25,409 INFO train_ai_bot: last 10 games: 2 wins, 1 losses, 0 draws, 7 stopped (total 20 games, 3 wins)
+2026-10-27 20:48:25,432 INFO train_ai_bot: Saved D:\Project\Beastborn\beastborn\data\ai_bot.safetensors
+2026-10-27 20:48:26,264 INFO train_ai_bot: epoch 1/100 game 21/100 seed 20 as P1: loss after 106 unit turns, score -409, score for net -5.42, loss 0.1093 (13 steps), memory 1181, 0.8 s
+2026-10-27 20:48:27,006 INFO train_ai_bot: epoch 1/100 game 22/100 seed 21 as P2: win after 97 unit turns, score +407, score for net +4.98, loss 0.0607 (14 steps), memory 1234, 0.7 s
+2026-10-27 20:48:27,111 INFO train_ai_bot: Stopped by Ctrl+C after 22 games
+2026-10-27 20:48:27,138 INFO train_ai_bot: Saved D:\Project\Beastborn\beastborn\data\ai_bot.safetensors
+2026-10-27 20:48:27,138 INFO train_ai_bot: Done: 22 games (4 wins, 5 losses, 0 draws, 13 stopped), 292 training steps, 23 s
+2026-10-27 20:48:27,138 INFO train_ai_bot: continue with: --load D:\Project\Beastborn\beastborn\data\ai_bot.safetensors --seed 34

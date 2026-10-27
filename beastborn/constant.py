@@ -55,6 +55,8 @@ MAX_ATTACKS_PER_TURN: Final[int | None] = None  # None = limited only by energy 
 # An attack on an enemy out of range first moves the attacker to a tile it can hit from, if its energy pays for
 # the move and the attack. The tile: cheapest move, then most damage, then best own DEF there, then top-left first.
 AUTO_MOVE_TO_ATTACK: Final[bool] = True
+# Speed only (never changes the rules): pathfinding results a Game State Machine keeps; the cache is emptied when full.
+REACHABLE_CACHE_SIZE: Final[int] = 4096
 
 # ====================================================================== seeds
 SEED_RANGE: Final[int] = 1_000_000  # random seeds are drawn from [0, SEED_RANGE)

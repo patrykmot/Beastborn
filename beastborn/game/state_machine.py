@@ -50,6 +50,8 @@ class GameStateMachine:
         self._history: list[tuple[GameState, int]] = []
         self._new_versions: count[int] = count(1)
         self._version: int = 0  # one number per distinct state; ``rollback`` brings the old number back
+        # pathfinding results by (board, unit stats, start, energy budget, blocked tiles): see ``_reachable``
+        self._reach_cache: dict[tuple[object, ...], dict[Position, PathInfo]] = {}
         self._handlers: dict[CommandType, Callable[[Any], tuple[CommandResult, Command]]] = {
             CommandType.MOVE: self._move,
             CommandType.ATTACK: self._attack,
@@ -593,9 +595,21 @@ class GameStateMachine:
         return self._reachable(attacker, budget)
 
     def _reachable(self, unit: UnitState, budget: int) -> dict[Position, PathInfo]:
-        """Tiles the unit can move to with ``budget`` energy (other units block)."""
+        """Tiles the unit can move to with ``budget`` energy (other units block).
+
+        Cached: the same board, unit stats, start, budget and blocked tiles always give the same tiles (the engine
+        never changes in a game). Bots try every move of a unit from one state, and each ``MoveCommand`` checks its
+        destination here: without the cache that is a whole new search for each move. Each caller gets its own dict.
+        """
+        board: Board = self._state.board
         blocked: set[Position] = self._state.occupied() - {unit.position}
-        return reachable(self._state.board, self._engine, unit.stats, unit.position, budget, blocked)
+        key: tuple[object, ...] = (board, unit.stats, unit.position, budget, frozenset(blocked))
+        found: dict[Position, PathInfo] | None = self._reach_cache.get(key)
+        if found is None:
+            if len(self._reach_cache) >= C.REACHABLE_CACHE_SIZE:
+                self._reach_cache.clear()
+            found = self._reach_cache[key] = reachable(board, self._engine, unit.stats, unit.position, budget, blocked)
+        return dict(found)
 
     def _in_range_from(self, attacker: UnitState, origin: Position, target: UnitState) -> bool:
         return self._engine.in_attack_range(attacker.stats, origin.manhattan(target.position))

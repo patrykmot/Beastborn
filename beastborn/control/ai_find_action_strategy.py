@@ -84,11 +84,15 @@ class Transition(NamedTuple):
 
 def score_difference(gsm: GameStateMachine, me: int) -> int:
     """My score minus my opponent's (the bot's ``evaluate``). Only for 2-player games."""
-    players: list[int] = [p.index for p in gsm.view().players]
+    return gsm.score(me) - gsm.score(_opponent(gsm.view(), me))
+
+
+def _opponent(view: GameView, me: int) -> int:
+    """The other player of a 2-player game."""
+    players: list[int] = [p.index for p in view.players]
     if len(players) != C.BOT_PLAYERS:
         raise ValueError(f"The AI strategy needs a {C.BOT_PLAYERS}-player game, got {len(players)} players")
-    opponent: int = next(p for p in players if p != me)
-    return gsm.score(me) - gsm.score(opponent)
+    return next(p for p in players if p != me)
 
 def scale_score_for_ai(score):
     return score / C.AI_SCORE_SCALE
@@ -259,7 +263,9 @@ class AIFindActionStrategy(FindActionStrategy):
         if cache is not None and cache[0]() is gsm and cache[1] == gsm.version:
             return list(cache[2])
         me: int = gsm.active_player
-        self._check_board(gsm.view())
+        start: GameView = gsm.view()
+        self._check_board(start)
+        opponent: int = _opponent(start, me)  # once: an action never changes who plays (one view per action less)
         actions: list[Command] = self.base.find_all_possible_actions(gsm)
         states: np.ndarray = np.zeros((len(actions), C.AI_CHANNELS, C.AI_BOARD_SIZE, C.AI_BOARD_SIZE), np.float32)
         scores: list[int] = []
@@ -274,7 +280,7 @@ class AIFindActionStrategy(FindActionStrategy):
             try:
                 view: GameView = gsm.view()
                 self._encode(view, me, states[index])
-                scores.append(score_difference(gsm, me))
+                scores.append(gsm.score(me) - gsm.score(opponent))  # = score_difference(gsm, me)
                 exact.append(None if view.phase is not Phase.GAME_OVER or view.winner is None
                              else float("inf") if view.winner == me else float("-inf"))
             finally:

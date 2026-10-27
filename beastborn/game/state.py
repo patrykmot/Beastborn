@@ -1,14 +1,27 @@
 """Complete mutable game state. Owned and mutated only by GameStateMachine."""
 from __future__ import annotations
 
-from copy import copy as shallow_copy
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TypeVar
 
 from beastborn.domain.board import Board
 from beastborn.domain.player import Player
 from beastborn.domain.position import Position
 from beastborn.domain.unit import UnitState
+
+
+_T = TypeVar("_T")
+
+
+def shallow_copy(obj: _T) -> _T:
+    """The same as ``copy.copy`` for these plain dataclasses (no ``__slots__``), several times faster.
+
+    ``copy.copy`` goes through ``__reduce_ex__``; a GSM copies its state for every ``submit``, and bots submit a lot.
+    """
+    clone: _T = object.__new__(type(obj))  # type: ignore[call-overload]
+    clone.__dict__.update(obj.__dict__)
+    return clone
 
 
 class Phase(Enum):

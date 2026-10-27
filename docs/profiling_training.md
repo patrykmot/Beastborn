@@ -4,6 +4,10 @@
 > was going. Training code as of that evening (`tools/train_ai_bot.py`, new rewards, `--opponent ai`,
 > `--max-turns 120`). No code was changed for this.
 
+> **Done (2026-10-27 evening): #1 (`reachable` cache in the GSM) and #3 (faster `GameState.copy`, one `view()` per
+> action in `rank` instead of two).** Same 20 games before / after: identical game lines (moves, results, scores);
+> game logic **0.64 s → 0.27 s per game (2.4x faster)**. Still open: #2 (measure the network on Windows) and #4.
+
 ## How it was measured
 
 - The Linux VM has no `clang`, so tinygrad cannot run the network there. The network was replaced by a stand-in:
