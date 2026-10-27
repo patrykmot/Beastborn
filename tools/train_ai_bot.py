@@ -158,7 +158,6 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
           summary: Summary) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
     started: float = time.perf_counter()
-    game_seed = 1
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
     seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
     everything = AllFindActionStrategy()
