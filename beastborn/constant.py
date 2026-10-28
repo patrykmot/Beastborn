@@ -119,7 +119,7 @@ SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (ki
 
 # ====================================================================== bot (beastborn/control/bot.py)
 BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
-AI_MAX_RETURNED_COMMANDS: Final[int | None] = 2  # find_all_possible_actions returns only the best N (None = all)
+AI_MAX_RETURNED_COMMANDS: Final[int | None] = 1  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
 MAX_BOTS: Final[int] = 1  # bots per game
@@ -143,6 +143,7 @@ AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.02  # training: reward taken off every learner turn (= 1 HP of score): be quick
 AI_PROGRESS_REWARD: Final[float] = 0.2  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
+AI_WARMUP_MEMORY: Final[int] = 20_000  # training with --load: no train_step until the memory holds this many transitions
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"

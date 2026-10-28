@@ -114,11 +114,14 @@ def train(
         if opponent == "ai":
             frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
                                           base=RandomAllFindActionStrategy(random.Random(rng.random())))
+        train_from: int = C.AI_WARMUP_MEMORY
         log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, epsilon %.2f, "
                  "save every %d to %s", epochs, games, seed, opponent,
                  f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns, epsilon,
                  save_every, out)
+        log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
+
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
         try:
@@ -126,8 +129,11 @@ def train(
                 epoch_started: float = time.perf_counter()
                 played: list[GameResult] = []
                 for index in range(games):
+                    warming: bool = len(learner.memory) < train_from
                     played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
-                                        summary))
+                                        summary, train=not warming))
+                    if warming and len(learner.memory) >= train_from:
+                        log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
                     if summary.games % SUMMARY_EVERY == 0:
                         _log_summary(summary)
@@ -155,7 +161,7 @@ def train(
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
           opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, epsilon: float,
-          summary: Summary) -> GameResult:
+          summary: Summary,  train: bool = True) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
     started: float = time.perf_counter()
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
@@ -204,7 +210,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
     for r in results:  # every turn cost and every step towards the enemy Boss is worth learning
         learner.remember(*r)
-    for _ in range(-(-len(results) // C.AI_TRANSITIONS_PER_TRAIN_STEP)):  # ceil: more data, more steps
+    for _ in range(-(-len(results) // C.AI_TRANSITIONS_PER_TRAIN_STEP) if train else 0):  # ceil: more data, more steps
         loss: float | None = learner.train_step()
         if loss is None:
             break
@@ -216,7 +222,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
     log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
-             "loss %s (%d steps), memory %d, %.1f s",
+             "loss %s (%d steps), memory %d, training = "+ str(train)+", %.1f s",
              epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
              mean_loss, len(losses), len(learner.memory), time.perf_counter() - started)
     return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
