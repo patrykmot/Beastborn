@@ -5,7 +5,7 @@
       "key": "boss",
       "name": "Boss",
       "code": "B",
-      "hp": 35,
+      "hp": 25,
       "atk": 1,
       "en_atk": 1,
       "def": 3,

@@ -30,10 +30,16 @@ AI_TRANSITIONS_PER_TRAIN_STEP transitions it stored (batches of AI_BATCH_SIZE).
 The weights are saved every ``--save-every`` games, at the end, and on Ctrl+C. Continue a run with ``--load`` (only
 the weights are loaded; the replay memory and Adam start empty). Logs: console and ``--log`` (default
 train_ai_bot.log). tinygrad on CPU needs ``clang`` on the PATH (or named by ``CC``).
+
+Every epoch also appends one row to ``--csv`` (default train_ai_bot.csv, ``--csv ""`` = none): results, mean unit
+turns (all games, won ones, lost ones), mean score, mean loss, memory, training steps and seconds. The file is
+opened, written and closed once per epoch, so it costs nothing next to the games. ``tools/train_monitor.py`` shows
+it as live charts.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import random
 import sys
@@ -64,6 +70,10 @@ log: logging.Logger = logging.getLogger("train_ai_bot")
 OPPONENTS: tuple[str, ...] = ("random", "ai")
 SUMMARY_EVERY: int = 10  # games per summary line
 DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the ai opponent is refreshed after each one
+CSV_COLUMNS: tuple[str, ...] = (  # one row per epoch in --csv (read by tools/train_monitor.py)
+    "run", "time", "epoch", "epochs", "games", "wins", "losses", "draws", "stopped",
+    "unit_turns", "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds",
+)
 
 
 @dataclass(frozen=True)
@@ -94,10 +104,12 @@ def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
     log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON, epochs: int = DEFAULT_EPOCHS,
+    csv_file: Path | None = None,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
     After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
+    ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
     """
     if opponent not in OPPONENTS:
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
@@ -124,6 +136,7 @@ def train(
 
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
+        run: str = time.strftime("%Y-%m-%d %H:%M:%S")  # names this run's rows in the csv file
         try:
             for epoch in range(epochs):
                 epoch_started: float = time.perf_counter()
@@ -139,7 +152,10 @@ def train(
                         _log_summary(summary)
                     if summary.games % save_every == 0:
                         log.info("Saved %s", learner.save(out))
-                _log_epoch(epoch, epochs, played, len(learner.memory), time.perf_counter() - epoch_started)
+                seconds: float = time.perf_counter() - epoch_started
+                _log_epoch(epoch, epochs, played, len(learner.memory), seconds)
+                if csv_file is not None:
+                    _append_csv(csv_file, run, epoch, epochs, played, len(learner.memory), summary.steps, seconds)
                 if frozen is not None:  # a smarter opponent for the next epoch: the learner as it is now
                     learner.save(opponent_file)
                     frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
@@ -280,6 +296,35 @@ def _log_epoch(epoch: int, epochs: int, played: list[GameResult], memory: int, s
              np.mean([g.score for g in played]) if played else 0.0, mean_loss, memory, seconds)
 
 
+def _append_csv(csv_file: Path, run: str, epoch: int, epochs: int, played: list[GameResult], memory: int,
+                steps: int, seconds: float) -> None:
+    """Append one epoch row to ``csv_file`` (with the header first when the file is new). Never stops training."""
+    def mean(values: list[float]) -> str:
+        return f"{sum(values) / len(values):.2f}" if values else ""
+
+    results: list[str] = [g.result for g in played]
+    row: tuple = (
+        run, time.strftime("%Y-%m-%d %H:%M:%S"), epoch + 1, epochs, len(played),
+        results.count("win"), results.count("loss"), results.count("draw"), results.count("stopped"),
+        mean([g.turns for g in played]),
+        mean([g.turns for g in played if g.result == "win"]),
+        mean([g.turns for g in played if g.result == "loss"]),
+        mean([g.score for g in played]),
+        f"{np.mean([g.loss for g in played if g.loss is not None]):.4f}" if any(g.loss is not None for g in played)
+        else "",
+        memory, steps, f"{seconds:.1f}",
+    )
+    try:
+        new: bool = not csv_file.exists() or csv_file.stat().st_size == 0
+        with open(csv_file, "a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            if new:
+                writer.writerow(CSV_COLUMNS)
+            writer.writerow(row)
+    except OSError as error:  # e.g. the file is open in Excel: skip this row, keep training
+        log.warning("Could not write %s: %s", csv_file, error)
+
+
 def _log_to_file(log_file: Path | None) -> logging.Handler | None:
     log.setLevel(logging.INFO)
     if log_file is None:
@@ -304,10 +349,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--save-every", type=int, default=10, help="save the weights every N games")
     parser.add_argument("--max-turns", type=int, default=300, help="unit turns before a game is stopped")
     parser.add_argument("--log", type=Path, default=Path("train_ai_bot.log"), help="log file")
+    parser.add_argument("--csv", default="train_ai_bot.csv",
+                        help='epoch statistics, one row per epoch, for tools/train_monitor.py ("" = none)')
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
     train(args.games, args.opponent, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
-          args.max_turns, args.log, epochs=args.epochs)
+          args.max_turns, args.log, epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None)
 
 
 if __name__ == "__main__":

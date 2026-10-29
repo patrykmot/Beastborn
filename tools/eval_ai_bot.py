@@ -63,7 +63,7 @@ class Evaluation:
 
 def evaluate(
     games: int = 100, weights: Path = C.AI_WEIGHTS_FILE, opponent: str = "random",
-    opponent_weights: Path | None = None, map_seed: int = 1000, max_turns: int = 120, seed: int = 1,
+    opponent_weights: Path | None = None, map_seed: int = 1, max_turns: int = 120, seed: int = 1,
 ) -> Evaluation:
     """Play ``games`` games of the bot (``weights``) against ``opponent`` on maps ``map_seed``, ``map_seed + 1``..."""
     if opponent not in OPPONENTS:
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--weights", type=Path, default=C.AI_WEIGHTS_FILE, help="the bot's weights")
     parser.add_argument("--opponent", choices=OPPONENTS, default="random")
     parser.add_argument("--opponent-weights", type=Path, help="weights of the 'ai' opponent (e.g. an older copy)")
-    parser.add_argument("--map-seed", type=int, default=1000, help="seed of the first map (game i uses map-seed + i)")
+    parser.add_argument("--map-seed", type=int, default=1, help="seed of the first map (game i uses map-seed + i)")
     parser.add_argument("--max-turns", type=int, default=120, help="unit turns before a game is stopped")
     parser.add_argument("--seed", type=int, default=1, help="seed of the random choices (random opponent, ties)")
     args = parser.parse_args(argv)

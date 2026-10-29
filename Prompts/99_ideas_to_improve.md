@@ -33,3 +33,8 @@ The replay memory holds about 44 epochs of games (200k transitions at about 4.5k
 3 residual blocks × 32 filters is small. If everything above checks out, try 5–6 blocks or 64 filters.
 Fix the seed bug so it sees new maps and plays both sides of each one.
 If I had to pick just two: first, make sure the learner isn’t limited to the top 2 moves (4). Then set up a fixed opponent to measure against (1), so you can tell which of the other changes actually helps.
+
+
+Results of last traning(2026.10.29)
+
+![img.png](img.png)

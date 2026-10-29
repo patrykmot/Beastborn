@@ -113,12 +113,12 @@ STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn 
 
 # Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
 SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
-SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
+SCORE_PER_MISSING_BOSS_HP: Final[int] = 2  # per HP an opponent's Boss has lost
 SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of my units stands on
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_SEARCH_DEPTH: Final[int] = 16  # unit turns the bot searches ahead (one ply = one whole unit turn)
 AI_MAX_RETURNED_COMMANDS: Final[int | None] = 1  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
@@ -135,9 +135,9 @@ AI_FILTERS: Final[int] = 32  # filters of every 3x3 convolution
 AI_BLOCKS: Final[int] = 3  # residual blocks
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
-AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value (low = only rewards a few turns away count)
+AI_GAMMA: Final[float] = 0.97  # discount of the next afterstate's value (low = only rewards a few turns away count)
 AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
-AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
+AI_LEARNING_RATE: Final[float] = 1e-4  # Adam
 AI_MEMORY_SIZE: Final[int] = 200_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
