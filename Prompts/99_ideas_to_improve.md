@@ -38,3 +38,7 @@ If I had to pick just two: first, make sure the learner isn’t limited to the t
 Results of last traning(2026.10.29)
 
 ![img.png](img.png)
+
+
+Results of tranining (2026.10.29 20:10)
+![img_1.png](img_1.png)

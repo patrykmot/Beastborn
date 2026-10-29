@@ -113,7 +113,7 @@ STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn 
 
 # Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
 SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
-SCORE_PER_MISSING_BOSS_HP: Final[int] = 2  # per HP an opponent's Boss has lost
+SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
 SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of my units stands on
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
@@ -141,8 +141,8 @@ AI_LEARNING_RATE: Final[float] = 1e-4  # Adam
 AI_MEMORY_SIZE: Final[int] = 200_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
-AI_STEP_COST: Final[float] = 0.02  # training: reward taken off every learner turn (= 1 HP of score): be quick
-AI_PROGRESS_REWARD: Final[float] = 0.2  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
+AI_STEP_COST: Final[float] = 0.01  # training: reward taken off every learner turn (= 1 HP of score): be quick
+AI_PROGRESS_REWARD: Final[float] = 0.1  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
 AI_WARMUP_MEMORY: Final[int] = 20_000  # training with --load: no train_step until the memory holds this many transitions
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
