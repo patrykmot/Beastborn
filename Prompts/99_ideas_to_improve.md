@@ -42,3 +42,6 @@ Results of last traning(2026.10.29)
 
 Results of tranining (2026.10.29 20:10)
 ![img_1.png](img_1.png)
+
+Results of tranining (2026.10.30 23:10)
+![img_2.png](img_2.png)
