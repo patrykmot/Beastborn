@@ -17,10 +17,12 @@ from beastborn import constant as C
 from beastborn.control import AIFindActionStrategy, AIMode, AllFindActionStrategy, BotPlayerController, BotVoice, Mood
 from beastborn.control import ai_find_action_strategy as ai
 from beastborn.control.ai_find_action_strategy import scale_score_for_ai
-from beastborn.domain import Board
+from beastborn.domain import Board, EffectKind
+from beastborn.domain.effects import StatusEffect
 from beastborn.game import custom_game, new_game
 from beastborn.game.commands import AttackCommand, WrapperCommand
-from tests.conftest import KING, SOLDIER
+from tests.conftest import (FIXED_ARCHER, FIXED_BIG_RAT, FIXED_BOSS, FIXED_PEASANT, FIXED_UNITS, KING,
+                            SOLDIER)
 
 pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
@@ -50,27 +52,71 @@ def winning_hit_game():
 
 
 # ---------------------------------------------------------------- encoding
+def test_channel_layout():
+    """Terrain (2), then 7 planes per side; the enemy's are mine + CH_ENEMY_OFFSET; every plane used once."""
+    mine = [C.CH_MY_RAT, C.CH_MY_PEASANT, C.CH_MY_ARCHER, C.CH_MY_BOSS, C.CH_MY_HP, C.CH_MY_ENERGY, C.CH_MY_VENOM]
+    enemy = [C.CH_ENEMY_RAT, C.CH_ENEMY_PEASANT, C.CH_ENEMY_ARCHER, C.CH_ENEMY_BOSS, C.CH_ENEMY_HP,
+             C.CH_ENEMY_ENERGY, C.CH_ENEMY_VENOM]
+    assert enemy == [ch + C.CH_ENEMY_OFFSET for ch in mine]
+    assert sorted([C.CH_ELEVATION, C.CH_DIFFICULT, *mine, *enemy]) == list(range(C.AI_CHANNELS))
+    assert C.AI_CHANNELS == 16
+    assert set(C.AI_UNIT_CHANNELS) == {u.key for u in FIXED_UNITS}  # a plane for every unit type of units.json
+
+
 def test_encoding_planes():
     board = Board.from_strings(["m" + "." * 9] + ["." * 10] * 9, ["2" + "1" + "0" * 8] + ["0" * 10] * 9)
-    gsm = custom_game(board, [(0, SOLDIER, (3, 1)), (0, KING, (0, 2)), (1, SOLDIER, (5, 5)), (1, KING, (9, 9))])
-    gsm._state.units[3].hp = 5
+    gsm = custom_game(board, [(0, FIXED_BIG_RAT, (3, 1)), (0, FIXED_PEASANT, (4, 1)), (0, KING, (0, 2)),
+                              (1, FIXED_ARCHER, (5, 5)), (1, FIXED_BOSS, (9, 9)), (1, SOLDIER, (7, 7))])
+    gsm._state.units[4].hp = FIXED_ARCHER.hp // 2  # units by id (from 1): the enemy Archer
     planes = AIFindActionStrategy().state_to_tensor(gsm, 0)
     assert planes.shape == (C.AI_CHANNELS, 10, 10) and planes.dtype == np.float32
     assert planes[ai.CH_ELEVATION, 0, 0] == 1.0 and planes[ai.CH_ELEVATION, 0, 1] == 1 / C.MAX_ELEVATION
     assert planes[ai.CH_DIFFICULT, 0, 0] == 1.0 and planes[ai.CH_DIFFICULT].sum() == 1.0
-    assert planes[ai.CH_MY_UNITS, 1, 3] == 1.0 and planes[ai.CH_MY_UNITS].sum() == 2.0  # [channel, y, x]
+    # unit identity: one plane per unit type and side, [channel, y, x]
+    for channel, (x, y) in ((ai.CH_MY_RAT, (3, 1)), (ai.CH_MY_PEASANT, (4, 1)), (ai.CH_MY_BOSS, (0, 2)),
+                            (ai.CH_ENEMY_ARCHER, (5, 5)), (ai.CH_ENEMY_BOSS, (9, 9))):
+        assert planes[channel, y, x] == 1.0 and planes[channel].sum() == 1.0, channel
+    assert planes[ai.CH_MY_ARCHER].sum() == planes[ai.CH_ENEMY_RAT].sum() == planes[ai.CH_ENEMY_PEASANT].sum() == 0
+    # the King is a Boss by its flag; the Soldier's key has no plane, but its HP and energy are there
+    assert planes[[*ai.CH_MY_IDENTITY, *ai.CH_ENEMY_IDENTITY], 7, 7].sum() == 0
+    assert planes[ai.CH_ENEMY_HP, 7, 7] == 1.0
     assert planes[ai.CH_ENEMY_HP, 5, 5] == 0.5
-    soldier = gsm.view().units[0]
-    assert planes[ai.CH_MY_ENERGY, 1, 3] == soldier.energy / SOLDIER.max_en
-    assert planes[ai.CH_MY_BOSS, 2, 0] == 1.0 and planes[ai.CH_MY_BOSS].sum() == 1.0
-    assert planes[ai.CH_ENEMY_BOSS, 9, 9] == 1.0 and planes[ai.CH_ENEMY_BOSS].sum() == 1.0
+    rat = gsm.view().units[0]
+    assert planes[ai.CH_MY_ENERGY, 1, 3] == rat.energy / FIXED_BIG_RAT.max_en
+    assert planes[ai.CH_MY_VENOM].sum() == planes[ai.CH_ENEMY_VENOM].sum() == 0  # nobody is poisoned
+
+
+def test_encoding_venom():
+    """Venom plane: rounds left of all Venom stacks / VENOM_DURATION; Acid does not count."""
+    gsm = custom_game(FLAT, [(0, FIXED_BIG_RAT, (3, 1)), (0, FIXED_BOSS, (0, 0)), (1, FIXED_ARCHER, (5, 5)),
+                             (1, FIXED_BOSS, (9, 9))])
+    gsm._state.units[1].effects = (StatusEffect(EffectKind.VENOM, 2, 3, source_id=3),
+                                   StatusEffect(EffectKind.ACID, 1, 9))
+    gsm._state.units[3].effects = (StatusEffect(EffectKind.VENOM, 2, C.VENOM_DURATION, source_id=1),
+                                   StatusEffect(EffectKind.VENOM, 2, 2, source_id=4))
+    planes = AIFindActionStrategy().state_to_tensor(gsm, 0)
+    assert planes[ai.CH_MY_VENOM, 1, 3] == pytest.approx(3 / C.VENOM_DURATION)
+    assert planes[ai.CH_ENEMY_VENOM, 5, 5] == pytest.approx((C.VENOM_DURATION + 2) / C.VENOM_DURATION)
+    assert np.count_nonzero(planes[ai.CH_MY_VENOM]) == np.count_nonzero(planes[ai.CH_ENEMY_VENOM]) == 1
+
+
+def test_a_big_rat_hit_shows_a_fresh_venom_stack():
+    gsm = custom_game(FLAT, [(0, FIXED_BIG_RAT, (3, 3)), (0, FIXED_BOSS, (0, 0)), (1, FIXED_PEASANT, (4, 3)),
+                             (1, FIXED_BOSS, (9, 9))])
+    assert gsm.active_unit == 1 and gsm.submit(AttackCommand(1, 3)).ok
+    planes = AIFindActionStrategy().state_to_tensor(gsm, 0)
+    assert planes[ai.CH_ENEMY_VENOM, 3, 4] == 1.0 and np.count_nonzero(planes[ai.CH_ENEMY_VENOM]) == 1
+    assert planes[ai.CH_MY_VENOM, 3, 4] == 0  # seen from the other side, it is "my" unit that is poisoned
+    assert AIFindActionStrategy().state_to_tensor(gsm, 1)[ai.CH_MY_VENOM, 3, 4] == 1.0
 
 
 def test_encoding_from_the_other_side_swaps_my_and_enemy_planes():
     gsm = game_after(3, 4)
     strategy = AIFindActionStrategy()
     mine, theirs = strategy.state_to_tensor(gsm, 0), strategy._state_to_tensor(gsm, 1)
-    assert np.array_equal(theirs, mine[[0, 1, 5, 6, 7, 2, 3, 4, 9, 8]])
+    swap = [0, 1, *range(9, 16), *range(2, 9)]  # terrain stays; my 7 planes and the enemy's 7 trade places
+    assert np.array_equal(theirs, mine[swap])
+    assert mine[[*ai.CH_MY_IDENTITY, *ai.CH_ENEMY_IDENTITY]].sum() == len(gsm.view().units)  # every unit has a type
 
 
 def test_only_10x10_boards():

@@ -47,16 +47,22 @@ from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict
 
 from beastborn import constant as C
 from beastborn.control.find_action_strategy import AllFindActionStrategy, FindActionStrategy
+from beastborn.domain.effects import EffectKind
 from beastborn.game.commands import Command, CommandResult
 from beastborn.game.state import Phase
 from beastborn.game.state_machine import GameStateMachine
 from beastborn.game.view import GameView
 
-# Input planes (AI_CHANNELS). "My" = the player who chooses the action, see ``AIFindActionStrategy.rank``.
-CH_ELEVATION, CH_DIFFICULT = 0, 1
-CH_MY_UNITS, CH_MY_HP, CH_MY_ENERGY = 2, 3, 4
-CH_ENEMY_UNITS, CH_ENEMY_HP, CH_ENEMY_ENERGY = 5, 6, 7
-CH_MY_BOSS, CH_ENEMY_BOSS = 8, 9
+# Input planes (AI_CHANNELS), defined in constant.py. "My" = the player who chooses the action, see
+# ``AIFindActionStrategy.rank``. Enemy planes = my planes + CH_ENEMY_OFFSET.
+CH_ELEVATION, CH_DIFFICULT = C.CH_ELEVATION, C.CH_DIFFICULT
+CH_MY_RAT, CH_MY_PEASANT, CH_MY_ARCHER, CH_MY_BOSS = C.CH_MY_RAT, C.CH_MY_PEASANT, C.CH_MY_ARCHER, C.CH_MY_BOSS
+CH_MY_HP, CH_MY_ENERGY, CH_MY_VENOM = C.CH_MY_HP, C.CH_MY_ENERGY, C.CH_MY_VENOM
+CH_ENEMY_RAT, CH_ENEMY_PEASANT, CH_ENEMY_ARCHER, CH_ENEMY_BOSS = (C.CH_ENEMY_RAT, C.CH_ENEMY_PEASANT,
+                                                                  C.CH_ENEMY_ARCHER, C.CH_ENEMY_BOSS)
+CH_ENEMY_HP, CH_ENEMY_ENERGY, CH_ENEMY_VENOM = C.CH_ENEMY_HP, C.CH_ENEMY_ENERGY, C.CH_ENEMY_VENOM
+CH_MY_IDENTITY: tuple[int, ...] = (CH_MY_RAT, CH_MY_PEASANT, CH_MY_ARCHER, CH_MY_BOSS)  # one per unit type
+CH_ENEMY_IDENTITY: tuple[int, ...] = tuple(ch + C.CH_ENEMY_OFFSET for ch in CH_MY_IDENTITY)
 
 log: logging.Logger = logging.getLogger("find_action_strategy")
 
@@ -339,13 +345,18 @@ class AIFindActionStrategy(FindActionStrategy):
             self._terrain = (view.board, terrain)
         out[CH_ELEVATION:CH_DIFFICULT + 1] = self._terrain[1]
         for unit in view.units:
-            mine: bool = unit.owner == me
+            side: int = 0 if unit.owner == me else C.CH_ENEMY_OFFSET  # my planes, or the enemy's (+ offset)
             x, y = unit.position.x, unit.position.y
-            out[CH_MY_UNITS if mine else CH_ENEMY_UNITS, y, x] = 1.0
-            out[CH_MY_HP if mine else CH_ENEMY_HP, y, x] = unit.hp / unit.stats.hp
-            out[CH_MY_ENERGY if mine else CH_ENEMY_ENERGY, y, x] = unit.energy / unit.stats.max_en
-            if unit.stats.is_boss:
-                out[CH_MY_BOSS if mine else CH_ENEMY_BOSS, y, x] = 1.0
+            # Unit identity: one plane per unit type (a Boss by its flag, the others by their units.json key).
+            identity: int | None = CH_MY_BOSS if unit.stats.is_boss else C.AI_UNIT_CHANNELS.get(unit.stats.key)
+            if identity is not None:
+                out[identity + side, y, x] = 1.0
+            out[CH_MY_HP + side, y, x] = unit.hp / unit.stats.hp
+            out[CH_MY_ENERGY + side, y, x] = unit.energy / unit.stats.max_en
+            # Venom: rounds left of every stack on the unit (one per attacker), 1.0 = one fresh stack.
+            venom: int = sum(e.remaining_turns for e in unit.effects if e.kind is EffectKind.VENOM)
+            if venom:
+                out[CH_MY_VENOM + side, y, x] = venom / C.VENOM_DURATION
 
     @_on_tinygrad_thread
     def _model(self) -> AfterstateNet:

@@ -249,7 +249,8 @@ def _boss_distance(planes: np.ndarray) -> float | None:
 
     My own Boss does not count (it should not lead the attack). None when there is no such unit or no enemy Boss.
     """
-    mine: np.ndarray = np.argwhere((planes[ai.CH_MY_UNITS] > 0) & (planes[ai.CH_MY_BOSS] == 0))
+    fighters: tuple[int, ...] = tuple(ch for ch in ai.CH_MY_IDENTITY if ch != ai.CH_MY_BOSS)
+    mine: np.ndarray = np.argwhere(planes[list(fighters)].max(axis=0) > 0)
     boss: np.ndarray = np.argwhere(planes[ai.CH_ENEMY_BOSS] > 0)
     if len(mine) == 0 or len(boss) == 0:
         return None

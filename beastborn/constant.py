@@ -118,7 +118,7 @@ SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of 
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 16  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_SEARCH_DEPTH: Final[int] = 3  # unit turns the bot searches ahead (one ply = one whole unit turn)
 AI_MAX_RETURNED_COMMANDS: Final[int | None] = 1  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
@@ -130,7 +130,32 @@ BOT_LINES_FILE: Final[Path] = PACKAGE_DIR / "data" / "bot_lines.json"  # what th
 # ====================================================================== AI (control/ai_find_action_strategy.py)
 # A small tinygrad network rates the board after each possible action; the bot's strategy lists actions best first.
 AI_BOARD_SIZE: Final[int] = 10  # the network reads only AI_BOARD_SIZE x AI_BOARD_SIZE boards
-AI_CHANNELS: Final[int] = 10  # input planes: terrain (2), my units (3), enemy units (3), my Boss, enemy Boss
+# Input planes, [channel, y, x]. "My" = the player who chooses the action. One identity plane per unit type
+# (1.0 where such a unit stands); a unit whose key is not one of these (and that is not a Boss) has no identity plane.
+# HP and energy: current / max. Venom: remaining rounds of all its Venom stacks / VENOM_DURATION.
+# Enemy planes are my planes + CH_ENEMY_OFFSET, so swapping the two sides is one fixed permutation.
+CH_ELEVATION: Final[int] = 0  # elevation / MAX_ELEVATION
+CH_DIFFICULT: Final[int] = 1  # 1.0 on DIFFICULT_TERRAINS
+CH_MY_RAT: Final[int] = 2
+CH_MY_PEASANT: Final[int] = 3
+CH_MY_ARCHER: Final[int] = 4
+CH_MY_BOSS: Final[int] = 5
+CH_MY_HP: Final[int] = 6
+CH_MY_ENERGY: Final[int] = 7
+CH_MY_VENOM: Final[int] = 8
+CH_ENEMY_OFFSET: Final[int] = 7  # = the number of planes per side
+CH_ENEMY_RAT: Final[int] = CH_MY_RAT + CH_ENEMY_OFFSET  # 9
+CH_ENEMY_PEASANT: Final[int] = CH_MY_PEASANT + CH_ENEMY_OFFSET  # 10
+CH_ENEMY_ARCHER: Final[int] = CH_MY_ARCHER + CH_ENEMY_OFFSET  # 11
+CH_ENEMY_BOSS: Final[int] = CH_MY_BOSS + CH_ENEMY_OFFSET  # 12
+CH_ENEMY_HP: Final[int] = CH_MY_HP + CH_ENEMY_OFFSET  # 13
+CH_ENEMY_ENERGY: Final[int] = CH_MY_ENERGY + CH_ENEMY_OFFSET  # 14
+CH_ENEMY_VENOM: Final[int] = CH_MY_VENOM + CH_ENEMY_OFFSET  # 15
+AI_CHANNELS: Final[int] = CH_ENEMY_VENOM + 1  # 16: terrain (2) + my planes (7) + enemy planes (7)
+# Unit key -> my identity plane (the enemy's = + CH_ENEMY_OFFSET). A Boss (``is_boss``) always uses CH_MY_BOSS.
+AI_UNIT_CHANNELS: Final[Mapping[str, int]] = MappingProxyType({
+    UNIT_BIG_RAT: CH_MY_RAT, UNIT_PEASANT: CH_MY_PEASANT, UNIT_ARCHER: CH_MY_ARCHER, UNIT_BOSS: CH_MY_BOSS,
+})
 AI_FILTERS: Final[int] = 32  # filters of every 3x3 convolution
 AI_BLOCKS: Final[int] = 3  # residual blocks
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
@@ -138,7 +163,7 @@ AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this 
 AI_GAMMA: Final[float] = 0.97  # discount of the next afterstate's value (low = only rewards a few turns away count)
 AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 400_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 50_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.01  # training: reward taken off every learner turn (= 1 HP of score): be quick

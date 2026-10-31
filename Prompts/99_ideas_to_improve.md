@@ -37,11 +37,11 @@ If I had to pick just two: first, make sure the learner isn’t limited to the t
 
 Results of last traning(2026.10.29)
 
-![img.png](img.png)
+![img.png](../docs/pic/img.png)
 
 
 Results of tranining (2026.10.29 20:10)
-![img_1.png](img_1.png)
+![img_1.png](../docs/pic/img_1.png)
 
 Results of tranining (2026.10.30 23:10)
-![img_2.png](img_2.png)
+![img_2.png](../docs/pic/img_2.png)
