@@ -35,13 +35,28 @@ Fix the seed bug so it sees new maps and plays both sides of each one.
 If I had to pick just two: first, make sure the learner isn’t limited to the top 2 moves (4). Then set up a fixed opponent to measure against (1), so you can tell which of the other changes actually helps.
 
 
-Results of last traning(2026.10.29)
+* Quesion:
+OK. Problem that I have after some 200 epoch bot (in best case scenarion) will atack eagerly with rat, then with pessant (after rat will day), so its kind of good. But this is the only tactics it can play. How to make tatic learn by bot much advence, like multiple different tactics.  I have idea to use simulated annealing, with high temperature, almost all steps are random, and then bot plays games during training, and temeprerature goes down, so there is less and less random moves, and this "hardening" can be repeated multiple times. The second change could be not to take best result as move every time (during a play), but randomly select move from few best options. Please advice. No code. Just validate my ideas, and give yours as well. 
 
-![img.png](../docs/pic/img.png)
-
-
-Results of tranining (2026.10.29 20:10)
-![img_1.png](../docs/pic/img_1.png)
-
-Results of tranining (2026.10.30 23:10)
-![img_2.png](../docs/pic/img_2.png)
+* **Answer:**
+AI Training Strategy Validation & Recommendations
+Your ideas address a classic Reinforcement Learning trap: the bot has found a "local optimum" (the rat rush) that yields decent results, and it lacks the structural freedom to discover deeper, multi-unit strategies.
+Validating Your Ideas
+1. Simulated Annealing (Cyclic Exploration)
+Your idea is highly effective and mirrors a proven AI training technique called Cosine Annealing with Warm Restarts.
+The Current State: Your setup relies on a fixed 5% chance of taking a random action (`AI_EPSILON = 0.05`).
+Why Your Fix Works: By starting with high randomness (high temperature) and slowly hardening it, you force the bot into unseen, complex board states. Repeating the cycle (re-heating) is exactly how you kick a neural network out of a stubborn local optimum like the rat rush.
+2. Stochastic Selection (Top-K Sampling)
+Choosing randomly from the top 3-5 best options rather than strictly taking the absolute best move is another standard practice.
+Why It Works: It prevents the policy from becoming overly deterministic and brittle. This makes the bot less predictable to humans and prevents infinite move-repetition loops during self-play.
+---
+Additional Strategic Recommendations
+1. Reward Shaping
+A neural network only optimizes what it is explicitly paid for. If the main rewards are simply winning (`AI_WIN_REWARD`) or stepping toward the enemy boss (`AI_PROGRESS_REWARD`), the bot will naturally just rush forward.
+Actionable Step: To teach tactical formations, grant a small immediate reward for ending a turn adjacent to an ally, or apply a slight penalty for ending a turn completely isolated.
+2. Historical Self-Play (Opponent Pool)
+If the bot only plays against its current self, it only ever learns how to defeat a rat rush.
+Actionable Step: Save model snapshots every few dozen epochs and force the active learner to randomly play against these historical versions. This forces the bot to develop robust, generalized tactics to survive varying opponent playstyles.
+3. Curriculum Learning (Scenario Training)
+Do not exclusively train from the default starting board.
+Actionable Step: Programmatically spawn custom training scenarios where units are already grouped, or already positioned defensively on hills. Let the network experience the high mathematical value of a solid defensive formation first; it will then naturally try to recreate that state during a standard game.
