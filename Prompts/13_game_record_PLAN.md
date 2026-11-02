@@ -1,46 +1,25 @@
 # PLAN: Game record format (BGN, "Beastborn Game Notation")
 
-> Request (2026-10-30): a way of saving a game similar to chess PGN. It holds the **seed**, the **players** and
-> their **moves**, so that loading it simulates the whole game again. It must be possible to get it from the
-> `GameStateMachine`. **For now only the format itself**: this plan. **No code changes.**
-> Status: **format designed, not implemented.** A throw-away prototype (outside the repo) exported and re-loaded
-> 8 random full games (seeds 1, 2, 3, 7, 11, 99, 1234, 482913; with wrapper commands, auto-moved attacks and
-> no-op end turns): every replay gave the same final state. The example in section 3 is a real game from it.
-
----
-
-## 0. Why seed + commands are enough
-
-- `new_game(players, seed, width, height)` always builds the same map, armies and unit ids (`map_generator.py`
-  uses only `random.Random(seed)`; `place_armies` gives ids in a fixed order).
-- Combat has **no RNG** and the GSM picks whose turn it is, so the state after a command depends only on the state
-  before it.
-- `GameStateMachine.command_log` already holds every accepted command (the GSM's own comment: *"with the seed this
-  is enough to replay a game"*). A rejected command is never logged; a rolled-back one is removed from the log.
-- An `AttackCommand` that auto-moved is logged **with the tile it moved to**, so a replay never depends on how the
-  tile was picked (`AUTO_MOVE_TO_ATTACK`, `_origin_rank`).
-- Bots do not need to be re-run: their moves are in the log like a human's.
-
-What else must match for a replay to give the same game: the **rules** (`constant.py` rule numbers, map generator
-numbers, army counts) and **`units.json`**. Section 2.2 adds a short hash of them, so a mismatch is reported
-instead of silently giving another game.
-
----
-
 ## 1. Questions
 
 | # | Question | Proposed default |
 |---|---|---|
-| Q1 | How are tiles written? | **Chess-like:** column letter + row number, `a1` = `Position(0, 0)` = top-left (P1's corner, like White's). `x` -> `a..p`, `y` -> `1..16` (the biggest map is 16x16). Short, and unambiguous next to unit names. *Alternative:* `(x,y)` as in `Position.__str__` (longer, but the same as the code and the logs). |
-| Q2 | File extension | **`.bgn`**, UTF-8 text. Several games in one file allowed (separated by a blank line, as in PGN): handy for bot test sets and training data. |
-| Q3 | Comments with numbers (HP after a hit etc.) in the exported text? | **Off by default**, an option of the exporter (`annotate=True`). The parser always skips comments. |
-| Q4 | Games made with `custom_game` (no seed) | **Not in v1** (the exporter refuses them). v2: optional `Board` + `Units` tags (section 2.6), like PGN's `FEN`. |
+| Q1 | How are tiles written? | **Chess-like:** column letter + row number, `a1` = `Position(0, 0)` - compatibile with `_tiles[pos.y][pos.x]` `x` -> `a..p` (columns), `y` -> `1..16` (rows) so similar like with chess|
+| Q2 | File extension | **`.bgn`**, UTF-8 text. Several games in one file allowed (separated by new line): handy for bot test sets and training data. |
 
 ---
 
 ## 2. The format
 
-A record = **tag pairs** (header), an empty line, the **movetext**, and a **result** token. Like PGN.
+One row is one game in format:
+[game_id][[game_seed][numer_of_players][game_data]
+
+* game_id - this is a milliseconds when the game was created!
+* game_seed - is seed used for RNG used in the game.
+* number_of_players - number of players in the game
+* game_data - must contain each player turn, and moves so when it is given to Interaction as players, the whole game exactly can be reproduced move by move.
+
+
 
 ### 2.1 Tags
 
