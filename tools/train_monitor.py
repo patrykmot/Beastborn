@@ -1,10 +1,14 @@
-"""Live training monitor: charts and statistics of ``tools/train_ai_bot.py`` runs, epoch by epoch.
+"""Live training monitor: charts and statistics of ``tools/train_ai_bot.py`` runs, epoch by epoch, and a viewer
+of the games it played.
 
-Run (any Python 3.10+ with tkinter, no extra packages)::
+Run from the project's environment (Python 3.10+ with tkinter; the Training tab alone needs no extra packages)::
 
-    python tools/train_monitor.py                         # finds train_ai_bot.csv (or .log) by itself
+    python tools/train_monitor.py                         # finds train_ai_bot.csv (or .log) and .bgn by itself
     python tools/train_monitor.py tools/train_ai_bot.csv
     python tools/train_monitor.py tools/train_ai_bot.log  # a run started before the csv existed
+    python tools/train_monitor.py train_ai_bot.bgn        # opens the Games tab with these games
+
+Training tab:
 
 It reads the epoch rows the trainer appends to ``--csv`` (or the epoch lines of its log file) and checks the file for
 new rows every 2 seconds, reading only what was added since the last check. Every run in the file is listed; with
@@ -13,6 +17,12 @@ new rows every 2 seconds, reading only what was added since the last check. Ever
 Charts: results (% wins, losses, stopped), unit turns (all games, won ones, lost ones), score and training loss.
 Thin lines are the epoch values, thick ones the moving average over the "Average" epochs. Move the mouse over a chart
 to read the values of one epoch.
+
+Games tab: the games of a ``.bgn`` file (Beastborn Game Notation, ``beastborn/game/bgn.py``; the trainer writes
+``train_ai_bot.bgn``), checked for new games every 2 seconds like the statistics. Pick one and watch it: one step is
+one command of the game (a whole unit turn for the bots), forwards, backwards, or played automatically. The board
+shows the last step's move (dashed line) and attacks (red arrow); above it each player's score and the result.
+Keys: Right / Left = step, Space = play / pause, Home / End = start / end.
 """
 from __future__ import annotations
 
@@ -25,8 +35,13 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+if not __package__:  # run as a file: make the 'beastborn' package importable (the Games tab imports it when used)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 POLL_MS: int = 2000
 CANDIDATES: tuple[str, ...] = ("train_ai_bot.csv", "train_ai_bot.log")
+GAMES_CANDIDATES: tuple[str, ...] = ("train_ai_bot.bgn",)
+DEFAULT_DELAY_MS: int = 500  # Games tab: time between two steps when it plays by itself
 NUMBERS: tuple[str, ...] = ("epoch", "epochs", "games", "wins", "losses", "draws", "stopped", "unit_turns",
                             "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds")
 
@@ -34,6 +49,9 @@ NUMBERS: tuple[str, ...] = ("epoch", "epochs", "games", "wins", "losses", "draws
 BG, PANEL, TEXT, MUTED, GRID, AXIS = "#1c1d22", "#25272e", "#e8e8ea", "#9a9ca5", "#33353d", "#4a4d57"
 WIN, LOSS, STOPPED = "#4cc38a", "#ef6461", "#a0a4ad"
 TURNS, SCORE, TRAIN_LOSS, WARN = "#6aa9ff", "#c58af9", "#f2a53a", "#f2a53a"
+PLAYER_COLOURS = ("#d6483f", "#3e7cde", "#e2b830", "#a056cc")  # as in the browser
+GRASS, MUD, HIGH_GROUND = "#3f5f38", "#6b5434", "#c8d9a0"
+ACTIVE, HP_BAR, HP_EMPTY, BOSS_RING, VENOM = "#ffec5a", "#5ad264", "#6e1e1e", "#fadc78", "#8cf03c"
 FONT = ("Segoe UI", 9)
 FONT_SMALL = ("Segoe UI", 8)
 FONT_BIG = ("Segoe UI Semibold", 16)
@@ -373,6 +391,390 @@ def trend(now: float | None, before: float | None, digits: int, unit: str, good_
     return f"{arrow} {change:+.{digits}f}{unit}", colour
 
 
+# ====================================================================== the Games tab
+class BgnSource:
+    """Games of a .bgn file, read incrementally: each poll parses only the lines added since the last one.
+
+    A file that was emptied or replaced (a new training run) is read again from the start.
+    """
+
+    HEAD: int = 64  # first bytes of the file, compared to notice that it was replaced
+
+    def __init__(self, path: Path) -> None:
+        self.path: Path = path
+        self.reset()
+
+    def reset(self) -> None:
+        self.records: list = []  # beastborn.game.bgn.GameRecord, in file order
+        self.skipped: int = 0  # lines that are not valid BGN
+        self.offset: int = 0
+        self.rest: bytes = b""
+        self.head: bytes = b""
+
+    def poll(self) -> bool:
+        """Read what was added since the last poll. True when the list of games changed."""
+        from beastborn.game.bgn import BgnError, GameRecord
+
+        try:
+            with open(self.path, "rb") as file:
+                head: bytes = file.read(self.HEAD)
+                size: int = file.seek(0, 2)
+                replaced: bool = size < self.offset or not head.startswith(self.head)
+                if replaced:
+                    self.reset()
+                file.seek(self.offset)
+                data: bytes = file.read(size - self.offset)
+        except OSError:
+            return False
+        self.head = head
+        self.offset += len(data)
+        lines: list[bytes] = (self.rest + data).split(b"\n")
+        self.rest = lines.pop()  # an unfinished last line waits for the next poll
+        before: int = len(self.records)
+        for line in lines:
+            text: str = line.decode("utf-8", errors="replace")
+            if text.strip():
+                try:
+                    self.records.append(GameRecord.from_line(text))
+                except BgnError:
+                    self.skipped += 1
+        return replaced or len(self.records) != before
+
+
+class GamesTab(tk.Frame):
+    """Pick a recorded game (BGN) on the left and watch it on the right: step by step, backwards or playing."""
+
+    def __init__(self, master: tk.Misc) -> None:
+        super().__init__(master, background=BG)
+        self.source: BgnSource | None = None
+        self.replay = None  # beastborn.ui.replay.Replay of the chosen game
+        self.playing: bool = False
+        self._job: str | None = None  # the next automatic step (after id)
+        self._moving_scale: bool = False  # the position slider is being set by the code, not dragged
+
+        # ---- top bar
+        bar = tk.Frame(self, background=BG, padx=14, pady=10)
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Open .bgn…", command=self.choose_file).pack(side="left")
+        self.file_label = tk.Label(bar, text="no file", bg=BG, fg=MUTED, font=FONT)
+        self.file_label.pack(side="left", padx=(10, 14))
+
+        body = tk.Frame(self, background=BG, padx=10, pady=4)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        # ---- the list of games, newest first
+        listing = tk.Frame(body, background=BG)
+        listing.grid(row=0, column=0, sticky="nsw", padx=(4, 10))
+        columns = (("number", "#", 44), ("created", "Created", 112), ("seed", "Seed", 60),
+                   ("players", "Players", 150), ("commands", "Steps", 50))
+        self.tree = ttk.Treeview(listing, columns=[c[0] for c in columns], show="headings", selectmode="browse")
+        for name, title, width in columns:
+            self.tree.heading(name, text=title)
+            self.tree.column(name, width=width, anchor="w" if name == "players" else "e", stretch=False)
+        scroll = ttk.Scrollbar(listing, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(side="left", fill="y")
+        scroll.pack(side="left", fill="y")
+        self.tree.bind("<<TreeviewSelect>>", lambda _e: self.pick_game())
+
+        # ---- the chosen game
+        viewer = tk.Frame(body, background=BG)
+        viewer.grid(row=0, column=1, sticky="nsew")
+        self.players = tk.Frame(viewer, background=BG)
+        self.players.pack(fill="x")
+        self.chips: list[tuple[tk.Frame, tk.Label, tk.Label]] = []  # per player: frame, name, score
+        self.result = tk.Label(viewer, text="", bg=BG, fg=TEXT, font=FONT_BIG, anchor="w")
+        self.result.pack(fill="x", pady=(6, 0))
+        self.status = tk.Label(viewer, text="Pick a game on the left", bg=BG, fg=MUTED, font=FONT, anchor="w")
+        self.status.pack(fill="x")
+
+        controls = tk.Frame(viewer, background=BG, pady=6)
+        controls.pack(side="bottom", fill="x")
+        for text, command in (("|<", self.first), ("<", self.backward)):
+            ttk.Button(controls, text=text, width=4, command=command).pack(side="left", padx=(0, 4))
+        self.play_button = ttk.Button(controls, text="Play", width=7, command=self.toggle_play)
+        self.play_button.pack(side="left", padx=(0, 4))
+        for text, command in ((">", self.forward), (">|", self.last)):
+            ttk.Button(controls, text=text, width=4, command=command).pack(side="left", padx=(0, 4))
+        tk.Label(controls, text="ms / step", bg=BG, fg=MUTED, font=FONT).pack(side="right")
+        self.delay = tk.IntVar(value=DEFAULT_DELAY_MS)
+        ttk.Spinbox(controls, from_=50, to=5000, increment=50, width=6,
+                    textvariable=self.delay).pack(side="right", padx=(12, 6))
+        self.position = ttk.Scale(controls, from_=0, to=1, orient="horizontal", command=self.drag)
+        self.position.pack(side="left", fill="x", expand=True, padx=(8, 0))
+
+        middle = tk.Frame(viewer, background=BG)
+        middle.pack(fill="both", expand=True, pady=(6, 0))
+        self.log = tk.Text(middle, width=48, bg=PANEL, fg=TEXT, font=FONT_SMALL, borderwidth=0, wrap="word",
+                           padx=8, pady=6, state="disabled")
+        self.log.pack(side="right", fill="y", padx=(8, 0))
+        self.board = tk.Canvas(middle, background=PANEL, highlightthickness=0, width=420, height=420)
+        self.board.pack(side="left", fill="both", expand=True)
+        self.board.bind("<Configure>", lambda _e: self.draw_board())
+
+        top = self.winfo_toplevel()
+        for key, action in (("<Right>", self.forward), ("<Left>", self.backward), ("<space>", self.toggle_play),
+                            ("<Home>", self.first), ("<End>", self.last)):
+            top.bind(key, lambda _e, act=action: self._key(act), add="+")
+
+    # ---------------------------------------------------------- file and list
+    def choose_file(self) -> None:
+        name = filedialog.askopenfilename(title="Recorded games",
+                                          filetypes=[("Beastborn games", "*.bgn"), ("All files", "*.*")])
+        if name:
+            self.open(Path(name))
+
+    def open(self, path: Path) -> None:
+        try:
+            import beastborn.ui.replay  # noqa: F401  (the game modules: fail here, not on the first click)
+        except ImportError as error:
+            self.file_label.config(text=f"the Games tab needs the project's packages (requirements.txt): {error}",
+                                   fg=WARN)
+            return
+        self.source = BgnSource(path)
+        self.file_label.config(text=f"{path.parent.name}/{path.name}", fg=MUTED)
+        self.tree.delete(*self.tree.get_children())
+        self.poll()
+
+    def poll(self) -> None:
+        if self.source is None or not self.source.poll():
+            return
+        records = self.source.records
+        listed = self.tree.get_children()
+        if len(listed) > len(records):  # the file was emptied or replaced: list it again
+            self.tree.delete(*listed)
+            listed = ()
+        for index in range(len(listed), len(records)):
+            record = records[index]
+            created = datetime.fromtimestamp(record.game_id / 1000).strftime("%m-%d %H:%M:%S")
+            self.tree.insert("", 0, iid=str(index), values=(
+                index + 1, created, record.seed, " vs ".join(record.player_names), len(record.entries)))
+        skipped = f", {self.source.skipped} unreadable lines" if self.source.skipped else ""
+        self.file_label.config(text=f"{self.source.path.parent.name}/{self.source.path.name}  "
+                                    f"({len(records)} games{skipped})")
+
+    def pick_game(self) -> None:
+        from beastborn.ui.replay import Replay
+
+        selected = self.tree.selection()
+        if not selected or self.source is None or int(selected[0]) >= len(self.source.records):
+            return
+        record = self.source.records[int(selected[0])]
+        self.pause()
+        self.replay = Replay(record)
+        self.chips = []
+        for child in self.players.winfo_children():
+            child.destroy()
+        for index, name in enumerate(record.player_names):
+            chip = tk.Frame(self.players, background=PANEL, padx=10, pady=6)
+            chip.pack(side="left", padx=(0, 8))
+            tk.Label(chip, text="●", bg=PANEL, fg=PLAYER_COLOURS[index % len(PLAYER_COLOURS)],
+                     font=FONT_TITLE).pack(side="left")
+            label = tk.Label(chip, text=f"P{index + 1} {name}", bg=PANEL, fg=TEXT, font=FONT_TITLE)
+            label.pack(side="left", padx=(4, 10))
+            score = tk.Label(chip, text="", bg=PANEL, fg=MUTED, font=FONT)
+            score.pack(side="left")
+            self.chips.append((chip, label, score))
+        self.show()
+
+    # ---------------------------------------------------------- moving through the game
+    def _key(self, action) -> str | None:
+        """Keyboard shortcuts work only on this tab and not while typing a number."""
+        focus = self.focus_get()
+        if not self.winfo_ismapped() or (focus is not None and focus.winfo_class() in ("TSpinbox", "TEntry")):
+            return None
+        action()
+        return "break"
+
+    def forward(self) -> None:
+        self._move(lambda replay: replay.step())
+
+    def backward(self) -> None:
+        self._move(lambda replay: replay.back())
+
+    def first(self) -> None:
+        self._move(lambda replay: replay.goto(0))
+
+    def last(self) -> None:
+        self._move(lambda replay: replay.goto(replay.length))
+
+    def drag(self, value: str) -> None:
+        if not self._moving_scale and self.replay is not None and round(float(value)) != self.replay.position:
+            self._move(lambda replay: replay.goto(round(float(value))))
+
+    def _move(self, change) -> None:
+        """A step chosen by hand pauses the automatic play."""
+        if self.replay is None:
+            return
+        self.pause()
+        change(self.replay)
+        self.show()
+
+    def toggle_play(self) -> None:
+        if self.replay is None:
+            return
+        if self.playing:
+            self.pause()
+        else:
+            if self.replay.at_end:
+                self.replay.goto(0)
+            self.playing = True
+            self._schedule()
+        self.show()
+
+    def pause(self) -> None:
+        self.playing = False
+        if self._job is not None:
+            self.after_cancel(self._job)
+            self._job = None
+
+    def _schedule(self) -> None:
+        try:
+            delay = max(10, int(self.delay.get()))
+        except (tk.TclError, ValueError):
+            delay = DEFAULT_DELAY_MS
+        self._job = self.after(delay, self._auto_step)
+
+    def _auto_step(self) -> None:
+        self._job = None
+        if not self.playing or self.replay is None:
+            return
+        if not self.replay.step():
+            self.playing = False
+        self.show()
+        if self.playing:
+            self._schedule()
+
+    # ---------------------------------------------------------- drawing
+    def show(self) -> None:
+        """Everything of the chosen game at its current step."""
+        from beastborn.game.bgn import tile_name
+
+        replay = self.replay
+        if replay is None:
+            return
+        view = replay.view
+        over = view.phase.value == "game_over"
+        for (chip, label, score), player, points in zip(self.chips, view.players, replay.scores()):
+            colour = AXIS if not over and player.index == view.active_player else PANEL
+            for widget in (chip, *chip.winfo_children()):
+                widget.config(background=colour)
+            label.config(fg=MUTED if player.eliminated else TEXT)
+            units = len(view.units_of(player.index))
+            score.config(text=f"score {points}   units {units}" + ("   eliminated" if player.eliminated else ""))
+
+        ended, winner = replay.outcome()
+        self.result.config(text=f"Result: {replay.result_text()}",
+                           fg=PLAYER_COLOURS[winner % len(PLAYER_COLOURS)] if ended and winner is not None else TEXT)
+        status = f"Step {replay.position} / {replay.length}   ·   round {view.round}"
+        if replay.position:
+            status += f"   ·   last: {replay.record.entries[replay.position - 1]}"
+        unit = view.unit(view.active_unit) if view.active_unit is not None and not over else None
+        if unit is not None:
+            status += f"   ·   next: P{unit.owner + 1} {unit.name} on {tile_name(unit.position)}"
+        elif over:
+            status += "   ·   game over"
+        if replay.error:
+            status += f"   ·   {replay.error}"
+        self.status.config(text=status, fg=LOSS if replay.error else MUTED)
+
+        self.play_button.config(text="Pause" if self.playing else "Play")
+        self._moving_scale = True
+        self.position.config(to=max(1, replay.length))
+        self.position.set(replay.position)
+        self._moving_scale = False
+
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.insert("end", "\n".join(self._tile_names(line) for line in replay.log))
+        self.log.see("end")
+        self.log.config(state="disabled")
+        self.draw_board()
+
+    _POSITION = re.compile(r"\((\d+),(\d+)\)")
+
+    @classmethod
+    def _tile_names(cls, line: str) -> str:
+        """A log line with tiles as on the board and in BGN: "(1,0)" -> "b1"."""
+        from beastborn.domain.position import Position
+        from beastborn.game.bgn import tile_name
+
+        return cls._POSITION.sub(lambda match: tile_name(Position(int(match[1]), int(match[2]))), line)
+
+    def draw_board(self) -> None:
+        from beastborn.domain.terrain import TerrainType
+        from beastborn.game.bgn import COLUMNS
+        from beastborn.ui.interaction import AttackAnimation, MoveAnimation
+
+        canvas = self.board
+        canvas.delete("all")
+        if self.replay is None:
+            canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, text="Pick a game on the left",
+                               fill=MUTED, font=FONT)
+            return
+        view = self.replay.view
+        board = view.board
+        margin = 22  # room for the tile names
+        cell = max(6.0, min((canvas.winfo_width() - 2 * margin) / board.width,
+                            (canvas.winfo_height() - 2 * margin) / board.height))
+        left = (canvas.winfo_width() - cell * board.width) / 2
+        top = (canvas.winfo_height() - cell * board.height) / 2
+
+        def centre(pos) -> tuple[float, float]:
+            return left + (pos.x + 0.5) * cell, top + (pos.y + 0.5) * cell
+
+        for pos in board.positions():
+            tile = board.tile(pos)
+            base = MUD if tile.terrain is TerrainType.MUD else GRASS
+            x, y = left + pos.x * cell, top + pos.y * cell
+            canvas.create_rectangle(x, y, x + cell, y + cell, outline=PANEL,
+                                    fill=blend(base, HIGH_GROUND, 0.22 * tile.elevation))
+            if tile.elevation:
+                canvas.create_text(x + 3, y + 2, text="▲" * tile.elevation, anchor="nw", fill=BG, font=FONT_SMALL)
+        for x in range(board.width):  # tile names as in BGN: a1 = top-left
+            canvas.create_text(left + (x + 0.5) * cell, top + board.height * cell + 4, text=COLUMNS[x], anchor="n",
+                               fill=MUTED, font=FONT_SMALL)
+        for y in range(board.height):
+            canvas.create_text(left - 6, top + (y + 0.5) * cell, text=str(y + 1), anchor="e", fill=MUTED,
+                               font=FONT_SMALL)
+
+        steps = self.replay.last_actions
+        for step in steps:  # the last move under the units
+            if isinstance(step, MoveAnimation) and len(step.path) > 1:
+                canvas.create_line(*[v for pos in step.path for v in centre(pos)], arrow="last", width=3,
+                                   dash=(6, 4), fill=PLAYER_COLOURS[step.owner % len(PLAYER_COLOURS)])
+
+        over = view.phase.value == "game_over"
+        for unit in view.units:
+            cx, cy = centre(unit.position)
+            if unit.id == view.active_unit and not over:
+                canvas.create_rectangle(cx - cell / 2 + 2, cy - cell / 2 + 2, cx + cell / 2 - 2, cy + cell / 2 - 2,
+                                        outline=ACTIVE, width=3)
+            radius = cell * (0.38 if unit.is_boss else 0.32)
+            canvas.create_oval(cx - radius, cy - radius - cell * 0.06, cx + radius, cy + radius - cell * 0.06,
+                               fill=PLAYER_COLOURS[unit.owner % len(PLAYER_COLOURS)],
+                               outline=BOSS_RING if unit.is_boss else BG, width=3 if unit.is_boss else 1)
+            canvas.create_text(cx, cy - cell * 0.06, text=unit.stats.code, fill="white",
+                               font=("Segoe UI Semibold", max(7, int(cell * 0.28))))
+            bar_left, bar_y, width = cx - cell * 0.38, cy + cell * 0.36, cell * 0.76
+            canvas.create_rectangle(bar_left, bar_y, bar_left + width, bar_y + 4, fill=HP_EMPTY, outline="")
+            canvas.create_rectangle(bar_left, bar_y, bar_left + width * max(0, unit.hp) / unit.stats.hp, bar_y + 4,
+                                    fill=HP_BAR, outline="")
+            if unit.effects:
+                canvas.create_oval(cx + radius - 4, cy - radius - 6, cx + radius + 4, cy - radius + 2, fill=VENOM,
+                                   outline="")
+
+        for step in steps:  # the last attacks over the units
+            if isinstance(step, AttackAnimation):
+                (x1, y1), (x2, y2) = centre(step.source), centre(step.target)
+                canvas.create_line(x1, y1, x2, y2, arrow="last", width=3, fill=LOSS,
+                                   dash=(2, 3) if step.ranged else ())
+                canvas.create_text(x2 + cell * 0.3, y2 - cell * 0.42, text=f"-{step.damage}" +
+                                   (" ✕" if step.killed else ""), fill=LOSS, font=FONT_TITLE)
+
+
 # ====================================================================== the window
 class Monitor(tk.Tk):
     def __init__(self, path: Path | None) -> None:
@@ -393,11 +795,26 @@ class Monitor(tk.Tk):
         style.configure("TButton", background=PANEL, foreground=TEXT, borderwidth=0, padding=(10, 4))
         style.map("TButton", background=[("active", AXIS)])
         style.configure("TSpinbox", fieldbackground=PANEL, foreground=TEXT, arrowcolor=TEXT, background=PANEL)
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(16, 6), borderwidth=0)
+        style.map("TNotebook.Tab", background=[("selected", AXIS)], foreground=[("selected", TEXT)])
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=TEXT, borderwidth=0,
+                        rowheight=22)
+        style.configure("Treeview.Heading", background=BG, foreground=MUTED, borderwidth=0)
+        style.map("Treeview", background=[("selected", AXIS)], foreground=[("selected", TEXT)])
+        style.configure("Horizontal.TScale", background=BG, troughcolor=PANEL)
         self.option_add("*TCombobox*Listbox.background", PANEL)
         self.option_add("*TCombobox*Listbox.foreground", TEXT)
 
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True)
+        training = tk.Frame(self.notebook, background=BG)
+        self.notebook.add(training, text="Training")
+        self.games = GamesTab(self.notebook)
+        self.notebook.add(self.games, text="Games")
+
         # ---- top bar
-        bar = tk.Frame(self, background=BG, padx=14, pady=10)
+        bar = tk.Frame(training, background=BG, padx=14, pady=10)
         bar.pack(fill="x")
         ttk.Button(bar, text="Open file…", command=self.choose_file).pack(side="left")
         self.file_label = tk.Label(bar, text="no file", bg=BG, fg=MUTED, font=FONT)
@@ -421,7 +838,7 @@ class Monitor(tk.Tk):
         self.span.bind("<<ComboboxSelected>>", lambda _e: self.refresh())
 
         # ---- cards
-        cards = tk.Frame(self, background=BG, padx=10)
+        cards = tk.Frame(training, background=BG, padx=10)
         cards.pack(fill="x")
         names = ("Epoch", "Wins", "Losses", "Stopped", "Unit turns", "Score", "Loss value", "Speed")
         self.cards: dict[str, Card] = {}
@@ -432,7 +849,7 @@ class Monitor(tk.Tk):
             self.cards[name] = card
 
         # ---- charts
-        charts = tk.Frame(self, background=BG, padx=10, pady=4)
+        charts = tk.Frame(training, background=BG, padx=10, pady=4)
         charts.pack(fill="both", expand=True)
         self.results = LineChart(charts, "Results per epoch", "%", fixed=(0, 100), digits=0, on_hover=self.hover)
         self.turns = LineChart(charts, "Unit turns per game", on_hover=self.hover)
@@ -446,18 +863,26 @@ class Monitor(tk.Tk):
             charts.rowconfigure(i, weight=1, uniform="charts")
 
         self.window.trace_add("write", lambda *_: self.refresh())
-        path = path or self.find_file()
+        games: Path | None = path if path is not None and path.suffix.lower() == ".bgn" else None
+        path = None if games else path or self.find_file()
         if path:
             self.open(path)
+        games = games or self.find_file(GAMES_CANDIDATES, path.parent if path else None)
+        if games:
+            self.games.open(games)
+            if path is None:
+                self.notebook.select(self.games)
         self.after(POLL_MS, self.poll)
         self.after(1000, self.tick)
 
     # ---------------------------------------------------------- file
     @staticmethod
-    def find_file() -> Path | None:
-        for folder in (Path.cwd(), Path(__file__).resolve().parent, Path(__file__).resolve().parents[1]):
-            for name in CANDIDATES:
-                if (folder / name).is_file():
+    def find_file(names: tuple[str, ...] = CANDIDATES, first: Path | None = None) -> Path | None:
+        """The first of ``names`` in ``first``, the current folder, this folder or the project folder."""
+        folders = (first, Path.cwd(), Path(__file__).resolve().parent, Path(__file__).resolve().parents[1])
+        for folder in folders:
+            for name in names:
+                if folder is not None and (folder / name).is_file():
                     return folder / name
         return None
 
@@ -477,6 +902,7 @@ class Monitor(tk.Tk):
     def poll(self) -> None:
         if self.source is not None and self.source.poll():
             self.refresh()
+        self.games.poll()
         self.after(POLL_MS, self.poll)
 
     # ---------------------------------------------------------- run choice

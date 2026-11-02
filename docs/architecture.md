@@ -101,6 +101,15 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
     changes), so a rollback brings back the very same objects. A rejected or failing command leaves the state as it was.
     Cost: about 8 KB of memory per command (4 players).
   - `AttackCommand(attacker, target, move_to=None)`: gsm will attack target, if needed move is a swell made before attack.
+- Listeners (`listener.py`): a `GameListener` given to `GameStateMachine(state, engine, listeners=[...])` (also
+  `new_game(..., listeners=...)`, `custom_game`) or added with `gsm.add_listener` gets `on_command(gsm, command, result)`
+  after every logged command (the command as logged) and `on_rollback(gsm, command)` after every `rollback`. Bots and
+  strategies submit and roll back while they search, so a listener always sees the same command log as the GSM.
+  `unit_position(unit_id)` is a cheap query for listeners.
+- Recorded games (`bgn.py`, `recorder.py`, format in [bgn.md](bgn.md)): `GameRecorder(gsm)` follows a game made by
+  `new_game` from its first command and `record()` returns a `GameRecord` (seed, board size, player names, one
+  `BgnEntry` per logged command). `GameRecord.to_line()` / `from_line()`, `read_bgn`, `write_bgn`, `append_bgn` read
+  and write `.bgn` files; `replay(record)` plays a record to its end in a new GSM (`record.new_game()`).
 - Map generation (`map_generator.py`) is the only random part. It uses `random.Random(seed)`.
   Every army is the same: a Boss + `BIG_RATS_PER_PLAYER` / `PEASANTS_PER_PLAYER` / `ARCHERS_PER_PLAYER` (`constant.py`).
 
@@ -112,6 +121,10 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
 - `interaction.py` (`Interaction`) holds the hover state and turns intents into commands for the GSM's active unit
   (click an enemy = attack, click a reachable tile = move, `EndTurn` = end the unit's turn). It knows nothing about the web and is unit-tested.
 - `text.py` turns events into log lines.
+- `replay.py` (`Replay`): watching a `GameRecord`. An `Interaction` with a `ReplayController` on every seat plays one
+  entry per `step()`; `back()` and `goto(n)` build the game again and play it up to that entry. `scores()`,
+  `outcome()` / `result_text()` (how the recorded game ends), `error` when an entry does not fit the game. The Games
+  tab of `tools/train_monitor.py` draws it with tkinter.
 
 ### Web client (`beastborn/ui/web`)
 
@@ -195,5 +208,9 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   for the same seed). If processes cannot be used (or a worker dies), the bot logs a warning and searches alone.
   A subclass of the bot (e.g. its own `evaluate`) must be defined at module level to run in worker processes.
 - `PassController` is a trivial example: it ends every unit's turn without acting.
+- `ReplayController(record)` (`replay.py`) plays a recorded game (BGN): its command is the record's entry number
+  `len(gsm.command_log)`, so one controller serves every seat (`ReplayController.for_players(record)` gives the
+  controllers for `Interaction`), a `rollback` makes it play the same entry again, and after the last entry it
+  returns None.
 - Thinking time grows fast with depth and with fights (many actions per unit turn); lower `BOT_SEARCH_DEPTH` if a
   server is too slow.

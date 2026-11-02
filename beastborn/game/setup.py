@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 
 from beastborn import constant as C
 from beastborn.domain.board import Board
@@ -11,6 +12,7 @@ from beastborn.domain.roster import Roster, load_roster
 from beastborn.domain.unit import UnitState, UnitStats
 from beastborn.engine.interface import CalculationEngine
 from beastborn.engine.standard_engine import StandardCalculationEngine
+from beastborn.game.listener import GameListener
 from beastborn.game.map_generator import corner_positions, generate_board, spawn_positions
 from beastborn.game.state import GameState
 from beastborn.game.state_machine import GameStateMachine
@@ -27,10 +29,11 @@ def new_game(
     roster: Roster | None = None,
     player_names: list[str] | None = None,
     start: bool = True,
+    listeners: Sequence[GameListener] = (),
 ) -> GameStateMachine:
     """Random ``width`` x ``height`` map + the same army (see ``make_army``) in each corner.
 
-    The same seed always produces the same map.
+    The same seed always produces the same map. ``listeners``: given to the ``GameStateMachine``.
     """
     engine = engine or StandardCalculationEngine()
     roster = roster or load_roster()
@@ -46,7 +49,7 @@ def new_game(
     state: GameState = GameState(
         board=board, players=make_players(num_players, player_names), units=units, seed=seed
     )
-    return _create_machine(state, engine, start)
+    return _create_machine(state, engine, start, listeners)
 
 
 def custom_game(
@@ -55,6 +58,7 @@ def custom_game(
     num_players: int = C.DEFAULT_PLAYERS,
     engine: CalculationEngine | None = None,
     start: bool = True,
+    listeners: Sequence[GameListener] = (),
 ) -> GameStateMachine:
     """A game on a hand-made board: ``placements`` = [(owner, stats, (x, y)), ...]. For tests and scenarios."""
     engine = engine or StandardCalculationEngine()
@@ -65,7 +69,7 @@ def custom_game(
     state: GameState = GameState(
         board=board, players=make_players(num_players), units=units
     )
-    return _create_machine(state, engine, start)
+    return _create_machine(state, engine, start, listeners)
 
 
 def make_army(roster: Roster) -> list[UnitStats]:
@@ -111,8 +115,10 @@ def make_unit(unit_id: int, owner: int, stats: UnitStats, pos: Position, engine:
     )
 
 
-def _create_machine(state: GameState, engine: CalculationEngine, start: bool) -> GameStateMachine:
-    gsm: GameStateMachine = GameStateMachine(state, engine)
+def _create_machine(
+    state: GameState, engine: CalculationEngine, start: bool, listeners: Sequence[GameListener]
+) -> GameStateMachine:
+    gsm: GameStateMachine = GameStateMachine(state, engine, listeners)
     if start:
         gsm.start()
     return gsm

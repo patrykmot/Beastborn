@@ -12,6 +12,9 @@ more (the GSM ends its turn) or ``EndTurnCommand`` ends it. When every unit has 
 ``rollback`` undoes the last command exactly. Which whole turns the active unit can play is found by a
 ``FindActionStrategy`` (beastborn/control/find_action_strategy.py) with the queries in "possible actions" below:
 ``reachable_tiles``, ``attack_commands``, ``turn_situation``, ``turn_over`` and ``version``.
+
+``GameListener``s (game/listener.py) are told about every logged command and every rollback, e.g. ``GameRecorder``
+(game/recorder.py), which writes the game in Beastborn Game Notation (game/bgn.py).
 """
 from __future__ import annotations
 
@@ -33,6 +36,7 @@ from beastborn.game.attack_plan import AttackPlan
 from beastborn.game.commands import (
     AttackCommand, Command, CommandResult, CommandType, EndTurnCommand, MoveCommand, WrapperCommand,
 )
+from beastborn.game.listener import GameListener
 from beastborn.game.pathfinding import PathInfo, reachable
 from beastborn.game.state import GameState, Phase
 from beastborn.game.view import GameView, PlayerView, UnitView
@@ -42,9 +46,10 @@ _OUT_OF_REACH: str = "Target is out of range and cannot be reached this turn"
 
 
 class GameStateMachine:
-    def __init__(self, state: GameState, engine: CalculationEngine):
+    def __init__(self, state: GameState, engine: CalculationEngine, listeners: Sequence[GameListener] = ()):
         self._state: GameState = state
         self._engine: CalculationEngine = engine
+        self._listeners: list[GameListener] = list(listeners)  # told about every logged command and rollback
         self.command_log: list[Command] = []  # with the seed this is enough to replay a game
         # _history[i] = (state before command_log[i], its version): what ``rollback`` goes back to
         self._history: list[tuple[GameState, int]] = []
@@ -84,6 +89,14 @@ class GameStateMachine:
         self._state.round = 1
         return [ev.RoundStarted(1), *self._next_turn()]
 
+    # ------------------------------------------------------------------ listeners
+    def add_listener(self, listener: GameListener) -> None:
+        """From now on ``listener`` is told about every logged command and every rollback."""
+        self._listeners.append(listener)
+
+    def remove_listener(self, listener: GameListener) -> None:
+        self._listeners.remove(listener)
+
     # ------------------------------------------------------------------ queries
     def view(self) -> GameView:
         s: GameState = self._state
@@ -103,6 +116,11 @@ class GameStateMachine:
         )
         players: tuple[PlayerView, ...] = tuple(PlayerView(p.index, p.name, p.eliminated) for p in s.players)
         return GameView(s.board, units, players, s.active_player, s.active_unit, s.round, s.phase, s.winner, s.seed)
+
+    def unit_position(self, unit_id: int) -> Position | None:
+        """The tile a unit stands on (None if it is not on the board)."""
+        unit: UnitState | None = self._state.units.get(unit_id)
+        return unit.position if unit is not None else None
 
     def reachable_tiles(self, unit_id: int) -> dict[Position, PathInfo]:
         """Where the active unit can move this turn (empty for any other unit)."""
@@ -163,7 +181,9 @@ class GameStateMachine:
 
     # ------------------------------------------------------------------ commands
     def submit(self, command: Command) -> CommandResult:
-        """Run a command for the active unit. A command that changed the state is added to ``command_log``."""
+        """Run a command for the active unit. A command that changed the state is added to ``command_log``
+        (and the listeners are told).
+        """
         if self._state.phase is not Phase.AWAITING_COMMAND:
             return CommandResult.rejected(f"Game is not accepting commands (phase: {self._state.phase.value})")
         if not isinstance(command, Command):
@@ -186,6 +206,8 @@ class GameStateMachine:
             self.command_log.append(logged)
             self._history.append((before, self._version))
             self._version = next(self._new_versions)
+            for listener in self._listeners:
+                listener.on_command(self, logged, result)
         return result
 
     def rollback(self) -> Command | None:
@@ -198,7 +220,10 @@ class GameStateMachine:
         if not self._history:
             return None
         self._state, self._version = self._history.pop()
-        return self.command_log.pop()
+        command: Command = self.command_log.pop()
+        for listener in self._listeners:
+            listener.on_rollback(self, command)
+        return command
 
     def _run(self, command: Command) -> tuple[CommandResult, Command | None]:
         """Run one command (not a wrapper). Returns the result and the command to log (None = nothing changed).

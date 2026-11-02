@@ -35,6 +35,10 @@ Every epoch also appends one row to ``--csv`` (default train_ai_bot.csv, ``--csv
 turns (all games, won ones, lost ones), mean score, mean loss, memory, training steps and seconds. The file is
 opened, written and closed once per epoch, so it costs nothing next to the games. ``tools/train_monitor.py`` shows
 it as live charts.
+
+Every game is also recorded in Beastborn Game Notation (``beastborn/game/bgn.py``) and appended to ``--bgn``
+(default train_ai_bot.bgn, ``--bgn ""`` = none) when it ends: one line per game, players named Learner and Opponent.
+The file is emptied when training starts. The Games tab of ``tools/train_monitor.py`` replays these games.
 """
 from __future__ import annotations
 
@@ -61,7 +65,8 @@ from beastborn.control import (  # noqa: E402
 )
 from beastborn.control import ai_find_action_strategy as ai  # noqa: E402
 from beastborn.control.ai_find_action_strategy import Ranked, score_difference, scale_score_for_ai  # noqa: E402
-from beastborn.game import Phase, new_game, Command, GameStateMachine  # noqa: E402
+from beastborn.game import GameRecorder, Phase, new_game  # noqa: E402
+from beastborn.game.bgn import append_bgn  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
 from beastborn.game.state_machine import GameStateMachine  # noqa: E402
 
@@ -70,6 +75,8 @@ log: logging.Logger = logging.getLogger("train_ai_bot")
 OPPONENTS: tuple[str, ...] = ("random", "ai")
 SUMMARY_EVERY: int = 10  # games per summary line
 DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the ai opponent is refreshed after each one
+LEARNER_NAME: str = "Learner"  # player names in the recorded games (--bgn)
+OPPONENT_NAME: str = "Opponent"
 CSV_COLUMNS: tuple[str, ...] = (  # one row per epoch in --csv (read by tools/train_monitor.py)
     "run", "time", "epoch", "epochs", "games", "wins", "losses", "draws", "stopped",
     "unit_turns", "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds",
@@ -104,12 +111,13 @@ def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
     log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON, epochs: int = DEFAULT_EPOCHS,
-    csv_file: Path | None = None,
+    csv_file: Path | None = None, bgn_file: Path | None = None,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
     After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
     ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
+    ``bgn_file``: emptied now, then every game is appended to it in BGN when it ends (None = no file).
     """
     if opponent not in OPPONENTS:
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
@@ -133,6 +141,8 @@ def train(
                  save_every, out)
         log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
+        if bgn_file is not None:
+            bgn_file = _new_bgn_file(Path(bgn_file))
 
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
@@ -144,7 +154,7 @@ def train(
                 for index in range(games):
                     warming: bool = len(learner.memory) < train_from
                     played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
-                                        summary, train=not warming))
+                                        summary, train=not warming, bgn_file=bgn_file))
                     if warming and len(learner.memory) >= train_from:
                         log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
@@ -177,11 +187,17 @@ def train(
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
           opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, epsilon: float,
-          summary: Summary,  train: bool = True) -> GameResult:
-    """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it."""
+          summary: Summary, train: bool = True, bgn_file: Path | None = None) -> GameResult:
+    """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it.
+
+    ``bgn_file``: the game is appended to it in BGN when it ends.
+    """
     started: float = time.perf_counter()
-    gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE)
     seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
+    names: list[str] = [LEARNER_NAME, OPPONENT_NAME] if seat == 0 else [OPPONENT_NAME, LEARNER_NAME]
+    gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE,
+                                     player_names=names)
+    recorder: GameRecorder | None = GameRecorder(gsm) if bgn_file is not None else None
     everything = AllFindActionStrategy()
     pending: Ranked | None = None  # the learner's last afterstate
     losses: list[float] = []
@@ -201,6 +217,8 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         pending = ranked[0] if rng.random() >= epsilon else rng.choice(ranked)
         _submit(gsm, pending.action)
 
+    if recorder is not None and bgn_file is not None:
+        _append_bgn(bgn_file, recorder)
     winner: int | None = gsm.view().winner if gsm.phase is Phase.GAME_OVER else None
     result: str
     bonus: float
@@ -326,6 +344,25 @@ def _append_csv(csv_file: Path, run: str, epoch: int, epochs: int, played: list[
         log.warning("Could not write %s: %s", csv_file, error)
 
 
+def _new_bgn_file(bgn_file: Path) -> Path | None:
+    """An empty ``bgn_file`` for this run (None = it cannot be written: no games are recorded)."""
+    try:
+        bgn_file.write_text("", encoding="utf-8")
+    except OSError as error:
+        log.warning("Could not create %s, games are not recorded: %s", bgn_file, error)
+        return None
+    log.info("Games are recorded in %s", bgn_file)
+    return bgn_file
+
+
+def _append_bgn(bgn_file: Path, recorder: GameRecorder) -> None:
+    """Append the recorder's game to ``bgn_file``. Never stops training."""
+    try:
+        append_bgn(bgn_file, recorder.record())
+    except OSError as error:  # e.g. the file is locked: skip this game, keep training
+        log.warning("Could not write %s: %s", bgn_file, error)
+
+
 def _log_to_file(log_file: Path | None) -> logging.Handler | None:
     log.setLevel(logging.INFO)
     if log_file is None:
@@ -352,10 +389,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--log", type=Path, default=Path("train_ai_bot.log"), help="log file")
     parser.add_argument("--csv", default="train_ai_bot.csv",
                         help='epoch statistics, one row per epoch, for tools/train_monitor.py ("" = none)')
+    parser.add_argument("--bgn", default="train_ai_bot.bgn",
+                        help='every game in BGN, emptied at the start, for tools/train_monitor.py ("" = none)')
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
     train(args.games, args.opponent, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
-          args.max_turns, args.log, epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None)
+          args.max_turns, args.log, epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None,
+          bgn_file=Path(args.bgn) if args.bgn else None)
 
 
 if __name__ == "__main__":

@@ -57,7 +57,13 @@ python tools/train_ai_bot.py --games 200 --opponent ai --load beastborn/data/ai_
 ```
 
 The weights are saved to `beastborn/data/ai_bot.safetensors` every 10 games, at the end and on Ctrl+C; the last log
-line tells you how to continue (`--load ... --seed ...`). tinygrad (0.11.0, the newest for Python 3.10) runs its CPU device with
+line tells you how to continue (`--load ... --seed ...`). Every game is recorded in `train_ai_bot.bgn`
+(Beastborn Game Notation, one game per line, see [docs/bgn.md](docs/bgn.md); emptied when training starts,
+`--bgn ""` = off).
+
+Watch the training with `python tools/train_monitor.py`: the Training tab charts the epochs, the Games tab replays the
+recorded games (pick one; step forwards and backwards with the buttons or the arrow keys, Space plays and pauses),
+with each player's score and the result. tinygrad (0.11.0, the newest for Python 3.10) runs its CPU device with
 `clang`: it must be on the PATH (Windows: install LLVM, which includes clang), or name it with the `CC` environment
 variable. The AI tests need it too; the rest of the game does not. Details: `docs/architecture.md`, Bots.
 
@@ -91,15 +97,17 @@ variable. The AI tests need it too; the rest of the game does not. Details: `doc
 beastborn/
   domain/    pure data: Position, Tile, Board, UnitStats/UnitState, effects, roster loader
   engine/    Calculation Engine (CE): interface + StandardCalculationEngine (numbers in constant.py)
-  game/      Game State Machine (GSM): state, commands, events, pathfinding, map generator, setup
-  control/   player controllers: human, and the alpha-beta bot (bot.py, bot_voice.py), AI move ordering
-  ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py)
+  game/      Game State Machine (GSM): state, commands, events, listeners, pathfinding, map generator, setup,
+             BGN game records (bgn.py, recorder.py)
+  control/   player controllers: human, the alpha-beta bot (bot.py, bot_voice.py), AI move ordering, replay of a record
+  ui/        frontend-neutral intents + presenter (interface.py, interaction.py, text.py), replay.py (watch a record)
     web/     Flask backend (sessions, JSON API) + static/ page (jQuery + Bootstrap)
   data/      units.json, bot_lines.json, ai_bot.safetensors (AI network weights)
   reports/   report.py - desktop balance report (tkinter)
 tests/       pytest suite (engine, GSM, map, UI, web API, balance report, architecture rules)
-tools/       fetch_assets.py - re-downloads vendor libraries and icons; train_ai_bot.py - trains the AI network
-docs/        architecture.md
+tools/       fetch_assets.py - re-downloads vendor libraries and icons; train_ai_bot.py - trains the AI network;
+             train_monitor.py - training charts and recorded games
+docs/        architecture.md, bgn.md (game record format)
 main.py      entry point (local web server)
 gercio_eu_pythonanywhere_com_wsgi.py   PythonAnywhere WSGI entry point (production)
 ```

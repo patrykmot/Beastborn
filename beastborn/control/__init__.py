@@ -6,8 +6,10 @@ from beastborn.control.controller import HumanController, PassController, Player
 from beastborn.control.find_action_strategy import (
     AllFindActionStrategy, FindActionStrategy, RandomAllFindActionStrategy,
 )
+from beastborn.control.replay import ReplayController
 
 __all__ = [
     "AIFindActionStrategy", "AIMode", "AllFindActionStrategy", "BotPlayerController", "BotVoice", "FindActionStrategy",
-    "HumanController", "Mood", "PassController", "PlayerController", "RandomAllFindActionStrategy", "load_bot_lines",
+    "HumanController", "Mood", "PassController", "PlayerController", "RandomAllFindActionStrategy", "ReplayController",
+    "load_bot_lines",
 ]
