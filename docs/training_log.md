@@ -20,3 +20,8 @@ Looks kind of better. The idea to improve is to AI_STEP_COST should be scaled wi
 Looks much better with Cosine Annealing with Warm Restarts implemented!
 
 ![img.png](pic/img_5.png)
+
+
+# Results of training (2026.11.3 22:12)
+Looks much better with Cosine Annealing with Warm Restarts implemented!
+![img.png](img.png)
