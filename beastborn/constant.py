@@ -162,6 +162,10 @@ AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / 
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
 AI_GAMMA: Final[float] = 0.95  # discount of the next afterstate's value (low = only rewards a few turns away count)
 AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
+# training: epsilon by Cosine Annealing with Warm Restarts (tools/train_ai_bot.py), one step = one game
+AI_EPSILON_MIN: Final[float] = 0.01  # least randomness, reached at the end of a cycle
+AI_EPSILON_MAX: Final[float] = 0.99  # most randomness, at the start of every cycle (after each warm restart)
+AI_EPSILON_CYCLE_EPOCHS: Final[int] = 20  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10 epochs
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
 AI_MEMORY_SIZE: Final[int] = 100_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step

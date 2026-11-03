@@ -274,3 +274,15 @@ def test_training_script_plays_saves_and_logs(tmp_path):
     assert "game 1/2 seed" in text and "game 2/2 seed" in text and "--load" in text  # the map seed is fixed now
     again = train(games=1, opponent="ai", load=out, out=out, log_file=None, max_turns=6, epochs=1)  # continue
     assert again.games == 1
+
+
+def test_cosine_annealing_epsilon_falls_from_max_to_min_and_restarts():
+    from tools.train_ai_bot import cosine_annealing_epsilon
+
+    cycle = 100  # T_i
+    assert cosine_annealing_epsilon(0, cycle) == pytest.approx(C.AI_EPSILON_MAX)  # cycle start: most random
+    assert cosine_annealing_epsilon(50, cycle) == pytest.approx((C.AI_EPSILON_MAX + C.AI_EPSILON_MIN) / 2)  # half way
+    assert cosine_annealing_epsilon(99, cycle) == pytest.approx(C.AI_EPSILON_MIN, abs=1e-3)  # cycle end: least random
+    assert cosine_annealing_epsilon(100, cycle) == pytest.approx(C.AI_EPSILON_MAX)  # warm restart: T_cur is 0 again
+    values = [cosine_annealing_epsilon(game, cycle) for game in range(cycle)]
+    assert values == sorted(values, reverse=True)  # never rises inside a cycle

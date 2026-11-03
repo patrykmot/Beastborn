@@ -13,9 +13,13 @@ gets smarter epoch by epoch. Each epoch ends with one summary line in the log.
 
 The learner (a LEARNING ``AIFindActionStrategy``) plays one side of 10x10 games: P1 in even games, P2 in odd ones,
 so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays its best afterstate, or a random
-action with probability ``AI_EPSILON``. Equally good actions come in random order (base strategy
-``RandomAllFindActionStrategy``, repeatable for the seed): with a fixed order the first one, waiting, would always win
-the tie, and a new network (all moves worth 0) would never walk towards the enemy. The opponent is ``random`` (a
+action with probability epsilon. Epsilon follows Cosine Annealing with Warm Restarts (``cosine_annealing_epsilon``):
+it starts each cycle at AI_EPSILON_MAX, falls along a half cosine to AI_EPSILON_MIN and jumps back to AI_EPSILON_MAX
+when a cycle of ``total_games_number`` games is over (default games x AI_EPSILON_CYCLE_EPOCHS: a cycle lasts that
+many epochs and restarts together with a new epoch), so the learner keeps trying other moves instead of sticking to
+one tactic. Equally good actions come in random order (base strategy ``RandomAllFindActionStrategy``, repeatable
+for the seed): with a fixed order the first one, waiting, would always win the tie, and a new network (all moves
+worth 0) would never walk towards the enemy. The opponent is ``random`` (a
 random legal turn) or ``ai`` (a frozen WORKING copy loaded from ``--opponent-weights``, default the ``--load`` file;
 without a file: a new network = best score).
 
@@ -45,6 +49,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import math
 import random
 import sys
 import time
@@ -107,14 +112,31 @@ class Summary:
     next_seed: int = 0
 
 
+def cosine_annealing_epsilon(games_played: int, total_games_number: int, epsilon_min: float = C.AI_EPSILON_MIN,
+                             epsilon_max: float = C.AI_EPSILON_MAX) -> float:
+    """Epsilon for the next game by Cosine Annealing with Warm Restarts.
+
+    eps_t = eps_min + 1/2 (eps_max - eps_min) (1 + cos(T_cur / T_i * pi)), with T_i = ``total_games_number`` (games
+    in one cycle) and T_cur = games played since the last restart (``games_played`` % T_i, so it is 0 again when a
+    new cycle starts).
+    """
+    if total_games_number < 1:
+        raise ValueError("total_games_number must be at least 1")
+    t_cur: int = games_played % total_games_number
+    return epsilon_min + 0.5 * (epsilon_max - epsilon_min) * (1 + math.cos((t_cur / total_games_number) * math.pi))
+
+
 def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
-    log_file: Path | None = Path("train_ai_bot.log"), epsilon: float = C.AI_EPSILON, epochs: int = DEFAULT_EPOCHS,
-    csv_file: Path | None = None, bgn_file: Path | None = None,
+    log_file: Path | None = Path("train_ai_bot.log"), epochs: int = DEFAULT_EPOCHS,
+    csv_file: Path | None = None, bgn_file: Path | None = None, epsilon_min: float = C.AI_EPSILON_MIN,
+    epsilon_max: float = C.AI_EPSILON_MAX, total_games_number: int | None = None,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
+    Epsilon of each game: ``cosine_annealing_epsilon`` from ``epsilon_max`` down to ``epsilon_min`` over a cycle of
+    ``total_games_number`` games (None = games x AI_EPSILON_CYCLE_EPOCHS, i.e. that many epochs), then a warm restart.
     After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
     ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
     ``bgn_file``: emptied now, then every game is appended to it in BGN when it ends (None = no file).
@@ -123,6 +145,8 @@ def train(
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
+    if total_games_number is None:
+        total_games_number = games * C.AI_EPSILON_CYCLE_EPOCHS  # one cycle = AI_EPSILON_CYCLE_EPOCHS epochs
     opponent_file: Path = (Path(opponent_weights) if opponent_weights is not None
                            else Path(out).with_name(Path(out).stem + ".opponent.safetensors"))
     handler: logging.Handler | None = _log_to_file(log_file)
@@ -135,10 +159,10 @@ def train(
             frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
                                           base=RandomAllFindActionStrategy(random.Random(rng.random())))
         train_from: int = C.AI_WARMUP_MEMORY
-        log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, epsilon %.2f, "
-                 "save every %d to %s", epochs, games, seed, opponent,
-                 f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns, epsilon,
-                 save_every, out)
+        log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, "
+                 "epsilon %.2f..%.2f (cosine, restart every %d games), save every %d to %s", epochs, games, seed,
+                 opponent, f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns,
+                 epsilon_max, epsilon_min, total_games_number, save_every, out)
         log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         if bgn_file is not None:
@@ -153,6 +177,8 @@ def train(
                 played: list[GameResult] = []
                 for index in range(games):
                     warming: bool = len(learner.memory) < train_from
+                    epsilon: float = cosine_annealing_epsilon(summary.games, total_games_number, epsilon_min,
+                                                              epsilon_max)
                     played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
                                         summary, train=not warming, bgn_file=bgn_file))
                     if warming and len(learner.memory) >= train_from:
@@ -161,19 +187,18 @@ def train(
                     if summary.games % SUMMARY_EVERY == 0:
                         _log_summary(summary)
                     if summary.games % save_every == 0:
-                        log.info("Saved %s", learner.save(out))
+                        _save(learner, out)
                 seconds: float = time.perf_counter() - epoch_started
                 _log_epoch(epoch, epochs, played, len(learner.memory), seconds)
                 if csv_file is not None:
                     _append_csv(csv_file, run, epoch, epochs, played, len(learner.memory), summary.steps, seconds)
-                if frozen is not None:  # a smarter opponent for the next epoch: the learner as it is now
-                    learner.save(opponent_file)
+                if frozen is not None and _save(learner, opponent_file):  # a smarter opponent: the learner now
                     frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
                                                   base=RandomAllFindActionStrategy(random.Random(rng.random())))
                     log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
         except KeyboardInterrupt:
             log.info("Stopped by Ctrl+C after %d games", summary.games)
-        log.info("Saved %s", learner.save(out))
+        _save(learner, out)
         log.info("Done: %d games (%d wins, %d losses, %d draws, %d stopped), %d training steps, %.0f s",
                  summary.games, summary.wins, summary.losses, summary.draws, summary.stopped, summary.steps,
                  time.perf_counter() - started)
@@ -256,9 +281,9 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
     log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
-             "loss %s (%d steps), memory %d, training = "+ str(train)+", %.1f s",
+             "loss %s (%d steps), memory %d, epsilon %.3f, training = "+ str(train)+", %.1f s",
              epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
-             mean_loss, len(losses), len(learner.memory), time.perf_counter() - started)
+             mean_loss, len(losses), len(learner.memory), epsilon, time.perf_counter() - started)
     return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
 
 
@@ -289,6 +314,17 @@ def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
         return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
     else:
         return rng.choice(everything.find_all_possible_actions(gsm))
+
+
+def _save(learner: AIFindActionStrategy, path: Path) -> bool:
+    """Save the learner's weights to ``path``; False (and a warning) when the file cannot be written. Never stops
+    training: the next save tries again."""
+    try:
+        log.info("Saved %s", learner.save(path))
+        return True
+    except OSError as error:  # e.g. Windows: the file stayed open in another program
+        log.warning("Could not save %s (the new weights are in %s.tmp): %s", path, Path(path).name, error)
+        return False
 
 
 def _submit(gsm: GameStateMachine, action: Command) -> None:

@@ -33,6 +33,7 @@ import logging
 import os
 import random
 import threading
+import time
 import weakref
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -130,6 +131,10 @@ def _on_tinygrad_thread(function: Callable[_P, _R]) -> Callable[_P, _R]:
 # device, which memory-maps the file and keeps it open, so on Windows the next save of the same file fails
 # (WinError 32, "the file is used by another process").
 _SAFETENSORS_F32: str = "F32"
+# Windows: putting the new file in place fails (WinError 5 / 32) while another program has the old one open for a
+# moment (antivirus, search indexer, IDE, a bot loading it), so it is tried again a few times before giving up.
+_REPLACE_TRIES: int = 10
+_REPLACE_WAIT: float = 0.1  # seconds before the 1st retry, 0.2 before the 2nd, ... (4.5 s in all)
 
 
 def write_weights(path: Path, tensors: dict[str, Tensor]) -> None:
@@ -149,7 +154,14 @@ def write_weights(path: Path, tensors: dict[str, Tensor]) -> None:
         file.write(text)
         for array in arrays.values():
             file.write(array.tobytes())
-    os.replace(temporary, path)  # a save stopped half-way never leaves a broken weights file
+    for attempt in range(1, _REPLACE_TRIES + 1):
+        try:
+            os.replace(temporary, path)  # a save stopped half-way never leaves a broken weights file
+            return
+        except PermissionError:  # the file is open elsewhere for a moment (Windows): wait, try again
+            if attempt == _REPLACE_TRIES:
+                raise  # the new weights stay in ``temporary``
+            time.sleep(_REPLACE_WAIT * attempt)
 
 
 def read_weights(path: Path) -> dict[str, Tensor]:

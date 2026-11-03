@@ -15,3 +15,8 @@ Does not look good at all. Added additional layers for Conv2D.
 ![img.png](pic/img_4.png)
 
 Looks kind of better. The idea to improve is to AI_STEP_COST should be scaled with leaving units!.
+
+# Results of training (2026.11.3)
+Looks much better with Cosine Annealing with Warm Restarts implemented!
+
+![img.png](pic/img_5.png)
