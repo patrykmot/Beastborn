@@ -25,3 +25,7 @@ Looks much better with Cosine Annealing with Warm Restarts implemented!
 # Results of training (2026.11.3 22:12)
 Looks much better with Cosine Annealing with Warm Restarts implemented!
 ![img.png](img.png)
+
+# Results of training (2026.11.4 22:12)
+Looks even better! :)
+![img_1.png](pic/img_6.png)

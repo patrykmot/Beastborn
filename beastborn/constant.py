@@ -118,8 +118,8 @@ SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of 
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 3  # unit turns the bot searches ahead (one ply = one whole unit turn)
-AI_MAX_RETURNED_COMMANDS: Final[int | None] = 1  # find_all_possible_actions returns only the best N (None = all)
+BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
+AI_MAX_RETURNED_COMMANDS: Final[int | None] = 3  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
 MAX_BOTS: Final[int] = 1  # bots per game
@@ -161,7 +161,7 @@ AI_BLOCKS: Final[int] = 3  # residual blocks
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
 AI_GAMMA: Final[float] = 0.98  # discount of the next afterstate's value (low = only rewards a few turns away count)
-AI_EPSILON: Final[float] = 0.05  # training: chance of a random action instead of the best one
+AI_EPSILON: Final[float] = 0.01  # training: chance of a random action instead of the best one
 # training: epsilon by Cosine Annealing with Warm Restarts (tools/train_ai_bot.py), one step = one game
 AI_EPSILON_MIN: Final[float] = 0.0001  # least randomness, reached at the end of a cycle
 AI_EPSILON_MAX: Final[float] = 0.99  # most randomness, at the start of every cycle (after each warm restart)

@@ -23,6 +23,10 @@ Games tab: the games of a ``.bgn`` file (Beastborn Game Notation, ``beastborn/ga
 one command of the game (a whole unit turn for the bots), forwards, backwards, or played automatically. The board
 shows the last step's move (dashed line) and attacks (red arrow); above it each player's score and the result.
 Keys: Right / Left = step, Space = play / pause, Home / End = start / end.
+"Epoch" above the list shows only the games of one epoch. The epoch of each game comes from the statistics file of
+the Training tab: the trainer empties the .bgn file when a run starts and appends its games in order, so the run's
+rows (found by the time of its first game) and their "games" counts tell which epoch played which game. Games after
+the run's last row belong to an epoch that is still being played (or was stopped).
 """
 from __future__ import annotations
 
@@ -441,12 +445,53 @@ class BgnSource:
         return replaced or len(self.records) != before
 
 
+def game_epochs(records: list, runs: dict[str, list[Row]]) -> tuple[list[int | None], int]:
+    """The epoch that played each game of ``records`` (None = unknown), and the last epoch with a statistics row.
+
+    The run is the newest one of ``runs`` that started before the first game and whose first epoch ended after it
+    (the trainer empties the .bgn file when a run starts). Its rows' "games" counts split the games in file order;
+    games after the last row belong to the epoch(s) being played.
+    """
+    unknown: tuple[list[int | None], int] = [None] * len(records), 0
+    if not records or not runs:
+        return unknown
+    first: float = records[0].game_id / 1000
+    best_start: float | None = None
+    rows: list[Row] = []
+    for name, run_rows in runs.items():
+        start = _parse_time(name)
+        if run_rows and start is not None and start <= first + 1 and (best_start is None or start >= best_start):
+            best_start, rows = start, run_rows
+    rows = [row for row in rows if row["epoch"] is not None and row["games"]]
+    ended = _parse_time(rows[0]["time"]) if rows else None
+    if not rows or ended is None or ended + 1 < first:  # the games are not from a run in the statistics file
+        return unknown
+    epochs: list[int | None] = []
+    for row in rows:
+        epochs.extend([int(row["epoch"])] * min(int(row["games"]), len(records) - len(epochs)))
+        if len(epochs) >= len(records):
+            break
+    finished: int = int(rows[-1]["epoch"])
+    per_epoch: int = int(rows[-1]["games"])
+    for extra in range(len(records) - len(epochs)):
+        epochs.append(finished + 1 + extra // per_epoch)
+    return epochs, finished
+
+
 class GamesTab(tk.Frame):
     """Pick a recorded game (BGN) on the left and watch it on the right: step by step, backwards or playing."""
 
-    def __init__(self, master: tk.Misc) -> None:
+    def __init__(self, master: tk.Misc, stats=lambda: None) -> None:
+        """``stats``: returns the Training tab's Source (or None); its rows tell which epoch played each game."""
         super().__init__(master, background=BG)
         self.source: BgnSource | None = None
+        self.stats = stats
+        self.epochs: list[int | None] = []  # per game of self.source.records: the epoch that played it
+        self.finished: int = 0  # the last epoch with a statistics row (later ones are still being played)
+        self.epoch_filter: int | None = None  # list only the games of this epoch (None = all)
+        self.epoch_choices: list[int | None] = [None]  # what each entry of the Epoch box stands for
+        self._records: list | None = None  # the records list that is listed (a new one = the file was replaced)
+        self._listed: int = 0  # games of self._records already considered for the list
         self.replay = None  # beastborn.ui.replay.Replay of the chosen game
         self.playing: bool = False
         self._job: str | None = None  # the next automatic step (after id)
@@ -467,7 +512,16 @@ class GamesTab(tk.Frame):
         # ---- the list of games, newest first
         listing = tk.Frame(body, background=BG)
         listing.grid(row=0, column=0, sticky="nsw", padx=(4, 10))
-        columns = (("number", "#", 44), ("created", "Created", 112), ("seed", "Seed", 60),
+        filters = tk.Frame(listing, background=BG)
+        filters.pack(side="top", fill="x", pady=(0, 6))
+        tk.Label(filters, text="Epoch", bg=BG, fg=MUTED, font=FONT).pack(side="left")
+        self.epoch_box = ttk.Combobox(filters, state="readonly", width=30, values=("all epochs",))
+        self.epoch_box.current(0)
+        self.epoch_box.pack(side="left", padx=(6, 10))
+        self.epoch_box.bind("<<ComboboxSelected>>", lambda _e: self.pick_epoch())
+        self.shown_label = tk.Label(filters, text="", bg=BG, fg=MUTED, font=FONT_SMALL, anchor="w")
+        self.shown_label.pack(side="left", fill="x", expand=True)
+        columns = (("number", "#", 44), ("epoch", "Epoch", 50), ("created", "Created", 112), ("seed", "Seed", 60),
                    ("players", "Players", 150), ("commands", "Steps", 50))
         self.tree = ttk.Treeview(listing, columns=[c[0] for c in columns], show="headings", selectmode="browse")
         for name, title, width in columns:
@@ -536,24 +590,86 @@ class GamesTab(tk.Frame):
         self.source = BgnSource(path)
         self.file_label.config(text=f"{path.parent.name}/{path.name}", fg=MUTED)
         self.tree.delete(*self.tree.get_children())
+        self._records, self._listed, self.epochs, self.finished = None, 0, [], 0
         self.poll()
 
     def poll(self) -> None:
-        if self.source is None or not self.source.poll():
+        """New games of the file, and the epochs of the games as the statistics file grows."""
+        if self.source is None:
             return
+        changed: bool = self.source.poll()
         records = self.source.records
-        listed = self.tree.get_children()
-        if len(listed) > len(records):  # the file was emptied or replaced: list it again
-            self.tree.delete(*listed)
-            listed = ()
-        for index in range(len(listed), len(records)):
-            record = records[index]
-            created = datetime.fromtimestamp(record.game_id / 1000).strftime("%m-%d %H:%M:%S")
-            self.tree.insert("", 0, iid=str(index), values=(
-                index + 1, created, record.seed, " vs ".join(record.player_names), len(record.entries)))
+        stats = self.stats()
+        epochs, finished = game_epochs(records, stats.runs if stats is not None else {})
+        if not changed and records is self._records and epochs == self.epochs and finished == self.finished:
+            return
+        # list again when the file was replaced or the epochs of games already listed changed
+        relist: bool = records is not self._records or epochs[:len(self.epochs)] != self.epochs
+        self._records, self.epochs, self.finished = records, epochs, finished
+        relist = self._fill_epoch_box() or relist
+        if relist:
+            self.tree.delete(*self.tree.get_children())
+            self._listed = 0
+        self._add_games()
         skipped = f", {self.source.skipped} unreadable lines" if self.source.skipped else ""
         self.file_label.config(text=f"{self.source.path.parent.name}/{self.source.path.name}  "
                                     f"({len(records)} games{skipped})")
+
+    def _add_games(self) -> None:
+        """List the games not considered yet that pass the epoch filter (newest first), and count what is shown."""
+        records = self.source.records if self.source is not None else []
+        for index in range(self._listed, len(records)):
+            epoch = self.epochs[index] if index < len(self.epochs) else None
+            if self.epoch_filter is not None and epoch != self.epoch_filter:
+                continue
+            record = records[index]
+            created = datetime.fromtimestamp(record.game_id / 1000).strftime("%m-%d %H:%M:%S")
+            self.tree.insert("", 0, iid=str(index), values=(
+                index + 1, "" if epoch is None else epoch, created, record.seed, " vs ".join(record.player_names),
+                len(record.entries)))
+        self._listed = len(records)
+        if self.replay is not None and not self.tree.selection():  # the game being watched stays selected
+            shown = next((str(i) for i, r in enumerate(records) if r is self.replay.record), None)
+            if shown is not None and self.tree.exists(shown):
+                self.tree.selection_set(shown)
+                self.tree.see(shown)
+        if records and all(epoch is None for epoch in self.epochs):
+            self.shown_label.config(text="epochs unknown: no statistics of this run", fg=WARN)
+        else:
+            self.shown_label.config(text=f"{len(self.tree.get_children())} of {len(records)} games", fg=MUTED)
+
+    def _fill_epoch_box(self) -> bool:
+        """The Epoch box: all epochs, then every epoch of the games, newest first. True when the filter was reset
+        because its epoch is gone."""
+        counts: dict[int, int] = {}
+        for epoch in self.epochs:
+            if epoch is not None:
+                counts[epoch] = counts.get(epoch, 0) + 1
+        self.epoch_choices = [None, *sorted(counts, reverse=True)]
+        labels = ["all epochs"] + [f"epoch {epoch}  ({counts[epoch]} games" +
+                                   (", unfinished)" if epoch > self.finished else ")")
+                                   for epoch in self.epoch_choices[1:]]
+        if list(self.epoch_box["values"]) != labels:
+            self.epoch_box["values"] = labels
+        reset: bool = self.epoch_filter is not None and self.epoch_filter not in counts
+        if reset:
+            self.epoch_filter = None
+        self.epoch_box.current(self.epoch_choices.index(self.epoch_filter))
+        return reset
+
+    def pick_epoch(self) -> None:
+        index = self.epoch_box.current()
+        choice = self.epoch_choices[index] if 0 <= index < len(self.epoch_choices) else None
+        if choice == self.epoch_filter:
+            return
+        self.epoch_filter = choice
+        self.tree.delete(*self.tree.get_children())
+        self._listed = 0
+        self._add_games()
+        children = self.tree.get_children()
+        if children:
+            self.tree.see(children[0])
+        self.tree.focus_set()  # arrow keys step through the game again, not through the epochs
 
     def pick_game(self) -> None:
         from beastborn.ui.replay import Replay
@@ -562,6 +678,8 @@ class GamesTab(tk.Frame):
         if not selected or self.source is None or int(selected[0]) >= len(self.source.records):
             return
         record = self.source.records[int(selected[0])]
+        if self.replay is not None and self.replay.record is record:  # listed again: keep watching where it was
+            return
         self.pause()
         self.replay = Replay(record)
         self.chips = []
@@ -810,7 +928,7 @@ class Monitor(tk.Tk):
         self.notebook.pack(fill="both", expand=True)
         training = tk.Frame(self.notebook, background=BG)
         self.notebook.add(training, text="Training")
-        self.games = GamesTab(self.notebook)
+        self.games = GamesTab(self.notebook, stats=lambda: self.source)
         self.notebook.add(self.games, text="Games")
 
         # ---- top bar
@@ -864,13 +982,15 @@ class Monitor(tk.Tk):
 
         self.window.trace_add("write", lambda *_: self.refresh())
         games: Path | None = path if path is not None and path.suffix.lower() == ".bgn" else None
-        path = None if games else path or self.find_file()
+        asked_games: bool = games is not None
+        # with a .bgn file, the statistics next to it give the epochs of its games
+        path = self.find_file(CANDIDATES, games.parent) if games else path or self.find_file()
         if path:
             self.open(path)
         games = games or self.find_file(GAMES_CANDIDATES, path.parent if path else None)
         if games:
             self.games.open(games)
-            if path is None:
+            if path is None or asked_games:
                 self.notebook.select(self.games)
         self.after(POLL_MS, self.poll)
         self.after(1000, self.tick)
