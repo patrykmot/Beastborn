@@ -113,7 +113,7 @@ STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn 
 
 # Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
 SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
-SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
+SCORE_PER_MISSING_BOSS_HP: Final[int] = 2  # per HP an opponent's Boss has lost
 SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of my units stands on
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
