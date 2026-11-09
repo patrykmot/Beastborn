@@ -161,11 +161,13 @@ AI_BLOCKS: Final[int] = 3  # residual blocks
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
 AI_GAMMA: Final[float] = 0.98  # discount of the next afterstate's value (low = only rewards a few turns away count)
-AI_EPSILON: Final[float] = 0.01  # training: chance of a random action instead of the best one
-# training: epsilon by Cosine Annealing with Warm Restarts (tools/train_ai_bot.py), one step = one game
-AI_EPSILON_MIN: Final[float] = 0.0001  # least randomness, reached at the end of a cycle
-AI_EPSILON_MAX: Final[float] = 0.99  # most randomness, at the start of every cycle (after each warm restart)
-AI_EPSILON_CYCLE_EPOCHS: Final[int] = 10  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10 epochs
+# training: Top-K temperature in two Cosine Annealing steps (tools/train_ai_bot.py, ``cosine_annealing_temperature``):
+# 1. per game: the game's max temperature, from AI_TEMPERATURE_MAX down to AI_TEMPERATURE_MIN over a cycle of
+#    AI_TEMPERATURE_CYCLE_EPOCHS epochs, then a warm restart; 2. inside the game: from that max down to 0 over
+#    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
+AI_TEMPERATURE_MIN: Final[float] = 0.00001  # least randomness, reached at the end of a cycle
+AI_TEMPERATURE_MAX: Final[float] = 0.99  # most randomness, at the start of every cycle (after each warm restart)
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 10  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
 AI_MEMORY_SIZE: Final[int] = 150_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
@@ -173,6 +175,11 @@ AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N 
 AI_STEP_COST: Final[float] = 0.04  # training: reward taken off every learner turn (= 1 HP of score): be quick
 AI_PROGRESS_REWARD: Final[float] = 0.02  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
 AI_WARMUP_MEMORY: Final[int] = 1_000  # training with --load: no train_step until the memory holds this many transitions
+
+# Proportional Top-K Sampling (AIFindActionStrategy.choose): the move is drawn from the best AI_TOP_K actions with
+# softmax(value / temperature) weights. Real games: plain softmax (temperature 1.0). Training: the temperature is
+# annealed (AI_TEMPERATURE_*). AI_TOP_K = 1 = always the best action (the old greedy play).
+AI_TOP_K: Final[int] = 10
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"

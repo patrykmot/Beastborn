@@ -12,12 +12,20 @@ default ``<out>.opponent.safetensors`` next to ``--out``) and the opponent is lo
 gets smarter epoch by epoch. Each epoch ends with one summary line in the log.
 
 The learner (a LEARNING ``AIFindActionStrategy``) plays one side of 10x10 games: P1 in even games, P2 in odd ones,
-so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays its best afterstate, or a random
-action with probability epsilon. Epsilon follows Cosine Annealing with Warm Restarts (``cosine_annealing_epsilon``):
-it starts each cycle at AI_EPSILON_MAX, falls along a half cosine to AI_EPSILON_MIN and jumps back to AI_EPSILON_MAX
-when a cycle of ``total_games_number`` games is over (default games x AI_EPSILON_CYCLE_EPOCHS: a cycle lasts that
-many epochs and restarts together with a new epoch), so the learner keeps trying other moves instead of sticking to
-one tactic. Equally good actions come in random order (base strategy ``RandomAllFindActionStrategy``, repeatable
+so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays an action drawn by Proportional
+Top-K Sampling (``AIFindActionStrategy.choose``: one of the best AI_TOP_K, softmax(value / temperature) weights;
+real games use plain softmax). The Bellman target still uses the best afterstate (Q-learning). The ``ai`` opponent
+also plays by Top-K Sampling with the same temperature. The temperature comes from Cosine Annealing with Warm
+Restarts (``cosine_annealing_temperature``) in two steps:
+
+1. per game, the game's max temperature (``max_epoch_t``): it starts each cycle at AI_TEMPERATURE_MAX, falls along a
+   half cosine to AI_TEMPERATURE_MIN and jumps back to AI_TEMPERATURE_MAX when a cycle of ``total_games_number``
+   games is over (default games x AI_TEMPERATURE_CYCLE_EPOCHS: a cycle lasts that many epochs and restarts together
+   with a new epoch), so the learner keeps trying other moves instead of sticking to one tactic;
+2. inside the game, per unit turn: from ``max_epoch_t`` down to 0 over ``--max-turns`` unit turns, so the play
+   gets greedier as the game goes on.
+
+ Equally good actions come in random order (base strategy ``RandomAllFindActionStrategy``, repeatable
 for the seed): with a fixed order the first one, waiting, would always win the tie, and a new network (all moves
 worth 0) would never walk towards the enemy. The opponent is ``random`` (a
 random legal turn) or ``ai`` (a frozen WORKING copy loaded from ``--opponent-weights``, default the ``--load`` file;
@@ -112,31 +120,33 @@ class Summary:
     next_seed: int = 0
 
 
-def cosine_annealing_epsilon(games_played: int, total_games_number: int, epsilon_min: float = C.AI_EPSILON_MIN,
-                             epsilon_max: float = C.AI_EPSILON_MAX) -> float:
-    """Epsilon for the next game by Cosine Annealing with Warm Restarts.
+def cosine_annealing_temperature(step: int, total_steps: int, temperature_min: float = C.AI_TEMPERATURE_MIN,
+                                 temperature_max: float = C.AI_TEMPERATURE_MAX) -> float:
+    """Top-K temperature by Cosine Annealing with Warm Restarts.
 
-    eps_t = eps_min + 1/2 (eps_max - eps_min) (1 + cos(T_cur / T_i * pi)), with T_i = ``total_games_number`` (games
-    in one cycle) and T_cur = games played since the last restart (``games_played`` % T_i, so it is 0 again when a
-    new cycle starts).
+    T_t = T_min + 1/2 (T_max - T_min) (1 + cos(T_cur / T_i * pi)), with T_i = ``total_steps`` (steps in one cycle)
+    and T_cur = steps since the last restart (``step`` % T_i, so it is 0 again when a new cycle starts).
+    Used twice: per game (step = games played, the game's max temperature) and per unit turn inside a game
+    (step = unit turns played, ``total_steps`` = max turns, from that max down to 0).
     """
-    if total_games_number < 1:
-        raise ValueError("total_games_number must be at least 1")
-    t_cur: int = games_played % total_games_number
-    return epsilon_min + 0.5 * (epsilon_max - epsilon_min) * (1 + math.cos((t_cur / total_games_number) * math.pi))
+    if total_steps < 1:
+        raise ValueError("total_steps must be at least 1")
+    t_cur: int = step % total_steps
+    return temperature_min + 0.5 * (temperature_max - temperature_min) * (1 + math.cos((t_cur / total_steps) * math.pi))
 
 
 def train(
     games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
     log_file: Path | None = Path("train_ai_bot.log"), epochs: int = DEFAULT_EPOCHS,
-    csv_file: Path | None = None, bgn_file: Path | None = None, epsilon_min: float = C.AI_EPSILON_MIN,
-    epsilon_max: float = C.AI_EPSILON_MAX, total_games_number: int | None = None,
+    csv_file: Path | None = None, bgn_file: Path | None = None, temperature_min: float = C.AI_TEMPERATURE_MIN,
+    temperature_max: float = C.AI_TEMPERATURE_MAX, total_games_number: int | None = None,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
-    Epsilon of each game: ``cosine_annealing_epsilon`` from ``epsilon_max`` down to ``epsilon_min`` over a cycle of
-    ``total_games_number`` games (None = games x AI_EPSILON_CYCLE_EPOCHS, i.e. that many epochs), then a warm restart.
+    Max temperature of each game: ``cosine_annealing_temperature`` from ``temperature_max`` down to
+    ``temperature_min`` over a cycle of ``total_games_number`` games (None = games x AI_TEMPERATURE_CYCLE_EPOCHS, i.e.
+    that many epochs), then a warm restart. Inside a game it falls from there to 0 over ``max_turns`` unit turns.
     After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
     ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
     ``bgn_file``: emptied now, then every game is appended to it in BGN when it ends (None = no file).
@@ -146,7 +156,7 @@ def train(
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
     if total_games_number is None:
-        total_games_number = games * C.AI_EPSILON_CYCLE_EPOCHS  # one cycle = AI_EPSILON_CYCLE_EPOCHS epochs
+        total_games_number = games * C.AI_TEMPERATURE_CYCLE_EPOCHS  # one cycle = AI_TEMPERATURE_CYCLE_EPOCHS epochs
     opponent_file: Path = (Path(opponent_weights) if opponent_weights is not None
                            else Path(out).with_name(Path(out).stem + ".opponent.safetensors"))
     handler: logging.Handler | None = _log_to_file(log_file)
@@ -157,12 +167,14 @@ def train(
         frozen: AIFindActionStrategy | None = None
         if opponent == "ai":
             frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
-                                          base=RandomAllFindActionStrategy(random.Random(rng.random())))
+                                          base=RandomAllFindActionStrategy(random.Random(rng.random())),
+                                          rng=random.Random(rng.random()))  # Top-K draws not the learner's
         train_from: int = C.AI_WARMUP_MEMORY
         log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, "
-                 "epsilon %.2f..%.2f (cosine, restart every %d games), save every %d to %s", epochs, games, seed,
+                 "temperature %.2f..%.2f per game (cosine, restart every %d games), then down to 0 in a game, "
+                 "save every %d to %s", epochs, games, seed,
                  opponent, f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns,
-                 epsilon_max, epsilon_min, total_games_number, save_every, out)
+                 temperature_max, temperature_min, total_games_number, save_every, out)
         log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         if bgn_file is not None:
@@ -177,9 +189,10 @@ def train(
                 played: list[GameResult] = []
                 for index in range(games):
                     warming: bool = len(learner.memory) < train_from
-                    epsilon: float = cosine_annealing_epsilon(summary.games, total_games_number, epsilon_min,
-                                                              epsilon_max)
-                    played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns, epsilon,
+                    max_epoch_t: float = cosine_annealing_temperature(summary.games, total_games_number,
+                                                                      temperature_min, temperature_max)
+                    played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns,
+                                        max_epoch_t,
                                         summary, train=not warming, bgn_file=bgn_file))
                     if warming and len(learner.memory) >= train_from:
                         log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
@@ -194,7 +207,8 @@ def train(
                     _append_csv(csv_file, run, epoch, epochs, played, len(learner.memory), summary.steps, seconds)
                 if frozen is not None and _save(learner, opponent_file):  # a smarter opponent: the learner now
                     frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
-                                                  base=RandomAllFindActionStrategy(random.Random(rng.random())))
+                                                  base=RandomAllFindActionStrategy(random.Random(rng.random())),
+                                                  rng=random.Random(rng.random()))
                     log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
         except KeyboardInterrupt:
             log.info("Stopped by Ctrl+C after %d games", summary.games)
@@ -211,11 +225,12 @@ def train(
 
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
-          opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, epsilon: float,
+          opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, max_epoch_t: float,
           summary: Summary, train: bool = True, bgn_file: Path | None = None) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it.
 
     ``bgn_file``: the game is appended to it in BGN when it ends.
+    Top-K temperature of each unit turn (both sides): from ``max_epoch_t`` down to 0 over ``max_turns`` unit turns.
     """
     started: float = time.perf_counter()
     seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
@@ -229,9 +244,10 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
     results: list = []
     turns: int = 0
     while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
+        temperature: float = cosine_annealing_temperature(turns, max_turns, 0.0, max_epoch_t)
         turns += 1
         if gsm.active_player != seat:
-            action = get_opponent_move(everything, gsm, opponent_strategy, rng)
+            action = get_opponent_move(everything, gsm, opponent_strategy, rng, temperature)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)
@@ -239,7 +255,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
             reward: float = (scale_score_for_ai(ranked[0].score - pending.score) - C.AI_STEP_COST
                              + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate))
             results.append((pending.afterstate, reward, ranked[0].afterstate, False))
-        pending = ranked[0] if rng.random() >= epsilon else rng.choice(ranked)
+        pending = learner.choose(ranked, temperature)  # Proportional Top-K Sampling
         _submit(gsm, pending.action)
 
     if recorder is not None and bgn_file is not None:
@@ -281,9 +297,9 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
     log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
-             "loss %s (%d steps), memory %d, epsilon %.3f, training = "+ str(train)+", %.1f s",
+             "loss %s (%d steps), memory %d, max temperature %.3f, training = "+ str(train)+", %.1f s",
              epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
-             mean_loss, len(losses), len(learner.memory), epsilon, time.perf_counter() - started)
+             mean_loss, len(losses), len(learner.memory), max_epoch_t, time.perf_counter() - started)
     return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
 
 
@@ -308,10 +324,10 @@ def _progress(before: np.ndarray, after: np.ndarray) -> float:
 
 
 def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
-                      opponent_strategy: AIFindActionStrategy | None, rng: Random) -> Command:
-    if opponent_strategy is not None:
-        # Return randomly two best possible actions:
-        return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
+                      opponent_strategy: AIFindActionStrategy | None, rng: Random,
+                      temperature: float | None = None) -> Command:
+    if opponent_strategy is not None:  # Proportional Top-K Sampling, with the learner's temperature
+        return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
     else:
         return rng.choice(everything.find_all_possible_actions(gsm))
 

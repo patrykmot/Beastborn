@@ -5,8 +5,9 @@ Run from the project root::
     python tools/eval_ai_bot.py                                     # the current weights vs a random player
     python tools/eval_ai_bot.py --opponent ai --opponent-weights beastborn/data/ai_bot_run3.safetensors
 
-The bot always plays its best move (no random moves, no learning). The opponent is ``random`` (a random legal turn)
-or ``ai`` (another weights file, also playing its best move): a saved older copy shows whether training still helps.
+The bot plays as in a real game: Proportional Top-K Sampling (``AIFindActionStrategy.choose``, AI_TOP_K,
+plain softmax), no learning. The opponent is ``random`` (a random legal turn) or ``ai`` (another weights file,
+also by Top-K Sampling): a saved older copy shows whether training still helps.
 The bot plays P1 in even games and P2 in odd ones. The maps start at ``--map-seed`` (default 1000), so they are not
 the training maps (0 .. --games - 1 of train_ai_bot.py). The same arguments always give the same games.
 
@@ -72,11 +73,13 @@ def evaluate(
         raise ValueError("--opponent ai needs --opponent-weights (a weights file to play against)")
     rng = random.Random(seed)
     bot = AIFindActionStrategy(AIMode.WORKING, weights=weights,
-                               base=RandomAllFindActionStrategy(random.Random(rng.random())))
+                               base=RandomAllFindActionStrategy(random.Random(rng.random())),
+                               rng=random.Random(rng.random()))
     other: AIFindActionStrategy | None = None
     if opponent == "ai":
         other = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights,
-                                     base=RandomAllFindActionStrategy(random.Random(rng.random())))
+                                     base=RandomAllFindActionStrategy(random.Random(rng.random())),
+                                     rng=random.Random(rng.random()))
     log.info("Evaluation: %s vs %s, %d games on maps %d-%d, max %d unit turns",
              weights, opponent_weights if other is not None else "random", games, map_seed, map_seed + games - 1,
              max_turns)
@@ -91,9 +94,9 @@ def evaluate(
             turns += 1
             action: Command
             if gsm.active_player == seat:
-                action = bot.rank(gsm)[0].action
+                action = bot.choose(bot.rank(gsm)).action
             elif other is not None:
-                action = other.rank(gsm)[0].action
+                action = other.choose(other.rank(gsm)).action
             else:
                 action = rng.choice(everything.find_all_possible_actions(gsm))
             if not gsm.submit(action).ok:  # cannot happen: strategies list only what submit accepts

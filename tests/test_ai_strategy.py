@@ -148,15 +148,33 @@ def test_new_network_gives_the_exact_score_order():
 
 def test_only_the_best_commands_are_returned():
     gsm = game_after(11, 10)
-    strategy = AIFindActionStrategy()
+    strategy = AIFindActionStrategy(top_k=1)  # no sampling: the plain best-first order
     best = C.AI_MAX_RETURNED_COMMANDS
     assert strategy.max_returned_commands == best
     ranked = [r.action for r in strategy.rank(gsm)]
     assert len(ranked) > 3 and strategy.find_all_possible_actions(gsm) == ranked[:best]
-    assert AIFindActionStrategy(max_returned_commands=3).find_all_possible_actions(gsm) == ranked[:3]
-    assert AIFindActionStrategy(max_returned_commands=1).find_all_possible_actions(gsm) == ranked[:1]
+    assert AIFindActionStrategy(max_returned_commands=3, top_k=1).find_all_possible_actions(gsm) == ranked[:3]
+    assert AIFindActionStrategy(max_returned_commands=1, top_k=1).find_all_possible_actions(gsm) == ranked[:1]
     with pytest.raises(ValueError, match="max_returned_commands"):
         AIFindActionStrategy(max_returned_commands=0)
+
+
+def test_top_k_sampling():
+    """Softmax of the best K values sums to 1, best = most likely; only those K are drawn; a win is always taken."""
+    probabilities = ai.top_k_probabilities([0.5, 0.45, 0.4], temperature=0.05)
+    assert sum(probabilities) == pytest.approx(1.0) and probabilities == sorted(probabilities, reverse=True)
+    assert ai.top_k_probabilities([float("inf"), 1.0, 0.0]) == [1.0, 0.0, 0.0]
+    assert ai.top_k_probabilities([0.5, 0.45, 0.4], temperature=0.0) == [1.0, 0.0, 0.0]  # annealed to 0: greedy
+    gsm = game_after(11, 10)
+    strategy = AIFindActionStrategy(rng=random.Random(0))
+    ranked = strategy.rank(gsm)
+    picks = Counter(strategy.find_all_possible_actions(gsm)[0] for _ in range(300))
+    top = [r.action for r in ranked[:C.AI_TOP_K]]
+    assert set(picks) <= set(top) and len(picks) > 1  # a random draw, but never outside the best K
+    assert AIFindActionStrategy(rng=random.Random(0)).choose(AIFindActionStrategy().rank(winning_hit_game())).value \
+        == float("inf")
+    with pytest.raises(ValueError, match="top_k"):
+        AIFindActionStrategy(top_k=0)
 
 
 def test_a_winning_hit_comes_first():
@@ -167,7 +185,7 @@ def test_a_winning_hit_comes_first():
 
 def test_ranking_is_cached_per_state():
     gsm = game_after(7, 2)
-    strategy = AIFindActionStrategy()
+    strategy = AIFindActionStrategy(top_k=1)  # no sampling: the same answer twice
     calls = []
     real = strategy.predict
     strategy.predict = lambda states: calls.append(len(states)) or real(states)
@@ -276,13 +294,17 @@ def test_training_script_plays_saves_and_logs(tmp_path):
     assert again.games == 1
 
 
-def test_cosine_annealing_epsilon_falls_from_max_to_min_and_restarts():
-    from tools.train_ai_bot import cosine_annealing_epsilon
+def test_cosine_annealing_temperature_falls_from_max_to_min_and_restarts():
+    from tools.train_ai_bot import cosine_annealing_temperature as anneal
 
     cycle = 100  # T_i
-    assert cosine_annealing_epsilon(0, cycle) == pytest.approx(C.AI_EPSILON_MAX)  # cycle start: most random
-    assert cosine_annealing_epsilon(50, cycle) == pytest.approx((C.AI_EPSILON_MAX + C.AI_EPSILON_MIN) / 2)  # half way
-    assert cosine_annealing_epsilon(99, cycle) == pytest.approx(C.AI_EPSILON_MIN, abs=1e-3)  # cycle end: least random
-    assert cosine_annealing_epsilon(100, cycle) == pytest.approx(C.AI_EPSILON_MAX)  # warm restart: T_cur is 0 again
-    values = [cosine_annealing_epsilon(game, cycle) for game in range(cycle)]
+    t_max, t_min = C.AI_TEMPERATURE_MAX, C.AI_TEMPERATURE_MIN
+    assert anneal(0, cycle) == pytest.approx(t_max)  # cycle start: most random
+    assert anneal(50, cycle) == pytest.approx((t_max + t_min) / 2)  # half way
+    assert anneal(99, cycle) == pytest.approx(t_min, abs=1e-3)  # cycle end: least random
+    assert anneal(100, cycle) == pytest.approx(t_max)  # warm restart: T_cur is 0 again
+    values = [anneal(game, cycle) for game in range(cycle)]
     assert values == sorted(values, reverse=True)  # never rises inside a cycle
+    max_epoch_t = anneal(30, cycle)  # inside a game: from the game's max down to 0 over the max turns
+    assert anneal(0, 60, 0.0, max_epoch_t) == pytest.approx(max_epoch_t)
+    assert 0 < anneal(59, 60, 0.0, max_epoch_t) < max_epoch_t / 100

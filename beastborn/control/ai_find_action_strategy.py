@@ -8,8 +8,14 @@ the **value of the afterstate** (the board right after the action) for the playe
 ``evaluate`` is the exact score difference (my score minus my opponent's, as the bot's ``evaluate``); the network
 (``AfterstateNet``, a Mini-ResNet) only guesses how that score will change later. Its last layer starts at zero, so a
 new network predicts 0 and the order is the exact score order. A won game is ``+inf``, a lost one ``-inf``.
-``find_all_possible_actions`` returns only the best ``max_returned_commands`` actions (default
-``AI_MAX_RETURNED_COMMANDS`` = 3; None = all of them); ``rank`` always lists every action.
+``rank`` always lists every action, best first.
+
+Proportional Top-K Sampling (``choose``): the move is drawn from the best ``top_k`` actions (``AI_TOP_K``) with
+weights softmax(value / ``temperature``) (``top_k_probabilities``; ``temperature`` 1.0 = plain softmax, the
+default; training passes an annealed one to ``choose``). A won game (+inf) is always taken.
+``find_all_possible_actions`` puts the drawn action first, then the others best first, and returns at most
+``max_returned_commands`` of them (default ``AI_MAX_RETURNED_COMMANDS``; None = all). So with 1 the bot plays the
+drawn action. ``top_k=1`` = always the best action (no randomness).
 
 Modes (``AIMode``): WORKING rates and sorts. LEARNING also keeps a replay memory (``remember``) and trains the network
 (``train_step``): target = reward + gamma * net(best next afterstate of the same player), MSE loss, Adam.
@@ -30,6 +36,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import math
 import os
 import random
 import threading
@@ -40,7 +47,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, ParamSpec, TypeVar
+from typing import Any, Callable, NamedTuple, ParamSpec, Sequence, TypeVar
 
 import numpy as np
 from tinygrad import Tensor, TinyJit, nn
@@ -103,6 +110,21 @@ def _opponent(view: GameView, me: int) -> int:
 
 def scale_score_for_ai(score):
     return score / C.AI_SCORE_SCALE
+
+
+def top_k_probabilities(values: Sequence[float], temperature: float = 1.0) -> list[float]:
+    """Softmax of ``values`` (sorted, best first) / ``temperature``: probabilities that sum to 1.0.
+
+    Stable: the best value is subtracted first, so every exp() is in (0, 1]. A won game (+inf) at the top gets 1.0;
+    a lost one (-inf) gets 0.0; when every value is -inf the first one gets 1.0. ``temperature`` <= 0: greedy (the
+    first one gets 1.0), as the limit of an ever lower temperature.
+    """
+    best: float = values[0]
+    if not math.isfinite(best) or temperature <= 0:
+        return [1.0] + [0.0] * (len(values) - 1)
+    weights: list[float] = [math.exp((v - best) / temperature) for v in values]
+    total: float = sum(weights)
+    return [w / total for w in weights]
 
 # ---------------------------------------------------------------------- one thread for tinygrad
 _P = ParamSpec("_P")
@@ -221,8 +243,10 @@ class AIFindActionStrategy(FindActionStrategy):
 
     ``weights``: a ``.safetensors`` file to load (a missing file raises ``FileNotFoundError``); None = a new network
     (built from ``seed``, so it is the same every time). The network is built on first use.
-    ``max_returned_commands``: how many of the best actions ``find_all_possible_actions`` returns (None = all).
-    The ranking is cached for the last state asked about (one GSM, one ``version``).
+    ``max_returned_commands``: how many actions ``find_all_possible_actions`` returns (None = all).
+    ``top_k`` / ``temperature``: Proportional Top-K Sampling (``choose``); ``top_k=1`` = always the best action.
+    ``rng``: draws the sampled action (None = ``random.Random(seed)``).
+    The ranking is cached for the last state asked about (one GSM, one ``version``); the draw is not.
     A WORKING strategy can be sent to the bot's worker processes (they load ``weights`` again); a LEARNING one cannot.
     """
 
@@ -231,10 +255,18 @@ class AIFindActionStrategy(FindActionStrategy):
         base: FindActionStrategy | None = None, seed: int = 0, gamma: float = C.AI_GAMMA,
         learning_rate: float = C.AI_LEARNING_RATE, memory_size: int = C.AI_MEMORY_SIZE,
         max_returned_commands: int | None = C.AI_MAX_RETURNED_COMMANDS,
+        top_k: int = C.AI_TOP_K, temperature: float = 1.0, rng: random.Random | None = None,
     ) -> None:
         if max_returned_commands is not None and max_returned_commands < 1:
             raise ValueError(f"max_returned_commands must be at least 1 or None, got {max_returned_commands}")
+        if top_k < 1:
+            raise ValueError(f"top_k must be at least 1, got {top_k}")
+        if temperature <= 0:
+            raise ValueError(f"temperature must be above 0, got {temperature}")
         self.max_returned_commands: int | None = max_returned_commands
+        self.top_k: int = top_k
+        self.temperature: float = temperature
+        self.choice_rng: random.Random = rng or random.Random(seed)  # Top-K draws (``_rng`` samples replay batches)
         self.mode: AIMode = AIMode(mode)
         self.weights: Path | None = Path(weights) if weights is not None else None
         if self.weights is not None and not self.weights.is_file():
@@ -255,8 +287,26 @@ class AIFindActionStrategy(FindActionStrategy):
 
     # ------------------------------------------------------------------ FindActionStrategy
     def find_all_possible_actions(self, gsm: GameStateMachine) -> list[Command]:
-        """The best actions first, at most ``max_returned_commands`` of them."""
-        return [r.action for r in self.rank(gsm)[:self.max_returned_commands]]
+        """The action drawn by ``choose`` first, then the others best first; at most ``max_returned_commands``."""
+        ranked: list[Ranked] = self.rank(gsm)
+        if self.top_k > 1 and len(ranked) > 1:
+            chosen: Ranked = self.choose(ranked)
+            ranked.remove(chosen)  # by identity (Ranked has eq=False)
+            ranked.insert(0, chosen)
+        return [r.action for r in ranked[:self.max_returned_commands]]
+
+    def choose(self, ranked: Sequence[Ranked], temperature: float | None = None) -> Ranked:
+        """Proportional Top-K Sampling from ``ranked`` (best first, as ``rank`` returns it).
+
+        1. keep the best ``top_k``; 2. softmax(value / ``temperature``) of them; 3. one weighted random draw.
+        ``temperature``: None = ``self.temperature`` (training passes its annealed one; <= 0 = the best).
+        """
+        top: Sequence[Ranked] = ranked[:self.top_k]
+        if len(top) == 1:
+            return top[0]
+        weights: list[float] = top_k_probabilities([r.value for r in top],
+                                                   self.temperature if temperature is None else temperature)
+        return self.choice_rng.choices(top, weights=weights)[0]
 
     def __getstate__(self) -> dict[str, Any]:
         """Settings and the weights path only; a worker process builds or loads the network again."""
@@ -304,7 +354,7 @@ class AIFindActionStrategy(FindActionStrategy):
             finally:
                 gsm.rollback()
         predicted: np.ndarray = self.predict(states)
-        formatted = [(s, round(float(p), 4)) for s, p in zip(scores, predicted)]
+        #formatted = [(s, round(float(p), 4)) for s, p in zip(scores, predicted)]
         # log.info("rank -> (score, predicted) = " + str(formatted))
         values: list[float] = [
             e if e is not None else scale_score_for_ai(s) + float(p) for e, s, p in zip(exact, scores, predicted) # WHy this is  scale_score_for_ai(s) + float(p) ?

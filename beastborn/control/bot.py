@@ -145,7 +145,8 @@ class BotPlayerController(PlayerController):
         # default: shares the bot's rng (as before strategies existed), so the same seed still gives the same games
         self.find_action_strategy: FindActionStrategy = (
             # find_action_strategy or RandomAllFindActionStrategy(self._rng)
-                find_action_strategy or AIFindActionStrategy(weights=C.AI_WEIGHTS_FILE)
+                # Top-K draws share the bot's rng too, so a seeded bot plays the same game again
+                find_action_strategy or AIFindActionStrategy(weights=C.AI_WEIGHTS_FILE, rng=self._rng)
         )
         self._spoke: bool = False  # has the bot said its START line yet
 

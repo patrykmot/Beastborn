@@ -22,6 +22,11 @@ pytestmark = pytest.mark.usefixtures("scenario_rules")  # tests/conftest.py
 
 FLAT = Board.from_strings([".....", ".....", "....."])
 LINES = {Mood.START: ["start!"], Mood.ATTACK: ["attack!"], Mood.DEFENSE: ["defense!"]}
+# Fast tests: overwrite C.BOT_SEARCH_DEPTH (8) and C.BOT_WORKERS (None = a process per CPU core), they take minutes.
+# The tests of several processes ask for workers=2 themselves.
+BOT_SEARCH_DEPTH = 1
+TEST_DEEP = 3  # the deepest search the tests run
+TEST_WORKERS = 1
 
 
 class Bot(BotPlayerController):
@@ -30,12 +35,12 @@ class Bot(BotPlayerController):
     Module level, so worker processes can load it.
     """
 
-    def __init__(self, depth=C.BOT_SEARCH_DEPTH, voice=None, rng=None, workers=None, find_action_strategy=None):
+    def __init__(self, depth=BOT_SEARCH_DEPTH, voice=None, rng=None, workers=TEST_WORKERS, find_action_strategy=None):
         rng = rng or random.Random()
         super().__init__(depth, voice, rng, workers, find_action_strategy or RandomAllFindActionStrategy(rng))
 
 
-def bot(depth=C.BOT_SEARCH_DEPTH):
+def bot(depth=BOT_SEARCH_DEPTH):
     return Bot(depth, BotVoice(LINES, random.Random(0)))
 
 
@@ -131,7 +136,7 @@ def test_alphabeta_equals_minimax(depth):
         assert seen_twice, "the scenario must contain a player moving twice in a row"
 
 
-@pytest.mark.parametrize("depth", [1, C.BOT_SEARCH_DEPTH])
+@pytest.mark.parametrize("depth", [1, TEST_DEEP])
 def test_bot_takes_the_winning_hit(depth):
     gsm = winning_hit_game()
     command = bot(depth).choose_command(gsm)
@@ -146,7 +151,7 @@ def test_bot_prefers_attack_to_waiting():
     gsm.submit(possible_actions(gsm)[0])
     gsm.submit(possible_actions(gsm)[0])
     assert gsm.active_unit == 2
-    command = bot(2).choose_command(gsm)
+    command = bot().choose_command(gsm)
     assert attacks(command) and all(isinstance(a, AttackCommand) for a in attacks(command))
 
 
@@ -242,7 +247,7 @@ def test_error_in_a_worker_comes_back():
     with pytest.raises(ValueError, match="bug in a worker"):
         FailsInWorker(3, BotVoice(LINES), workers=2).choose_command(gsm)
     assert snapshot(gsm) == before
-    assert bot(3).choose_command(gsm) in possible_actions(gsm)  # the workers still work
+    assert Bot(3, BotVoice(LINES), workers=2).choose_command(gsm) in possible_actions(gsm)  # the workers still work
 
 
 def test_without_processes_the_bot_searches_alone(monkeypatch, caplog):
