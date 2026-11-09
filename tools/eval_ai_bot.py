@@ -14,6 +14,9 @@ the training maps (0 .. --games - 1 of train_ai_bot.py). The same arguments alwa
 Compare the win rate (and the stopped rate) between runs; the self-play numbers of the training log cannot show
 progress, because there the opponent gets better at the same speed.
 
+Every run appends its arguments and its ``Result:`` line to ``--log`` (default eval_ai_bot.log), so runs can be
+compared later; the games themselves are only on the console.
+
 Tip: while a training run is going, evaluate a copy of the weights file: the training saves it every few games.
 """
 from __future__ import annotations
@@ -137,8 +140,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--map-seed", type=int, default=1, help="seed of the first map (game i uses map-seed + i)")
     parser.add_argument("--max-turns", type=int, default=120, help="unit turns before a game is stopped")
     parser.add_argument("--seed", type=int, default=1, help="seed of the random choices (random opponent, ties)")
+    parser.add_argument("--log", type=Path, default=Path("eval_ai_bot.log"),
+                        help="log file: arguments and result of every run are appended")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
+    handler = logging.FileHandler(args.log, mode="a", encoding="utf-8")  # append: one block per run
+    handler.setFormatter(logging.Formatter(C.LOG_FORMAT))
+    handler.addFilter(lambda record: record.getMessage().startswith(("Arguments:", "Result:")))
+    log.addHandler(handler)
+    log.info("Arguments: %s", " ".join(f"--{name.replace('_', '-')} {value}" for name, value in vars(args).items()))
     evaluate(args.games, args.weights, args.opponent, args.opponent_weights, args.map_seed, args.max_turns, args.seed)
 
 

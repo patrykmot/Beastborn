@@ -15,7 +15,7 @@
     <option name="DEBUG_JUST_MY_CODE" value="false" />
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tools/eval_ai_bot.py" />
-    <option name="PARAMETERS" value="--opponent ai --opponent-weights ../beastborn/data/ai_bot.safetensors.good1" />
+    <option name="PARAMETERS" value="--opponent ai --opponent-weights ../beastborn/data/ai_bot.safetensors.good1 --max-turns 200" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

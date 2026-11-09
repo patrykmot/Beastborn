@@ -34,3 +34,7 @@ Looks even better! :)
 # Results of training (2026.11.8 )
 Does not looks much better.
 ![img_1.png](pic/img_7.png)
+
+# Results of training (2026.11.9 )
+Does not looks good. 
+![img_1.png](pic/img_9.png)
