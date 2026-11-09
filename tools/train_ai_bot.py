@@ -168,7 +168,7 @@ def train(
         if opponent == "ai":
             frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
                                           base=RandomAllFindActionStrategy(random.Random(rng.random())),
-                                          rng=random.Random(rng.random()))  # Top-K draws not the learner's
+                                          rng=random.Random(rng.random()), temperature=0.2, top_k = 3)  # Top-K keep it low  0.2 means be greedy, play best moves mostly!
         train_from: int = C.AI_WARMUP_MEMORY
         log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, "
                  "temperature %.2f..%.2f per game (cosine, restart every %d games), then down to 0 in a game, "
@@ -247,7 +247,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         temperature: float = cosine_annealing_temperature(turns, max_turns, 0.0, max_epoch_t)
         turns += 1
         if gsm.active_player != seat:
-            action = get_opponent_move(everything, gsm, opponent_strategy, rng, temperature)
+            action = get_opponent_move(everything, gsm, opponent_strategy, rng)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)

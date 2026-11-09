@@ -167,7 +167,7 @@ AI_GAMMA: Final[float] = 0.98  # discount of the next afterstate's value (low = 
 #    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
 AI_TEMPERATURE_MIN: Final[float] = 0.00001  # least randomness, reached at the end of a cycle
 AI_TEMPERATURE_MAX: Final[float] = 0.99  # most randomness, at the start of every cycle (after each warm restart)
-AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 10  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 30  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
 AI_MEMORY_SIZE: Final[int] = 150_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
