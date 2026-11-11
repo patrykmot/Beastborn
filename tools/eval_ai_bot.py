@@ -97,9 +97,9 @@ def evaluate(
             turns += 1
             action: Command
             if gsm.active_player == seat:
-                action = bot.choose(bot.rank(gsm)).action
+                action = bot.choose(bot.rank(gsm), 0).action
             elif other is not None:
-                action = other.choose(other.rank(gsm)).action
+                action = other.choose(other.rank(gsm), 0).action
             else:
                 action = rng.choice(everything.find_all_possible_actions(gsm))
             if not gsm.submit(action).ok:  # cannot happen: strategies list only what submit accepts

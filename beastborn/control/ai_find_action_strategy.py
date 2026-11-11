@@ -261,8 +261,6 @@ class AIFindActionStrategy(FindActionStrategy):
             raise ValueError(f"max_returned_commands must be at least 1 or None, got {max_returned_commands}")
         if top_k < 1:
             raise ValueError(f"top_k must be at least 1, got {top_k}")
-        if temperature <= 0:
-            raise ValueError(f"temperature must be above 0, got {temperature}")
         self.max_returned_commands: int | None = max_returned_commands
         self.top_k: int = top_k
         self.temperature: float = temperature
@@ -295,18 +293,25 @@ class AIFindActionStrategy(FindActionStrategy):
             ranked.insert(0, chosen)
         return [r.action for r in ranked[:self.max_returned_commands]]
 
-    def choose(self, ranked: Sequence[Ranked], temperature: float | None = None) -> Ranked:
-        """Proportional Top-K Sampling from ``ranked`` (best first, as ``rank`` returns it).
-
-        1. keep the best ``top_k``; 2. softmax(value / ``temperature``) of them; 3. one weighted random draw.
-        ``temperature``: None = ``self.temperature`` (training passes its annealed one; <= 0 = the best).
-        """
-        top: Sequence[Ranked] = ranked[:self.top_k]
-        if len(top) == 1:
-            return top[0]
-        weights: list[float] = top_k_probabilities([r.value for r in top],
-                                                   self.temperature if temperature is None else temperature)
-        return self.choice_rng.choices(top, weights=weights)[0]
+    def choose(self, ranked: Sequence[Ranked], temperature: float | None = 0) -> Ranked:
+        if temperature is None:
+            raise ValueError("temperature cannot be None")
+        best: Ranked = ranked[0]
+        if self.choice_rng.random() <= temperature:
+            # Higher temperature, higher random move possibility
+            best = self.choice_rng.choice(ranked)
+        return best
+        # """Proportional Top-K Sampling from ``ranked`` (best first, as ``rank`` returns it).
+        #
+        # 1. keep the best ``top_k``; 2. softmax(value / ``temperature``) of them; 3. one weighted random draw.
+        # ``temperature``: None = ``self.temperature`` (training passes its annealed one; <= 0 = the best).
+        # """
+        # top: Sequence[Ranked] = ranked[:self.top_k]
+        # if len(top) == 1:
+        #     return top[0]
+        # weights: list[float] = top_k_probabilities([r.value for r in top],
+        #                                            self.temperature if temperature is None else temperature)
+        # return self.choice_rng.choices(top, weights=weights)[0]
 
     def __getstate__(self) -> dict[str, Any]:
         """Settings and the weights path only; a worker process builds or loads the network again."""

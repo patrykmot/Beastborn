@@ -166,9 +166,7 @@ def train(
                                        base=RandomAllFindActionStrategy(random.Random(rng.random())))
         frozen: AIFindActionStrategy | None = None
         if opponent == "ai":
-            frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
-                                          base=RandomAllFindActionStrategy(random.Random(rng.random())),
-                                          rng=random.Random(rng.random()), temperature=0.2, top_k = 3)  # Top-K keep it low  0.2 means be greedy, play best moves mostly!
+            frozen = getOpponent(frozen, load, opponent_weights, rng, seed)
         train_from: int = C.AI_WARMUP_MEMORY
         log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, "
                  "temperature %.2f..%.2f per game (cosine, restart every %d games), then down to 0 in a game, "
@@ -206,9 +204,8 @@ def train(
                 if csv_file is not None:
                     _append_csv(csv_file, run, epoch, epochs, played, len(learner.memory), summary.steps, seconds)
                 if frozen is not None and _save(learner, opponent_file):  # a smarter opponent: the learner now
-                    frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_file, seed=seed,
-                                                  base=RandomAllFindActionStrategy(random.Random(rng.random())),
-                                                  rng=random.Random(rng.random()))
+                    frozen = getOpponent(frozen, load, opponent_file, rng, seed)
+
                     log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
         except KeyboardInterrupt:
             log.info("Stopped by Ctrl+C after %d games", summary.games)
@@ -222,6 +219,15 @@ def train(
         if handler is not None:
             log.removeHandler(handler)
             handler.close()
+
+
+def getOpponent(frozen: AIFindActionStrategy | None, load: Path | None, opponent_weights: Path | None, rng: Random,
+                seed: int) -> AIFindActionStrategy | None:
+    frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
+                                  base=RandomAllFindActionStrategy(random.Random(rng.random())),
+                                  rng=random.Random(rng.random()), temperature=0.0,
+                                  top_k=1)  # Top-K keep it low  0.2 means be greedy, play best moves mostly!
+    return frozen
 
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
@@ -247,7 +253,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         temperature: float = cosine_annealing_temperature(turns, max_turns, 0.0, max_epoch_t)
         turns += 1
         if gsm.active_player != seat:
-            action = get_opponent_move(everything, gsm, opponent_strategy, rng)
+            action = get_opponent_move(everything, gsm, opponent_strategy, rng, temperature)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)
@@ -256,6 +262,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
                              + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate))
             results.append((pending.afterstate, reward, ranked[0].afterstate, False))
         pending = learner.choose(ranked, temperature)  # Proportional Top-K Sampling
+
         _submit(gsm, pending.action)
 
     if recorder is not None and bgn_file is not None:
@@ -326,7 +333,7 @@ def _progress(before: np.ndarray, after: np.ndarray) -> float:
 def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
                       opponent_strategy: AIFindActionStrategy | None, rng: Random,
                       temperature: float | None = None) -> Command:
-    if opponent_strategy is not None:  # Proportional Top-K Sampling, with the learner's temperature
+    if opponent_strategy is not None:
         return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
     else:
         return rng.choice(everything.find_all_possible_actions(gsm))
