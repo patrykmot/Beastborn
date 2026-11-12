@@ -1,0 +1,10 @@
+2026-11-10 09:49:21,876 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-10 09:50:07,104 INFO eval_ai_bot: Result: 100 games, 36 wins (36%), 63 losses, 0 draws, 1 stopped (1%), 92.6 unit turns, score -29.1, 45 s
+2026-11-10 10:50:04,771 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-10 10:50:48,115 INFO eval_ai_bot: Result: 100 games, 42 wins (42%), 58 losses, 0 draws, 0 stopped (0%), 85.8 unit turns, score -20.6, 43 s
+2026-11-10 11:49:34,066 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-10 11:50:18,009 INFO eval_ai_bot: Result: 100 games, 39 wins (39%), 59 losses, 0 draws, 2 stopped (2%), 92.2 unit turns, score -25.8, 44 s
+2026-11-10 14:05:24,341 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-10 14:06:06,445 INFO eval_ai_bot: Result: 100 games, 46 wins (46%), 53 losses, 0 draws, 1 stopped (1%), 81.6 unit turns, score -12.2, 42 s
+2026-11-12 08:53:32,468 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-12 08:54:07,569 INFO eval_ai_bot: Result: 100 games, 28 wins (28%), 62 losses, 0 draws, 10 stopped (10%), 84.7 unit turns, score -69.3, 35 s

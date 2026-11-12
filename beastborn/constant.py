@@ -113,7 +113,7 @@ STARTING_ENERGY: Final[int] = 0  # D6: units start empty and regenerate at turn 
 
 # Score of a board for one player (CalculationEngine.score), used by bots to compare moves. Higher = better.
 SCORE_PER_MISSING_HP: Final[int] = 1  # per HP an opponent's unit (not a Boss) has lost
-SCORE_PER_MISSING_BOSS_HP: Final[int] = 2  # per HP an opponent's Boss has lost
+SCORE_PER_MISSING_BOSS_HP: Final[int] = 10  # per HP an opponent's Boss has lost
 SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of my units stands on
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
@@ -161,6 +161,7 @@ AI_BLOCKS: Final[int] = 3  # residual blocks
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
 AI_GAMMA: Final[float] = 0.98  # discount of the next afterstate's value (low = only rewards a few turns away count)
+AI_EPSILON: Final[float] = 0.05
 # training: Top-K temperature in two Cosine Annealing steps (tools/train_ai_bot.py, ``cosine_annealing_temperature``):
 # 1. per game: the game's max temperature, from AI_TEMPERATURE_MAX down to AI_TEMPERATURE_MIN over a cycle of
 #    AI_TEMPERATURE_CYCLE_EPOCHS epochs, then a warm restart; 2. inside the game: from that max down to 0 over
@@ -169,7 +170,7 @@ AI_TEMPERATURE_MIN: Final[float] = 0.000001  # least randomness, reached at the 
 AI_TEMPERATURE_MAX: Final[float] = 1.0  # most randomness, at the start of every cycle (after each warm restart)
 AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 10  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 150_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 100_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.04  # training: reward taken off every learner turn (= 1 HP of score): be quick

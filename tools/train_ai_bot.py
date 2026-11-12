@@ -177,7 +177,7 @@ def train(
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         if bgn_file is not None:
             bgn_file = _new_bgn_file(Path(bgn_file))
-
+        epsilon: float = C.AI_EPSILON
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
         run: str = time.strftime("%Y-%m-%d %H:%M:%S")  # names this run's rows in the csv file
@@ -191,7 +191,7 @@ def train(
                                                                       temperature_min, temperature_max)
                     played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns,
                                         max_epoch_t,
-                                        summary, train=not warming, bgn_file=bgn_file))
+                                        summary, epsilon, train=not warming, bgn_file=bgn_file))
                     if warming and len(learner.memory) >= train_from:
                         log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
@@ -232,7 +232,7 @@ def getOpponent(frozen: AIFindActionStrategy | None, load: Path | None, opponent
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
           opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, max_epoch_t: float,
-          summary: Summary, train: bool = True, bgn_file: Path | None = None) -> GameResult:
+          summary: Summary,  epsilon: float, train: bool = True, bgn_file: Path | None = None,) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it.
 
     ``bgn_file``: the game is appended to it in BGN when it ends.
@@ -261,7 +261,8 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
             reward: float = (scale_score_for_ai(ranked[0].score - pending.score) - C.AI_STEP_COST
                              + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate))
             results.append((pending.afterstate, reward, ranked[0].afterstate, False))
-        pending = learner.choose(ranked, temperature)  # Proportional Top-K Sampling
+        #pending = learner.choose(ranked, temperature)  # Proportional Top-K Sampling
+        pending = ranked[0] if rng.random() >= epsilon else rng.choice(ranked)
 
         _submit(gsm, pending.action)
 
@@ -334,7 +335,9 @@ def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
                       opponent_strategy: AIFindActionStrategy | None, rng: Random,
                       temperature: float | None = None) -> Command:
     if opponent_strategy is not None:
-        return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
+        #return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
+        # Return randomly two best possible actions:
+        return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
     else:
         return rng.choice(everything.find_all_possible_actions(gsm))
 
