@@ -8,3 +8,19 @@
 2026-11-10 14:06:06,445 INFO eval_ai_bot: Result: 100 games, 46 wins (46%), 53 losses, 0 draws, 1 stopped (1%), 81.6 unit turns, score -12.2, 42 s
 2026-11-12 08:53:32,468 INFO eval_ai_bot: Arguments: --games 100 --weights C:\projects\Beastborn\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
 2026-11-12 08:54:07,569 INFO eval_ai_bot: Result: 100 games, 28 wins (28%), 62 losses, 0 draws, 10 stopped (10%), 84.7 unit turns, score -69.3, 35 s
+2026-11-13 22:04:43,522 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-13 22:05:31,232 INFO eval_ai_bot: Result: 100 games, 26 wins (26%), 63 losses, 0 draws, 11 stopped (11%), 91.1 unit turns, score -74.8, 48 s
+2026-11-13 22:07:05,943 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-13 22:07:50,902 INFO eval_ai_bot: Result: 100 games, 31 wins (31%), 63 losses, 0 draws, 6 stopped (6%), 84.0 unit turns, score -71.2, 45 s
+2026-11-14 00:12:43,663 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:13:16,158 INFO eval_ai_bot: Result: 100 games, 14 wins (14%), 77 losses, 0 draws, 9 stopped (9%), 83.6 unit turns, score -177.3, 32 s
+2026-11-14 00:24:04,609 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:24:35,824 INFO eval_ai_bot: Result: 100 games, 18 wins (18%), 78 losses, 0 draws, 4 stopped (4%), 79.4 unit turns, score -159.0, 31 s
+2026-11-14 00:34:23,449 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:34:54,845 INFO eval_ai_bot: Result: 100 games, 13 wins (13%), 80 losses, 0 draws, 7 stopped (7%), 80.5 unit turns, score -163.7, 31 s
+2026-11-14 00:35:44,624 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:36:18,396 INFO eval_ai_bot: Result: 100 games, 44 wins (44%), 48 losses, 0 draws, 8 stopped (8%), 86.5 unit turns, score -13.8, 34 s
+2026-11-14 00:36:41,269 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good2 --map-seed 2 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:37:13,682 INFO eval_ai_bot: Result: 100 games, 24 wins (24%), 74 losses, 0 draws, 2 stopped (2%), 81.4 unit turns, score -102.1, 32 s
+2026-11-14 00:37:34,156 INFO eval_ai_bot: Arguments: --games 100 --weights D:\projects\Beastborn2\beastborn\data\ai_bot.safetensors --opponent ai --opponent-weights ..\beastborn\data\ai_bot.safetensors.good1 --map-seed 1 --max-turns 200 --seed 1 --log eval_ai_bot.log
+2026-11-14 00:38:12,150 INFO eval_ai_bot: Result: 100 games, 20 wins (20%), 73 losses, 0 draws, 7 stopped (7%), 78.7 unit turns, score -130.8, 38 s

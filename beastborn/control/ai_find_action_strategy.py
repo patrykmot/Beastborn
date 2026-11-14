@@ -287,10 +287,10 @@ class AIFindActionStrategy(FindActionStrategy):
     def find_all_possible_actions(self, gsm: GameStateMachine) -> list[Command]:
         """The action drawn by ``choose`` first, then the others best first; at most ``max_returned_commands``."""
         ranked: list[Ranked] = self.rank(gsm)
-        if self.top_k > 1 and len(ranked) > 1:
-            chosen: Ranked = self.choose(ranked)
-            ranked.remove(chosen)  # by identity (Ranked has eq=False)
-            ranked.insert(0, chosen)
+        # if self.top_k > 1 and len(ranked) > 1:
+        #     chosen: Ranked = self.choose(ranked)
+        #     ranked.remove(chosen)  # by identity (Ranked has eq=False)
+        #     ranked.insert(0, chosen)
         return [r.action for r in ranked[:self.max_returned_commands]]
 
     def choose(self, ranked: Sequence[Ranked], temperature: float | None = 0) -> Ranked:
