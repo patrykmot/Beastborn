@@ -46,3 +46,9 @@ This is kind of rolled back version to  2026.4.11. Not sure if its better, and i
 # Results of training (2026.11.14 )
 Looks there is an improvement - 50% was reached of evaluation vs good1 bot.
 ![img.png](pic/img_11.png)
+
+# Results of training (2026.11.14 22:56)
+Looks there is a huge improvement because I was setting opponent to play best moves allways!
+Looks superb good, get 77% of wind against good1! It happened on epoch 200 training. Next idea? Less cycles, and longer one like 3 X 50 epoches! 
+
+![img.png](pic/img_12.png)

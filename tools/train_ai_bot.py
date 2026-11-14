@@ -335,10 +335,11 @@ def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
                       opponent_strategy: AIFindActionStrategy | None, rng: Random,
                       temperature: float | None = None) -> Command:
     if opponent_strategy is not None:
-        return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
+        # return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
         #return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
         # Return randomly two best possible actions:
-        #return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
+        # return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
+        return opponent_strategy.rank(gsm)[0].action
     else:
         return rng.choice(everything.find_all_possible_actions(gsm))
 
