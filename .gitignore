@@ -168,3 +168,8 @@ beast.zip.tmp
 
 # Games recorded by tools/train_ai_bot.py (rewritten by every training run)
 train_ai_bot.bgn
+
+# Benchmarks played by tools/train_monitor.py (games, console, copied weights; the .csv is kept like train_ai_bot.csv)
+*.benchmark.bgn
+*.benchmark.out
+*.benchmark.e*.safetensors

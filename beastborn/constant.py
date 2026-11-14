@@ -118,7 +118,7 @@ SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of 
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
+BOT_SEARCH_DEPTH: Final[int] = 1  # unit turns the bot searches ahead (one ply = one whole unit turn)
 AI_MAX_RETURNED_COMMANDS: Final[int | None] = 50  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
@@ -168,9 +168,9 @@ AI_EPSILON: Final[float] = 0.05
 #    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
 AI_TEMPERATURE_MIN: Final[float] = 0.000001  # least randomness, reached at the end of a cycle
 AI_TEMPERATURE_MAX: Final[float] = 1.0  # most randomness, at the start of every cycle (after each warm restart)
-AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 10  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 40  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 100_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 300_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.04  # training: reward taken off every learner turn (= 1 HP of score): be quick
@@ -184,6 +184,17 @@ AI_TOP_K: Final[int] = 50
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"
+
+# ====================================================================== AI benchmark (tools/eval_ai_bot.py)
+# The defaults of tools/eval_ai_bot.py, also used by tools/train_monitor.py: every BENCHMARK_EVERY_EPOCHS training
+# epochs it plays a benchmark of the newest weights (AI_WEIGHTS_FILE) against an opponent that does not change.
+BENCHMARK_EVERY_EPOCHS: Final[int] = 2  # train_monitor.py: a benchmark after epoch 10, 20, 30...
+BENCHMARK_GAMES: Final[int] = 100  # games per benchmark
+BENCHMARK_OPPONENT: Final[str] = "ai"  # "random" (a random legal turn) or "ai" (BENCHMARK_OPPONENT_WEIGHTS)
+BENCHMARK_OPPONENT_WEIGHTS: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors.good1"
+BENCHMARK_MAP_SEED: Final[int] = 1  # seed of the first map (game i uses BENCHMARK_MAP_SEED + i)
+BENCHMARK_MAX_TURNS: Final[int] = 200  # unit turns before a game is stopped
+BENCHMARK_SEED: Final[int] = 1  # seed of the random choices (Top-K sampling, random opponent, ties)
 
 # ====================================================================== ui
 LOG_HISTORY: Final[int] = 200  # log lines kept by Interaction

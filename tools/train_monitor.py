@@ -18,8 +18,20 @@ Charts: results (% wins, losses, stopped), unit turns (all games, won ones, lost
 Thin lines are the epoch values, thick ones the moving average over the "Average" epochs. Move the mouse over a chart
 to read the values of one epoch.
 
+Benchmark: every BENCHMARK_EVERY_EPOCHS epochs of the newest run (epoch 10, 20, ...) the monitor copies the weights
+file (AI_WEIGHTS_FILE, the trainer's default ``--out``) and plays the benchmark of ``tools/eval_ai_bot.py`` with it in a
+separate process (lower priority, one at a time; the BENCHMARK_* settings of ``beastborn/constant.py``). Its results
+are the "Benchmark" chart (like "Results per epoch", against an opponent that does not change, so it shows real
+progress) and the list next to it; "Benchmark now" plays one for the newest run's last epoch at once. Only epochs
+written while the monitor runs are benchmarked (older ones were played with other weights); closing the monitor stops
+a benchmark that is being played. Files next to the statistics file: ``train_ai_bot.benchmark.csv`` (one row per
+benchmark, every run), ``.bgn`` (the games of the newest run's benchmarks), ``.log`` (eval_ai_bot's result lines)
+and ``.out`` (the console of the last benchmark).
+
 Games tab: the games of a ``.bgn`` file (Beastborn Game Notation, ``beastborn/game/bgn.py``; the trainer writes
-``train_ai_bot.bgn``), checked for new games every 2 seconds like the statistics. Pick one and watch it: one step is
+``train_ai_bot.bgn``), checked for new games every 2 seconds like the statistics. "Games" switches between the training
+games and the benchmark games (their "Epoch" is the training epoch whose weights played them; double-click a benchmark
+in the Training tab to see its games). Pick one and watch it: one step is
 one command of the game (a whole unit turn for the bots), forwards, backwards, or played automatically. The board
 shows the last step's move (dashed line) and attacks (red arrow); above it each player's score and the result.
 Keys: Right / Left = step, Space = play / pause, Home / End = start / end.
@@ -31,10 +43,14 @@ the run's last row belong to an epoch that is still being played (or was stopped
 from __future__ import annotations
 
 import csv
+import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import tkinter as tk
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
@@ -42,12 +58,19 @@ from tkinter import filedialog, ttk
 if not __package__:  # run as a file: make the 'beastborn' package importable (the Games tab imports it when used)
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from beastborn import constant as C  # noqa: E402  (a leaf module, standard library only)
+
 POLL_MS: int = 2000
 CANDIDATES: tuple[str, ...] = ("train_ai_bot.csv", "train_ai_bot.log")
 GAMES_CANDIDATES: tuple[str, ...] = ("train_ai_bot.bgn",)
 DEFAULT_DELAY_MS: int = 500  # Games tab: time between two steps when it plays by itself
 NUMBERS: tuple[str, ...] = ("epoch", "epochs", "games", "wins", "losses", "draws", "stopped", "unit_turns",
                             "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds")
+BENCHMARK_NUMBERS: tuple[str, ...] = ("epoch", "games", "wins", "losses", "draws", "stopped", "unit_turns",
+                                      "win_turns", "loss_turns", "score", "seconds")  # tools/eval_ai_bot.py --csv
+EVAL_SCRIPT: Path = Path(__file__).resolve().with_name("eval_ai_bot.py")
+BENCHMARK_NAME: str = ".benchmark"  # train_ai_bot.csv -> train_ai_bot.benchmark.csv / .bgn / .log / .out
+TRAINING_GAMES, BENCHMARK_GAMES = "training games", "benchmark games"  # the Games tab's lists
 
 # ---------------------------------------------------------------------- colours
 BG, PANEL, TEXT, MUTED, GRID, AXIS = "#1c1d22", "#25272e", "#e8e8ea", "#9a9ca5", "#33353d", "#4a4d57"
@@ -69,8 +92,10 @@ Row = dict  # one epoch: the NUMBERS as float | None, plus "run" and "time" (str
 class Source:
     """Epoch rows of every run in a csv or log file, read incrementally (only new complete lines each poll)."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, numbers: tuple[str, ...] = NUMBERS) -> None:
+        """``numbers``: the csv columns read as numbers; the others are kept as text."""
         self.path: Path = path
+        self.numbers: tuple[str, ...] = numbers
         self.is_log: bool = path.suffix.lower() == ".log"
         self.reset()
 
@@ -114,8 +139,8 @@ class Source:
         if self.header is None or len(values) != len(self.header):
             return
         raw: dict[str, str] = dict(zip(self.header, values))
-        row: Row = {"run": raw.get("run", "?"), "time": raw.get("time", "")}
-        for name in NUMBERS:
+        row: Row = {**raw, "run": raw.get("run", "?"), "time": raw.get("time", "")}
+        for name in self.numbers:
             row[name] = _number(raw.get(name, ""))
         self.runs.setdefault(row["run"], []).append(row)
 
@@ -153,6 +178,9 @@ class Source:
 
     def run_names(self) -> list[str]:
         return [name for name, rows in self.runs.items() if rows]
+
+    def all_rows(self) -> list[Row]:
+        return [row for rows in self.runs.values() for row in rows]
 
 
 def _number(text: str) -> float | None:
@@ -244,22 +272,27 @@ class LineChart(tk.Canvas):
     LEFT, RIGHT, TOP, BOTTOM = 52, 14, 34, 26
 
     def __init__(self, master: tk.Misc, title: str, unit: str = "", fixed: tuple[float, float] | None = None,
-                 digits: int = 1, on_hover=None) -> None:
+                 digits: int = 1, on_hover=None, markers: bool = False) -> None:
+        """``on_hover(epoch, chart)``: the mouse is over ``epoch`` of ``chart`` (None, None: it left)."""
         super().__init__(master, background=PANEL, highlightthickness=0, height=220, width=420)
         self.title, self.unit, self.fixed, self.digits, self.on_hover = title, unit, fixed, digits, on_hover
+        self.markers: bool = markers  # a dot on every value (few points far apart)
+        self.empty: str = "no data yet"
         self.epochs: list[float] = []
+        self.x_span: tuple[float, float] | None = None  # the epochs the x axis shows (None = those of the data)
         self.series: list[Series] = []
         self.hover: int | None = None  # index into epochs
         self.bind("<Configure>", lambda _e: self.draw())
         self.bind("<Motion>", self._motion)
         self.bind("<Leave>", lambda _e: self.on_hover and self.on_hover(None, None))
 
-    def set_data(self, epochs: list[float], series: list[Series]) -> None:
-        self.epochs, self.series = epochs, series
+    def set_data(self, epochs: list[float], series: list[Series], x_span: tuple[float, float] | None = None) -> None:
+        self.epochs, self.series, self.x_span = epochs, series, x_span
         self.draw()
 
-    def set_hover(self, index: int | None, owner: LineChart | None) -> None:
-        self.hover = index
+    def set_hover(self, epoch: float | None, owner: LineChart | None) -> None:
+        """Mark ``epoch`` if this chart has a value for it."""
+        self.hover = None if epoch is None else next((i for i, x in enumerate(self.epochs) if x == epoch), None)
         self._owner = owner is self
         self.draw()
 
@@ -269,7 +302,7 @@ class LineChart(tk.Canvas):
             max(self.TOP + 10, self.winfo_height() - self.BOTTOM)
 
     def _ranges(self) -> tuple[float, float, float, float]:
-        x0, x1 = (self.epochs[0], self.epochs[-1]) if self.epochs else (0.0, 1.0)
+        x0, x1 = self.x_span or ((self.epochs[0], self.epochs[-1]) if self.epochs else (0.0, 1.0))
         if x1 <= x0:
             x1 = x0 + 1
         if self.fixed:
@@ -302,7 +335,7 @@ class LineChart(tk.Canvas):
             self.create_line(left, y, right, y, fill=GRID)
             label = f"{tick:.{max(0, self.digits - 1) if abs(y1 - y0) < 5 else 0}f}{self.unit}"
             self.create_text(left - 6, y, text=label, anchor="e", fill=MUTED, font=FONT_SMALL)
-        if self.epochs:
+        if self.epochs or self.x_span:
             for tick in nice_ticks(x0, x1, max(2, (right - left) // 70)):
                 if tick == int(tick):
                     x = sx(tick)
@@ -311,7 +344,7 @@ class LineChart(tk.Canvas):
         self.create_line(left, bottom, right, bottom, fill=AXIS)
 
         if not self.epochs:
-            self.create_text((left + right) / 2, (top + bottom) / 2, text="no data yet", fill=MUTED, font=FONT)
+            self.create_text((left + right) / 2, (top + bottom) / 2, text=self.empty, fill=MUTED, font=FONT)
             return
         for s in self.series:
             self._line([(sx(x), sy(v)) if v is not None else None for x, v in zip(self.epochs, s.values)],
@@ -319,6 +352,12 @@ class LineChart(tk.Canvas):
         for s in self.series:
             self._line([(sx(x), sy(v)) if v is not None else None for x, v in zip(self.epochs, s.smooth)],
                        s.colour, 2.5)
+        if self.markers:
+            for s in self.series:
+                for x, v in zip(self.epochs, s.values):
+                    if v is not None:
+                        self.create_oval(sx(x) - 3.5, sy(v) - 3.5, sx(x) + 3.5, sy(v) + 3.5, fill=s.colour,
+                                         outline=PANEL)
 
         if self.hover is not None and 0 <= self.hover < len(self.epochs):
             x = sx(self.epochs[self.hover])
@@ -362,7 +401,7 @@ class LineChart(tk.Canvas):
         x0, x1, _y0, _y1 = self._ranges()
         epoch = x0 + (min(max(event.x, left), right) - left) / max(1, right - left) * (x1 - x0)
         index = min(range(len(self.epochs)), key=lambda i: abs(self.epochs[i] - epoch))
-        self.on_hover(index, self)
+        self.on_hover(self.epochs[index], self)
 
 
 # ====================================================================== a statistic card
@@ -393,6 +432,259 @@ def trend(now: float | None, before: float | None, digits: int, unit: str, good_
     arrow = "▲" if change > 0 else "▼"
     colour = MUTED if good_up is None else (WIN if (change > 0) == good_up else LOSS)
     return f"{arrow} {change:+.{digits}f}{unit}", colour
+
+
+# ====================================================================== the benchmark
+@dataclass
+class BenchmarkJob:
+    """One benchmark: the weights of epoch ``epoch`` of training run ``run``, copied to ``weights``."""
+
+    run: str
+    epoch: int
+    weights: Path
+    started: float = 0.0  # time.time() when its process started
+
+
+class Benchmark:
+    """Plays ``tools/eval_ai_bot.py`` (the BENCHMARK_* settings) on copies of the weights file, one process at a time.
+
+    Its files are next to the statistics file ``stats``: ``<stem>.benchmark.csv`` (one row per benchmark, read like the
+    statistics), ``.bgn`` (the games, emptied when the first benchmark of a new run starts), ``.log`` (eval_ai_bot's
+    Arguments / Result lines), ``.out`` (the console of the last benchmark) and ``.e<epoch>.safetensors`` (the copied
+    weights, deleted when their benchmark ends).
+    """
+
+    def __init__(self, stats: Path) -> None:
+        base: str = stats.stem + BENCHMARK_NAME
+        self.folder: Path = stats.parent
+        self.base: str = base
+        self.csv_path: Path = stats.with_name(base + ".csv")
+        self.games_path: Path = stats.with_name(base + ".bgn")
+        self.log_path: Path = stats.with_name(base + ".log")
+        self.out_path: Path = stats.with_name(base + ".out")
+        self.source: Source = Source(self.csv_path, BENCHMARK_NUMBERS)
+        self.source.poll()
+        self.queue: list[BenchmarkJob] = []
+        self.job: BenchmarkJob | None = None  # the one being played
+        self.process: subprocess.Popen | None = None
+        self._out = None  # the open .out file of the process
+        self.error: str = ""  # why the last benchmark failed ("" = it did not)
+        self.seen: set[tuple[str, float | None]] = set()  # (run, epoch) of the statistics rows already looked at
+
+    # ---------------------------------------------------------- when
+    def watch(self, stats: Source, start: bool = True) -> None:
+        """Look at the statistics rows not seen yet: a new epoch of the newest run that is a multiple of
+        BENCHMARK_EVERY_EPOCHS gets a benchmark (``start`` False: only remember them, e.g. a file just opened)."""
+        names: list[str] = stats.run_names()
+        for name in names:
+            for row in stats.runs[name]:
+                key = (name, row["epoch"])
+                if key in self.seen:
+                    continue
+                self.seen.add(key)
+                epoch = row["epoch"]
+                if (start and name == names[-1] and epoch is not None and int(epoch) == epoch
+                        and int(epoch) % C.BENCHMARK_EVERY_EPOCHS == 0):
+                    self.request(name, int(epoch))
+
+    def has(self, run: str, epoch: int) -> bool:
+        """A benchmark of this epoch was played, is being played or is waiting."""
+        return (any(row["epoch"] == epoch for row in self.source.runs.get(run, []))
+                or any(job.run == run and job.epoch == epoch for job in [self.job, *self.queue] if job is not None))
+
+    def request(self, run: str, epoch: int) -> None:
+        """Copy the weights file now (they are this epoch's) and play their benchmark as soon as none is playing."""
+        if self.has(run, epoch):
+            return
+        weights: Path = self.folder / f"{self.base}.e{epoch}.safetensors"
+        try:
+            shutil.copyfile(C.AI_WEIGHTS_FILE, weights)
+        except OSError as error:
+            self.error = f"epoch {epoch}: could not copy {C.AI_WEIGHTS_FILE.name}: {error}"
+            return
+        self.queue.append(BenchmarkJob(run, epoch, weights))
+        self._start_next()
+
+    # ---------------------------------------------------------- the process
+    def _start_next(self) -> None:
+        if self.process is not None or not self.queue:
+            return
+        job: BenchmarkJob = self.queue.pop(0)
+        self.source.poll()
+        names: list[str] = self.source.run_names()
+        try:
+            if not names or names[-1] != job.run:  # the first benchmark of a run: its games only
+                self.games_path.write_text("", encoding="utf-8")
+            self._out = open(self.out_path, "w", encoding="utf-8")
+            flags: int = (getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows: no console, training goes first
+                          | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
+            self.process = subprocess.Popen(
+                [sys.executable, str(EVAL_SCRIPT), "--weights", str(job.weights), "--csv", str(self.csv_path),
+                 "--bgn", str(self.games_path), "--log", str(self.log_path), "--run", job.run,
+                 "--epoch", str(job.epoch)],
+                cwd=str(EVAL_SCRIPT.parent), stdin=subprocess.DEVNULL, stdout=self._out, stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"}, creationflags=flags)
+        except OSError as error:
+            self._close_out()
+            self._delete(job)
+            self.error = f"epoch {job.epoch}: could not start {EVAL_SCRIPT.name}: {error}"
+            self._start_next()
+            return
+        job.started = time.time()
+        self.job, self.error = job, ""
+
+    def poll(self) -> bool:
+        """New rows in the csv file, or a benchmark ended. True when something changed."""
+        changed: bool = self.source.poll()
+        if self.process is not None and self.process.poll() is not None:
+            code: int = self.process.returncode
+            job: BenchmarkJob | None = self.job
+            self.process, self.job = None, None
+            self._close_out()
+            if job is not None:
+                self._delete(job)
+                if code != 0:
+                    self.error = f"epoch {job.epoch} failed: {self._last_line() or f'exit code {code}'}"
+            self.source.poll()
+            self._start_next()
+            changed = True
+        return changed
+
+    def progress(self) -> tuple[int, int]:
+        """Games played and to play by the running benchmark (from its console)."""
+        try:
+            with open(self.out_path, "rb") as file:
+                size: int = file.seek(0, 2)
+                file.seek(max(0, size - 4096))
+                text: str = file.read().decode("utf-8", errors="replace")
+        except OSError:
+            return 0, C.BENCHMARK_GAMES
+        found = re.findall(r" game (\d+)/(\d+) ", text)
+        return (int(found[-1][0]), int(found[-1][1])) if found else (0, C.BENCHMARK_GAMES)
+
+    def _last_line(self) -> str:
+        try:
+            lines = [line.strip() for line in self.out_path.read_text(encoding="utf-8", errors="replace").splitlines()]
+        except OSError:
+            return ""
+        last: str = next((line for line in reversed(lines) if line), "")
+        return last if len(last) <= 90 else last[:87] + "..."
+
+    def _close_out(self) -> None:
+        if self._out is not None:
+            self._out.close()
+            self._out = None
+
+    @staticmethod
+    def _delete(job: BenchmarkJob) -> None:
+        try:
+            job.weights.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def stop(self) -> None:
+        """Stop the benchmark being played and forget the waiting ones (the monitor closes)."""
+        if self.process is not None:
+            self.process.kill()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            self.process = None
+        self._close_out()
+        for job in [self.job, *self.queue]:
+            if job is not None:
+                self._delete(job)
+        self.job, self.queue = None, []
+
+
+def benchmark_opponent() -> str:
+    if C.BENCHMARK_OPPONENT == "random":
+        return "random"
+    return C.BENCHMARK_OPPONENT_WEIGHTS.name.replace(".safetensors", "")  # as eval_ai_bot.weights_name
+
+
+def benchmark_epochs(records: list, rows: list[Row], running: tuple[float, int] | None = None
+                     ) -> tuple[list[int | None], int]:
+    """The training epoch whose benchmark played each game of ``records`` (None = unknown), and the last epoch with
+    a benchmark row.
+
+    A game belongs to the benchmark row (any run) that was being played when the game was created: between the row's
+    "started" and "time". ``running``: (start time, epoch) of the benchmark being played, whose games have no row yet.
+    """
+    spans: list[tuple[float, float, int]] = []
+    for row in rows:
+        start, end = _parse_time(row.get("started", "")), _parse_time(row["time"])
+        if start is not None and end is not None and row["epoch"] is not None:
+            spans.append((start - 1, end + 1, int(row["epoch"])))
+    epochs: list[int | None] = []
+    finished: int = 0
+    for record in records:
+        created: float = record.game_id / 1000
+        epoch: int | None = next((e for start, end, e in spans if start <= created <= end), None)
+        if epoch is not None:
+            finished = max(finished, epoch)
+        elif running is not None and created >= running[0] - 1:
+            epoch = running[1]
+        epochs.append(epoch)
+    return epochs, finished
+
+
+class BenchmarkPanel(tk.Frame):
+    """The benchmarks of the shown run (newest first), what is being played, and "Benchmark now"."""
+
+    def __init__(self, master: tk.Misc, on_run, on_open) -> None:
+        """``on_run()``: the button; ``on_open(epoch)``: a benchmark was double-clicked."""
+        super().__init__(master, background=PANEL, padx=12, pady=8)
+        self.on_open = on_open
+        head = tk.Frame(self, background=PANEL)
+        head.pack(fill="x")
+        tk.Label(head, text="Benchmarks", bg=PANEL, fg=TEXT, font=FONT_TITLE).pack(side="left")
+        self.button = ttk.Button(head, text="Benchmark now", style="Panel.TButton", command=on_run)
+        self.button.pack(side="right")
+        opponent = benchmark_opponent()
+        tk.Label(self, text=f"every {C.BENCHMARK_EVERY_EPOCHS} epochs: {C.BENCHMARK_GAMES} games vs {opponent}, "
+                            f"max {C.BENCHMARK_MAX_TURNS} turns", bg=PANEL, fg=MUTED, font=FONT_SMALL,
+                 anchor="w").pack(fill="x", pady=(4, 0))
+        self.status = tk.Label(self, text="", bg=PANEL, fg=MUTED, font=FONT_SMALL, anchor="w")
+        self.status.pack(fill="x")
+        tk.Label(self, text="double-click: watch its games", bg=PANEL, fg=MUTED, font=FONT_SMALL,
+                 anchor="w").pack(side="bottom", fill="x")
+        listing = tk.Frame(self, background=PANEL)
+        listing.pack(fill="both", expand=True, pady=(4, 2))
+        columns = (("epoch", "Epoch", 46), ("wins", "Wins", 54), ("losses", "Losses", 54), ("stopped", "Stopped", 58),
+                   ("score", "Score", 58), ("turns", "Turns", 48))
+        self.tree = ttk.Treeview(listing, columns=[c[0] for c in columns], show="headings", selectmode="browse",
+                                 height=4)
+        for name, title, width in columns:
+            self.tree.heading(name, text=title)
+            self.tree.column(name, width=width, minwidth=36, anchor="e", stretch=True)
+        scroll = ttk.Scrollbar(listing, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="left", fill="y")
+        self.tree.bind("<Double-1>", self._open)
+        self._shown: list[tuple] = []
+
+    def show(self, rows: list[Row], status: str, colour: str, can_run: bool) -> None:
+        def pct(row: Row, name: str) -> str:
+            return f"{row[name] / row['games'] * 100:.0f} %" if row[name] is not None and row["games"] else "–"
+
+        values = [(int(row["epoch"]), pct(row, "wins"), pct(row, "losses"), pct(row, "stopped"),
+                   fmt(row["score"], 1, sign=True), fmt(row["unit_turns"], 0))
+                  for row in reversed(rows) if row["epoch"] is not None]
+        if values != self._shown:
+            self._shown = values
+            self.tree.delete(*self.tree.get_children())
+            for value in values:
+                self.tree.insert("", "end", values=value)
+        self.status.config(text=status, fg=colour)
+        self.button.state(["!disabled"] if can_run else ["disabled"])
+
+    def _open(self, event: tk.Event) -> None:
+        item = self.tree.identify_row(event.y)
+        if item:
+            self.on_open(int(self.tree.item(item, "values")[0]))
 
 
 # ====================================================================== the Games tab
@@ -478,14 +770,28 @@ def game_epochs(records: list, runs: dict[str, list[Row]]) -> tuple[list[int | N
     return epochs, finished
 
 
+class GameList:
+    """One list of the Games tab: its .bgn file and how to find the epoch of each of its games."""
+
+    def __init__(self, epochs_of, unknown: str) -> None:
+        """``epochs_of(records)``: (the epoch of each record or None, the last epoch that is finished)."""
+        self.epochs_of = epochs_of
+        self.unknown: str = unknown  # shown when no game has an epoch
+        self.source: BgnSource | None = None
+
+
 class GamesTab(tk.Frame):
     """Pick a recorded game (BGN) on the left and watch it on the right: step by step, backwards or playing."""
 
-    def __init__(self, master: tk.Misc, stats=lambda: None) -> None:
-        """``stats``: returns the Training tab's Source (or None); its rows tell which epoch played each game."""
+    def __init__(self, master: tk.Misc, training_epochs=lambda records: ([None] * len(records), 0),
+                 benchmark_epochs=lambda records: ([None] * len(records), 0)) -> None:
+        """``training_epochs`` / ``benchmark_epochs``: the epochs of the games of the two lists (see GameList)."""
         super().__init__(master, background=BG)
-        self.source: BgnSource | None = None
-        self.stats = stats
+        self.lists: dict[str, GameList] = {
+            TRAINING_GAMES: GameList(training_epochs, "epochs unknown: no statistics of this run"),
+            BENCHMARK_GAMES: GameList(benchmark_epochs, "epochs unknown: no benchmark row for these games"),
+        }
+        self.kind: str = TRAINING_GAMES  # the list shown
         self.epochs: list[int | None] = []  # per game of self.source.records: the epoch that played it
         self.finished: int = 0  # the last epoch with a statistics row (later ones are still being played)
         self.epoch_filter: int | None = None  # list only the games of this epoch (None = all)
@@ -500,6 +806,11 @@ class GamesTab(tk.Frame):
         # ---- top bar
         bar = tk.Frame(self, background=BG, padx=14, pady=10)
         bar.pack(fill="x")
+        tk.Label(bar, text="Games", bg=BG, fg=MUTED, font=FONT).pack(side="left")
+        self.kind_box = ttk.Combobox(bar, state="readonly", width=16, values=tuple(self.lists))
+        self.kind_box.current(0)
+        self.kind_box.pack(side="left", padx=(6, 12))
+        self.kind_box.bind("<<ComboboxSelected>>", lambda _e: self.select(self.kind_box.get()))
         ttk.Button(bar, text="Open .bgn…", command=self.choose_file).pack(side="left")
         self.file_label = tk.Label(bar, text="no file", bg=BG, fg=MUTED, font=FONT)
         self.file_label.pack(side="left", padx=(10, 14))
@@ -574,24 +885,70 @@ class GamesTab(tk.Frame):
             top.bind(key, lambda _e, act=action: self._key(act), add="+")
 
     # ---------------------------------------------------------- file and list
+    @property
+    def source(self) -> BgnSource | None:
+        """The .bgn file of the list shown."""
+        return self.lists[self.kind].source
+
     def choose_file(self) -> None:
         name = filedialog.askopenfilename(title="Recorded games",
                                           filetypes=[("Beastborn games", "*.bgn"), ("All files", "*.*")])
         if name:
             self.open(Path(name))
 
-    def open(self, path: Path) -> None:
+    def _can_replay(self) -> bool:
         try:
             import beastborn.ui.replay  # noqa: F401  (the game modules: fail here, not on the first click)
         except ImportError as error:
             self.file_label.config(text=f"the Games tab needs the project's packages (requirements.txt): {error}",
                                    fg=WARN)
+            return False
+        return True
+
+    def open(self, path: Path, kind: str | None = None) -> None:
+        """Show the games of ``path`` in list ``kind`` (default: benchmark games for a .benchmark.bgn file)."""
+        if not self._can_replay():
             return
-        self.source = BgnSource(path)
-        self.file_label.config(text=f"{path.parent.name}/{path.name}", fg=MUTED)
+        kind = kind or (BENCHMARK_GAMES if path.name.endswith(BENCHMARK_NAME + ".bgn") else TRAINING_GAMES)
+        self.lists[kind].source = BgnSource(path)
+        self.select(kind)
+
+    def set_file(self, kind: str, path: Path) -> None:
+        """The file of list ``kind``, without showing it (the benchmark games of the opened statistics)."""
+        source = self.lists[kind].source
+        if source is not None and source.path == path:
+            return
+        self.lists[kind].source = BgnSource(path)
+        if kind == self.kind and self._can_replay():
+            self.select(kind)
+
+    def select(self, kind: str) -> None:
+        """Show list ``kind``, all its epochs."""
+        self.kind = kind
+        self.kind_box.current(tuple(self.lists).index(kind))
         self.tree.delete(*self.tree.get_children())
-        self._records, self._listed, self.epochs, self.finished = None, 0, [], 0
+        self._records, self._listed, self.epochs, self.finished, self.epoch_filter = None, 0, [], 0, None
+        if self.source is None:
+            self.file_label.config(text="no file", fg=MUTED)
+            self._fill_epoch_box()
+            self.shown_label.config(text="")
+            return
+        self.file_label.config(text=f"{self.source.path.parent.name}/{self.source.path.name}", fg=MUTED)
         self.poll()
+
+    def show_epoch(self, kind: str, epoch: int) -> None:
+        """List ``kind`` with only the games of ``epoch``, the newest one picked."""
+        if kind != self.kind or self.source is None:
+            self.select(kind)
+        else:
+            self.poll()
+        if epoch not in self.epoch_choices:
+            return
+        self.epoch_box.current(self.epoch_choices.index(epoch))
+        self.pick_epoch()
+        children = self.tree.get_children()
+        if children:
+            self.tree.selection_set(children[0])
 
     def poll(self) -> None:
         """New games of the file, and the epochs of the games as the statistics file grows."""
@@ -599,8 +956,7 @@ class GamesTab(tk.Frame):
             return
         changed: bool = self.source.poll()
         records = self.source.records
-        stats = self.stats()
-        epochs, finished = game_epochs(records, stats.runs if stats is not None else {})
+        epochs, finished = self.lists[self.kind].epochs_of(records)
         if not changed and records is self._records and epochs == self.epochs and finished == self.finished:
             return
         # list again when the file was replaced or the epochs of games already listed changed
@@ -634,7 +990,7 @@ class GamesTab(tk.Frame):
                 self.tree.selection_set(shown)
                 self.tree.see(shown)
         if records and all(epoch is None for epoch in self.epochs):
-            self.shown_label.config(text="epochs unknown: no statistics of this run", fg=WARN)
+            self.shown_label.config(text=self.lists[self.kind].unknown, fg=WARN)
         else:
             self.shown_label.config(text=f"{len(self.tree.get_children())} of {len(records)} games", fg=MUTED)
 
@@ -902,7 +1258,9 @@ class Monitor(tk.Tk):
         self.geometry("1280x860")
         self.minsize(1100, 680)
         self.source: Source | None = None
+        self.benchmark: Benchmark | None = None  # of the opened statistics file
         self.shown_run: str | None = None
+        self.protocol("WM_DELETE_WINDOW", self.close)
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -912,6 +1270,9 @@ class Monitor(tk.Tk):
         style.map("TCheckbutton", background=[("active", BG)])
         style.configure("TButton", background=PANEL, foreground=TEXT, borderwidth=0, padding=(10, 4))
         style.map("TButton", background=[("active", AXIS)])
+        style.configure("Panel.TButton", background=AXIS, padding=(8, 2))
+        style.map("Panel.TButton", background=[("active", MUTED), ("disabled", PANEL)],
+                  foreground=[("disabled", MUTED)])
         style.configure("TSpinbox", fieldbackground=PANEL, foreground=TEXT, arrowcolor=TEXT, background=PANEL)
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(16, 6), borderwidth=0)
@@ -928,7 +1289,10 @@ class Monitor(tk.Tk):
         self.notebook.pack(fill="both", expand=True)
         training = tk.Frame(self.notebook, background=BG)
         self.notebook.add(training, text="Training")
-        self.games = GamesTab(self.notebook, stats=lambda: self.source)
+        self.games = GamesTab(
+            self.notebook,
+            training_epochs=lambda records: game_epochs(records, self.source.runs if self.source else {}),
+            benchmark_epochs=self.benchmark_epochs)
         self.notebook.add(self.games, text="Games")
 
         # ---- top bar
@@ -966,18 +1330,23 @@ class Monitor(tk.Tk):
             cards.columnconfigure(column, weight=1, uniform="cards")
             self.cards[name] = card
 
-        # ---- charts
+        # ---- charts: the benchmark next to the training results, the other charts below
         charts = tk.Frame(training, background=BG, padx=10, pady=4)
         charts.pack(fill="both", expand=True)
         self.results = LineChart(charts, "Results per epoch", "%", fixed=(0, 100), digits=0, on_hover=self.hover)
+        self.bench = LineChart(charts, f"Benchmark every {C.BENCHMARK_EVERY_EPOCHS} epochs", "%", fixed=(0, 100),
+                               digits=0, on_hover=self.hover, markers=True)
+        self.bench.empty = f"first benchmark after epoch {C.BENCHMARK_EVERY_EPOCHS}"
+        self.panel = BenchmarkPanel(charts, on_run=self.benchmark_now, on_open=self.show_benchmark_games)
         self.turns = LineChart(charts, "Unit turns per game", on_hover=self.hover)
         self.score = LineChart(charts, "Score per game", on_hover=self.hover)
         self.loss = LineChart(charts, "Training loss", digits=4, on_hover=self.hover)
-        self.charts = (self.results, self.turns, self.score, self.loss)
-        for i, chart in enumerate(self.charts):
-            chart.grid(row=i // 2, column=i % 2, sticky="nsew", padx=4, pady=4)
-        for i in range(2):
+        self.charts = (self.results, self.bench, self.turns, self.score, self.loss)
+        for i, widget in enumerate((self.results, self.bench, self.panel, self.turns, self.score, self.loss)):
+            widget.grid(row=i // 3, column=i % 3, sticky="nsew", padx=4, pady=4)
+        for i in range(3):
             charts.columnconfigure(i, weight=1, uniform="charts")
+        for i in range(2):
             charts.rowconfigure(i, weight=1, uniform="charts")
 
         self.window.trace_add("write", lambda *_: self.refresh())
@@ -1017,13 +1386,81 @@ class Monitor(tk.Tk):
         self.shown_run = None
         self.file_label.config(text=f"{path.parent.name}/{path.name}")
         self.source.poll()
+        if self.benchmark is not None:
+            self.benchmark.stop()
+        self.benchmark = Benchmark(path)
+        self.benchmark.watch(self.source, start=False)  # epochs written before: played with other weights
+        self.games.set_file(BENCHMARK_GAMES, self.benchmark.games_path)
         self.refresh()
 
     def poll(self) -> None:
+        changed: bool = False
         if self.source is not None and self.source.poll():
+            if self.benchmark is not None:
+                self.benchmark.watch(self.source)  # a new epoch: its benchmark, if it is time for one
+            changed = True
+        if self.benchmark is not None and self.benchmark.poll():
+            changed = True
+        if changed:
             self.refresh()
+        else:
+            self.update_panel()  # the running benchmark's progress
         self.games.poll()
         self.after(POLL_MS, self.poll)
+
+    def close(self) -> None:
+        if self.benchmark is not None:
+            self.benchmark.stop()
+        self.destroy()
+
+    # ---------------------------------------------------------- benchmark
+    def newest(self) -> tuple[str, Row] | None:
+        """The newest run and its last epoch row."""
+        names = self.source.run_names() if self.source else []
+        return (names[-1], self.source.runs[names[-1]][-1]) if names else None
+
+    def benchmark_now(self) -> None:
+        """A benchmark of the newest run's last epoch, with the weights file as it is now."""
+        newest = self.newest()
+        if self.benchmark is not None and newest is not None and newest[1]["epoch"] is not None:
+            self.benchmark.request(newest[0], int(newest[1]["epoch"]))
+            self.refresh()
+
+    def benchmark_epochs(self, records: list) -> tuple[list[int | None], int]:
+        """The Games tab: the epoch of each benchmark game."""
+        b = self.benchmark
+        if b is None:
+            return [None] * len(records), 0
+        return benchmark_epochs(records, b.source.all_rows(), (b.job.started, b.job.epoch) if b.job else None)
+
+    def show_benchmark_games(self, epoch: int) -> None:
+        self.notebook.select(self.games)
+        self.games.show_epoch(BENCHMARK_GAMES, epoch)
+
+    def update_panel(self) -> None:
+        b = self.benchmark
+        rows = b.source.runs.get(self.shown_run, []) if b is not None and self.shown_run else []
+        newest = self.newest()
+        can_run = (b is not None and newest is not None and newest[1]["epoch"] is not None
+                   and not b.has(newest[0], int(newest[1]["epoch"])))
+        colour = MUTED
+        if b is None:
+            status = "open a train_ai_bot .csv or .log file"
+        elif b.job is not None:
+            played, total = b.progress()
+            status, colour = f"playing epoch {b.job.epoch}: game {played} / {total}", TEXT
+            if b.queue:
+                status += f", {len(b.queue)} waiting"
+        elif b.error:
+            status, colour = b.error, WARN
+        elif newest is None:
+            status = "waiting for the first epoch…"
+        elif newest[1]["epoch"] is not None and newest[1]["epochs"] and newest[1]["epoch"] >= newest[1]["epochs"]:
+            status = "the newest run is finished"
+        else:
+            last = int(newest[1]["epoch"] or 0)
+            status = f"next after epoch {(last // C.BENCHMARK_EVERY_EPOCHS + 1) * C.BENCHMARK_EVERY_EPOCHS}"
+        self.panel.show(rows, status, colour, can_run)
 
     # ---------------------------------------------------------- run choice
     def pick_run(self) -> None:
@@ -1083,6 +1520,26 @@ class Monitor(tk.Tk):
                 s.values, s.smooth = s.values[start:], s.smooth[start:]
             chart.hover = None
             chart.set_data(epochs[start:], lines)
+        self.refresh_benchmark(epochs[start:], window)
+        self.update_panel()
+
+    def refresh_benchmark(self, epochs: list[float], window: int) -> None:
+        """The Benchmark chart: the shown run's benchmarks over the same epochs as the other charts."""
+        rows = self.benchmark.source.runs.get(self.shown_run, []) if self.benchmark and self.shown_run else []
+        rows = sorted((row for row in rows if row["epoch"] is not None), key=lambda row: row["epoch"])
+        if epochs:
+            rows = [row for row in rows if epochs[0] <= row["epoch"]]
+        window = max(1, round(window / C.BENCHMARK_EVERY_EPOCHS))  # "Average" is in epochs
+
+        def series(name: str, colour: str) -> Series:
+            values = [row[name] / row["games"] * 100 if row[name] is not None and row["games"] else None
+                      for row in rows]
+            return Series(name, colour, values, moving_average(values, window))
+
+        self.bench.hover = None
+        self.bench.set_data([row["epoch"] for row in rows],
+                            [series("wins", WIN), series("losses", LOSS), series("stopped", STOPPED)],
+                            (epochs[0], max(epochs[-1], epochs[0] + 1)) if epochs else None)
 
     def update_cards(self, rows: list[Row], window: int) -> None:
         c = self.cards
@@ -1125,9 +1582,9 @@ class Monitor(tk.Tk):
         c["Speed"].show(f"{fmt(seconds, 0)} s", "per epoch", MUTED,
                         f"memory {int(memory):,}".replace(",", " ") if memory is not None else "")
 
-    def hover(self, index: int | None, owner: LineChart | None) -> None:
+    def hover(self, epoch: float | None, owner: LineChart | None) -> None:
         for chart in self.charts:
-            chart.set_hover(index, owner)
+            chart.set_hover(epoch, owner)
 
     def tick(self) -> None:
         """How long since the last epoch row (Epoch card and window title), in orange when it is overdue."""

@@ -42,3 +42,7 @@ Does not looks good.
 # Results of training (2026.11.12 )
 This is kind of rolled back version to  2026.4.11. Not sure if its better, and its not full rollback. But it looks a bit better than from previous (11.8).
 ![img_1.png](pic/img_10.png)
+
+# Results of training (2026.11.14 )
+Looks there is an improvement - 50% was reached of evaluation vs good1 bot.
+![img.png](pic/img_11.png)
