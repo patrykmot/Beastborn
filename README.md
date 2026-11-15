@@ -49,17 +49,18 @@ The attacker stands still and hits while it has energy; the target does nothing.
 ## AI move ordering (training)
 
 `AIFindActionStrategy` sorts the bot's candidate moves with a small neural network (tinygrad), 10x10 maps only.
-Train it by playing games; progress and results go to the console and `train_ai_bot.log`:
+Train it by playing games; progress and results go to the console and `train_ai_bot.log.zip`:
 
 ```bash
-python tools/train_ai_bot.py --games 200 --opponent random --seed 1          # a new network
-python tools/train_ai_bot.py --games 200 --opponent ai --load beastborn/data/ai_bot.safetensors --seed 201
+python tools/train_ai_bot.py --games 200 --seed 1                                     # a new network
+python tools/train_ai_bot.py --games 200 --load beastborn/data/ai_bot.safetensors --seed 201
 ```
 
 The weights are saved to `beastborn/data/ai_bot.safetensors` every 10 games, at the end and on Ctrl+C; the last log
-line tells you how to continue (`--load ... --seed ...`). Every game is recorded in `train_ai_bot.bgn`
+line tells you how to continue (`--load ... --seed ...`). Every game is recorded in `train_ai_bot.bgn.zip`
 (Beastborn Game Notation, one game per line, see [docs/bgn.md](docs/bgn.md); emptied when training starts,
-`--bgn ""` = off).
+`--bgn ""` = off). The log and the games are saved zipped (`beastborn/zip_text.py`, bzip2: open them with 7-Zip),
+so they stay small in git.
 
 Watch the training with `python tools/train_monitor.py`: the Training tab charts the epochs, the Games tab replays the
 recorded games (pick one; step forwards and backwards with the buttons or the arrow keys, Space plays and pauses),

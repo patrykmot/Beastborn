@@ -21,7 +21,8 @@ progress, because there the opponent gets better at the same speed.
 Every run appends its arguments and its ``Result:`` line to ``--log`` (default eval_ai_bot.log), so runs can be
 compared later. ``--csv FILE`` also appends one row with the result (``--run`` and ``--epoch`` label it), and
 ``--bgn FILE`` appends every game in Beastborn Game Notation when it ends (players named Bot and the opponent), so the
-Games tab of ``tools/train_monitor.py`` can replay them. Neither file is emptied.
+Games tab of ``tools/train_monitor.py`` can replay them. Neither file is emptied. The games are saved zipped
+(``beastborn/zip_text.py``: every few seconds and at the end); ``.zip`` is added to a ``--bgn`` name without it.
 
 Tip: while a training run is going, evaluate a copy of the weights file: the training saves it every few games.
 """
@@ -47,9 +48,10 @@ from beastborn.control import (  # noqa: E402
 )
 from beastborn.control.ai_find_action_strategy import score_difference  # noqa: E402
 from beastborn.game import GameRecorder, Phase, new_game  # noqa: E402
-from beastborn.game.bgn import append_bgn  # noqa: E402
+from beastborn.game.bgn import BgnWriter  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
 from beastborn.game.state_machine import GameStateMachine  # noqa: E402
+from beastborn.zip_text import zip_path  # noqa: E402
 
 log: logging.Logger = logging.getLogger("eval_ai_bot")
 
@@ -89,7 +91,7 @@ def evaluate(
 ) -> Evaluation:
     """Play ``games`` games of the bot (``weights``) against ``opponent`` on maps ``map_seed``, ``map_seed + 1``...
 
-    ``bgn_file``: every game is appended to it in BGN when it ends (None = no file).
+    ``bgn_file``: every game is appended to it in BGN when it ends (None = no file); saved zipped.
     """
     if opponent not in OPPONENTS:
         raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
@@ -111,46 +113,51 @@ def evaluate(
     everything = AllFindActionStrategy()
     started: float = time.perf_counter()
     opponent_name: str = weights_name(opponent_weights) if other is not None and opponent_weights else RANDOM_NAME
-    for index in range(games):
-        seat: int = index % 2
-        names: list[str] = [BOT_NAME, opponent_name] if seat == 0 else [opponent_name, BOT_NAME]
-        gsm: GameStateMachine = new_game(2, seed=map_seed + index, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE,
-                                         player_names=names)
-        recorder: GameRecorder | None = GameRecorder(gsm) if bgn_file is not None else None
-        turns: int = 0
-        while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
-            turns += 1
-            action: Command
-            if gsm.active_player == seat:
-                action = bot.choose(bot.rank(gsm), 0).action
-            elif other is not None:
-                action = other.choose(other.rank(gsm), 0).action
+    games_file: BgnWriter | None = _open_bgn(bgn_file) if bgn_file is not None else None
+    try:
+        for index in range(games):
+            seat: int = index % 2
+            names: list[str] = [BOT_NAME, opponent_name] if seat == 0 else [opponent_name, BOT_NAME]
+            gsm: GameStateMachine = new_game(2, seed=map_seed + index, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE,
+                                             player_names=names)
+            recorder: GameRecorder | None = GameRecorder(gsm) if games_file is not None else None
+            turns: int = 0
+            while gsm.phase is Phase.AWAITING_COMMAND and turns < max_turns:
+                turns += 1
+                action: Command
+                if gsm.active_player == seat:
+                    action = bot.choose(bot.rank(gsm), 0).action
+                elif other is not None:
+                    action = other.choose(other.rank(gsm), 0).action
+                else:
+                    action = rng.choice(everything.find_all_possible_actions(gsm))
+                if not gsm.submit(action).ok:  # cannot happen: strategies list only what submit accepts
+                    raise RuntimeError(f"Action {action!r} was rejected")
+            if recorder is not None and games_file is not None:
+                _append_bgn(games_file, recorder)
+            outcome: str
+            if gsm.phase is not Phase.GAME_OVER:
+                outcome = "stopped"
+                result.stopped += 1
+            elif gsm.view().winner is None:
+                outcome = "draw"
+                result.draws += 1
+            elif gsm.view().winner == seat:
+                outcome = "win"
+                result.wins += 1
             else:
-                action = rng.choice(everything.find_all_possible_actions(gsm))
-            if not gsm.submit(action).ok:  # cannot happen: strategies list only what submit accepts
-                raise RuntimeError(f"Action {action!r} was rejected")
-        if recorder is not None and bgn_file is not None:
-            _append_bgn(bgn_file, recorder)
-        outcome: str
-        if gsm.phase is not Phase.GAME_OVER:
-            outcome = "stopped"
-            result.stopped += 1
-        elif gsm.view().winner is None:
-            outcome = "draw"
-            result.draws += 1
-        elif gsm.view().winner == seat:
-            outcome = "win"
-            result.wins += 1
-        else:
-            outcome = "loss"
-            result.losses += 1
-        final: int = score_difference(gsm, seat)
-        result.games += 1
-        result.results.append(outcome)
-        result.turns.append(turns)
-        result.scores.append(final)
-        log.info("game %d/%d map %d as P%d: %s after %d unit turns, score %+d",
-                 index + 1, games, map_seed + index, seat + 1, outcome, turns, final)
+                outcome = "loss"
+                result.losses += 1
+            final: int = score_difference(gsm, seat)
+            result.games += 1
+            result.results.append(outcome)
+            result.turns.append(turns)
+            result.scores.append(final)
+            log.info("game %d/%d map %d as P%d: %s after %d unit turns, score %+d",
+                     index + 1, games, map_seed + index, seat + 1, outcome, turns, final)
+    finally:
+        if games_file is not None:
+            _close_bgn(games_file)
     result.seconds = time.perf_counter() - started
     log.info("Result: %d games, %d wins (%.0f%%), %d losses, %d draws, %d stopped (%.0f%%), %.1f unit turns, "
              "score %+.1f, %.0f s",
@@ -165,12 +172,29 @@ def weights_name(weights: Path) -> str:
     return Path(weights).name.replace(".safetensors", "")
 
 
-def _append_bgn(bgn_file: Path, recorder: GameRecorder) -> None:
-    """Append the recorder's game to ``bgn_file``. Never stops the evaluation."""
+def _open_bgn(bgn_file: Path) -> BgnWriter | None:
+    """``bgn_file`` to append the games to (None = it cannot be read: the games are not recorded)."""
     try:
-        append_bgn(bgn_file, recorder.record())
-    except OSError as error:  # e.g. the file is locked: skip this game
-        log.warning("Could not write %s: %s", bgn_file, error)
+        return BgnWriter(bgn_file)
+    except OSError as error:  # e.g. a broken zip
+        log.warning("Could not open %s, games are not recorded: %s", bgn_file, error)
+        return None
+
+
+def _append_bgn(games: BgnWriter, recorder: GameRecorder) -> None:
+    """Append the recorder's game to ``games`` (saved every few seconds). Never stops the evaluation."""
+    try:
+        games.append(recorder.record())
+    except OSError as error:  # e.g. the file is locked: the game stays in the buffer, saved with the next ones
+        log.warning("Could not save %s yet (kept, tried again with the next game): %s", games.path, error)
+
+
+def _close_bgn(games: BgnWriter) -> None:
+    """Save the last games."""
+    try:
+        games.close()
+    except OSError as error:
+        log.warning("Could not save the last games to %s: %s", games.path, error)
 
 
 def append_csv(csv_file: Path, result: Evaluation, run: str = "", epoch: int | None = None,
@@ -219,7 +243,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--log", type=Path, default=Path("eval_ai_bot.log"),
                         help="log file: arguments and result of every run are appended")
     parser.add_argument("--csv", default="", help='one row with the result is appended here ("" = none)')
-    parser.add_argument("--bgn", default="", help='every game is appended here in BGN ("" = none)')
+    parser.add_argument("--bgn", default="", help='every game is appended here in BGN, zipped ("" = none)')
     parser.add_argument("--run", default="", help="label of the --csv row (default: the start time)")
     parser.add_argument("--epoch", type=int, help="training epoch of the weights, written to the --csv row")
     args = parser.parse_args(argv)
@@ -230,7 +254,7 @@ def main(argv: list[str] | None = None) -> None:
     log.addHandler(handler)
     log.info("Arguments: %s", " ".join(f"--{name.replace('_', '-')} {value}" for name, value in vars(args).items()))
     result = evaluate(args.games, args.weights, args.opponent, args.opponent_weights, args.map_seed, args.max_turns,
-                      args.seed, bgn_file=Path(args.bgn) if args.bgn else None)
+                      args.seed, bgn_file=zip_path(args.bgn) if args.bgn else None)
     if args.csv:
         opponent: str = args.opponent if args.opponent == "random" else weights_name(args.opponent_weights)
         append_csv(Path(args.csv), result, args.run, args.epoch, args.weights, opponent)

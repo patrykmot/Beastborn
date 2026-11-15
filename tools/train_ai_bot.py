@@ -2,21 +2,20 @@
 
 Run from the project root::
 
-    python tools/train_ai_bot.py --games 200 --opponent random --seed 1
-    python tools/train_ai_bot.py --games 200 --opponent ai --load beastborn/data/ai_bot.safetensors --seed 201
-    python tools/train_ai_bot.py --games 100 --epochs 20 --opponent ai --opponent-weights beastborn/data/ai_bot.opponent.safetensors
+    python tools/train_ai_bot.py --games 200 --seed 1
+    python tools/train_ai_bot.py --games 200 --load beastborn/data/ai_bot.safetensors --seed 201
+    python tools/train_ai_bot.py --games 100 --epochs 20 --opponent-weights beastborn/data/ai_bot.opponent.safetensors
 
 Training runs in ``--epochs`` rounds (default 10) of ``--games`` games each, so ``--games 100 --epochs 20`` plays
-2000 games. After every epoch the learner's weights are written to the ``ai`` opponent's file (``--opponent-weights``,
+2000 games. After every epoch the learner's weights are written to the opponent's file (``--opponent-weights``,
 default ``<out>.opponent.safetensors`` next to ``--out``) and the opponent is loaded again from that file, so it
 gets smarter epoch by epoch. Each epoch ends with one summary line in the log.
 
 The learner (a LEARNING ``AIFindActionStrategy``) plays one side of 10x10 games: P1 in even games, P2 in odd ones,
-so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays an action drawn by Proportional
-Top-K Sampling (``AIFindActionStrategy.choose``: one of the best AI_TOP_K, softmax(value / temperature) weights;
-real games use plain softmax). The Bellman target still uses the best afterstate (Q-learning). The ``ai`` opponent
-also plays by Top-K Sampling with the same temperature. The temperature comes from Cosine Annealing with Warm
-Restarts (``cosine_annealing_temperature``) in two steps:
+so it learns both sides. It looks one unit turn ahead (no alpha-beta): it plays the best action, or, with probability
+``temperature``, a random one of all its actions (``AIFindActionStrategy.choose``). The Bellman target still uses the
+best afterstate (Q-learning). The opponent always plays its best action. The temperature comes from Cosine Annealing
+with Warm Restarts (``cosine_annealing_temperature``) in two steps:
 
 1. per game, the game's max temperature (``max_epoch_t``): it starts each cycle at AI_TEMPERATURE_MAX, falls along a
    half cosine to AI_TEMPERATURE_MIN and jumps back to AI_TEMPERATURE_MAX when a cycle of ``total_games_number``
@@ -27,9 +26,8 @@ Restarts (``cosine_annealing_temperature``) in two steps:
 
  Equally good actions come in random order (base strategy ``RandomAllFindActionStrategy``, repeatable
 for the seed): with a fixed order the first one, waiting, would always win the tie, and a new network (all moves
-worth 0) would never walk towards the enemy. The opponent is ``random`` (a
-random legal turn) or ``ai`` (a frozen WORKING copy loaded from ``--opponent-weights``, default the ``--load`` file;
-without a file: a new network = best score).
+worth 0) would never walk towards the enemy. The opponent is a frozen WORKING copy of the network loaded from
+``--opponent-weights`` (default the ``--load`` file; without a file: a new network = best score).
 
 After every learner turn it collects (previous afterstate, reward, best afterstate now); at the end of a game
 (last afterstate, final reward, done). reward = score change / AI_SCORE_SCALE - AI_STEP_COST (every turn costs a
@@ -41,7 +39,8 @@ AI_TRANSITIONS_PER_TRAIN_STEP transitions it stored (batches of AI_BATCH_SIZE).
 
 The weights are saved every ``--save-every`` games, at the end, and on Ctrl+C. Continue a run with ``--load`` (only
 the weights are loaded; the replay memory and Adam start empty). Logs: console and ``--log`` (default
-train_ai_bot.log). tinygrad on CPU needs ``clang`` on the PATH (or named by ``CC``).
+train_ai_bot.log.zip, zipped, appended to by every run). tinygrad on CPU needs ``clang`` on the PATH (or named by
+``CC``).
 
 Every epoch also appends one row to ``--csv`` (default train_ai_bot.csv, ``--csv ""`` = none): results, mean unit
 turns (all games, won ones, lost ones), mean score, mean loss, memory, training steps and seconds. The file is
@@ -49,8 +48,11 @@ opened, written and closed once per epoch, so it costs nothing next to the games
 it as live charts.
 
 Every game is also recorded in Beastborn Game Notation (``beastborn/game/bgn.py``) and appended to ``--bgn``
-(default train_ai_bot.bgn, ``--bgn ""`` = none) when it ends: one line per game, players named Learner and Opponent.
-The file is emptied when training starts. The Games tab of ``tools/train_monitor.py`` replays these games.
+(default train_ai_bot.bgn.zip, ``--bgn ""`` = none) when it ends: one line per game, players named Learner and
+Opponent. The file is emptied when training starts. The Games tab of ``tools/train_monitor.py`` replays these games.
+
+The log and the games are saved zipped (``beastborn/zip_text.py``: a few seconds after they are written, and when
+training ends), so they stay small in git; ``.zip`` is added to a ``--log`` / ``--bgn`` name without it.
 """
 from __future__ import annotations
 
@@ -74,20 +76,20 @@ from tinygrad import Device  # noqa: E402
 
 from beastborn import constant as C  # noqa: E402
 from beastborn.control import (  # noqa: E402
-    AIFindActionStrategy, AIMode, AllFindActionStrategy, RandomAllFindActionStrategy,
+    AIFindActionStrategy, AIMode, RandomAllFindActionStrategy,
 )
 from beastborn.control import ai_find_action_strategy as ai  # noqa: E402
 from beastborn.control.ai_find_action_strategy import Ranked, score_difference, scale_score_for_ai  # noqa: E402
 from beastborn.game import GameRecorder, Phase, new_game  # noqa: E402
-from beastborn.game.bgn import append_bgn  # noqa: E402
+from beastborn.game.bgn import BgnWriter  # noqa: E402
 from beastborn.game.commands import Command  # noqa: E402
 from beastborn.game.state_machine import GameStateMachine  # noqa: E402
+from beastborn.zip_text import ZipLogHandler, zip_path  # noqa: E402
 
 log: logging.Logger = logging.getLogger("train_ai_bot")
 
-OPPONENTS: tuple[str, ...] = ("random", "ai")
 SUMMARY_EVERY: int = 10  # games per summary line
-DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the ai opponent is refreshed after each one
+DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the opponent is refreshed after each one
 LEARNER_NAME: str = "Learner"  # player names in the recorded games (--bgn)
 OPPONENT_NAME: str = "Opponent"
 CSV_COLUMNS: tuple[str, ...] = (  # one row per epoch in --csv (read by tools/train_monitor.py)
@@ -136,9 +138,9 @@ def cosine_annealing_temperature(step: int, total_steps: int, temperature_min: f
 
 
 def train(
-    games: int = 100, opponent: str = "random", opponent_weights: Path | None = None, load: Path | None = None,
+    games: int = 100, opponent_weights: Path | None = None, load: Path | None = None,
     out: Path = C.AI_WEIGHTS_FILE, seed: int = 1, save_every: int = 10, max_turns: int = 300,
-    log_file: Path | None = Path("train_ai_bot.log"), epochs: int = DEFAULT_EPOCHS,
+    log_file: Path | None = Path("train_ai_bot.log.zip"), epochs: int = DEFAULT_EPOCHS,
     csv_file: Path | None = None, bgn_file: Path | None = None, temperature_min: float = C.AI_TEMPERATURE_MIN,
     temperature_max: float = C.AI_TEMPERATURE_MAX, total_games_number: int | None = None,
 ) -> Summary:
@@ -147,12 +149,12 @@ def train(
     Max temperature of each game: ``cosine_annealing_temperature`` from ``temperature_max`` down to
     ``temperature_min`` over a cycle of ``total_games_number`` games (None = games x AI_TEMPERATURE_CYCLE_EPOCHS, i.e.
     that many epochs), then a warm restart. Inside a game it falls from there to 0 over ``max_turns`` unit turns.
-    After every epoch the ``ai`` opponent gets the learner's weights: they are saved to its file and loaded again.
+    The opponent: ``opponent_weights`` (None = ``load``; no file = a new network), always its best action.
+    After every epoch the opponent gets the learner's weights: they are saved to its file and loaded again.
     ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
     ``bgn_file``: emptied now, then every game is appended to it in BGN when it ends (None = no file).
+    ``log_file`` and ``bgn_file`` are saved zipped (``beastborn/zip_text.py``), whatever they are called.
     """
-    if opponent not in OPPONENTS:
-        raise ValueError(f"Unknown opponent {opponent!r}; use one of {OPPONENTS}")
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
     if total_games_number is None:
@@ -160,23 +162,22 @@ def train(
     opponent_file: Path = (Path(opponent_weights) if opponent_weights is not None
                            else Path(out).with_name(Path(out).stem + ".opponent.safetensors"))
     handler: logging.Handler | None = _log_to_file(log_file)
+    bgn_writer: BgnWriter | None = None
     try:
         rng = random.Random(seed)
         learner = AIFindActionStrategy(AIMode.LEARNING, weights=load, seed=seed,
                                        base=RandomAllFindActionStrategy(random.Random(rng.random())))
-        frozen: AIFindActionStrategy | None = None
-        if opponent == "ai":
-            frozen = getOpponent(frozen, load, opponent_weights, rng, seed)
+        frozen: AIFindActionStrategy = getOpponent(None, load, opponent_weights, rng, seed)
         train_from: int = C.AI_WARMUP_MEMORY
-        log.info("Training: %d epochs x %d games from seed %d vs %s%s, max %d unit turns, "
+        log.info("Training: %d epochs x %d games from seed %d vs ai (%s), max %d unit turns, "
                  "temperature %.2f..%.2f per game (cosine, restart every %d games), then down to 0 in a game, "
                  "save every %d to %s", epochs, games, seed,
-                 opponent, f" ({frozen.weights or 'new network'})" if frozen is not None else "", max_turns,
+                 frozen.weights or "new network", max_turns,
                  temperature_max, temperature_min, total_games_number, save_every, out)
         log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         if bgn_file is not None:
-            bgn_file = _new_bgn_file(Path(bgn_file))
+            bgn_writer = _new_bgn_file(Path(bgn_file))
         epsilon: float = C.AI_EPSILON
         summary = Summary(next_seed=seed)
         started: float = time.perf_counter()
@@ -191,7 +192,7 @@ def train(
                                                                       temperature_min, temperature_max)
                     played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns,
                                         max_epoch_t,
-                                        summary, epsilon, train=not warming, bgn_file=bgn_file))
+                                        summary, epsilon, train=not warming, bgn_writer=bgn_writer))
                     if warming and len(learner.memory) >= train_from:
                         log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
@@ -203,7 +204,7 @@ def train(
                 _log_epoch(epoch, epochs, played, len(learner.memory), seconds)
                 if csv_file is not None:
                     _append_csv(csv_file, run, epoch, epochs, played, len(learner.memory), summary.steps, seconds)
-                if frozen is not None and _save(learner, opponent_file):  # a smarter opponent: the learner now
+                if _save(learner, opponent_file):  # a smarter opponent: the learner now
                     frozen = getOpponent(frozen, load, opponent_file, rng, seed)
 
                     log.info("epoch %d/%d: opponent updated from %s", epoch + 1, epochs, opponent_file)
@@ -216,13 +217,15 @@ def train(
         log.info("continue with: --load %s --seed %d", out, summary.next_seed)
         return summary
     finally:
+        if bgn_writer is not None:
+            _close_bgn(bgn_writer)
         if handler is not None:
             log.removeHandler(handler)
             handler.close()
 
 
 def getOpponent(frozen: AIFindActionStrategy | None, load: Path | None, opponent_weights: Path | None, rng: Random,
-                seed: int) -> AIFindActionStrategy | None:
+                seed: int) -> AIFindActionStrategy:
     frozen = AIFindActionStrategy(AIMode.WORKING, weights=opponent_weights or load, seed=seed,
                                   base=RandomAllFindActionStrategy(random.Random(rng.random())),
                                   rng=random.Random(rng.random()), temperature=0.0,
@@ -231,11 +234,11 @@ def getOpponent(frozen: AIFindActionStrategy | None, load: Path | None, opponent
 
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
-          opponent_strategy: AIFindActionStrategy | None, rng: random.Random, max_turns: int, max_epoch_t: float,
-          summary: Summary,  epsilon: float, train: bool = True, bgn_file: Path | None = None,) -> GameResult:
+          opponent_strategy: AIFindActionStrategy, rng: random.Random, max_turns: int, max_epoch_t: float,
+          summary: Summary,  epsilon: float, train: bool = True, bgn_writer: BgnWriter | None = None,) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it.
 
-    ``bgn_file``: the game is appended to it in BGN when it ends.
+    ``bgn_writer``: the game is appended to it in BGN when it ends.
     Top-K temperature of each unit turn (both sides): from ``max_epoch_t`` down to 0 over ``max_turns`` unit turns.
     """
     started: float = time.perf_counter()
@@ -243,8 +246,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
     names: list[str] = [LEARNER_NAME, OPPONENT_NAME] if seat == 0 else [OPPONENT_NAME, LEARNER_NAME]
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE,
                                      player_names=names)
-    recorder: GameRecorder | None = GameRecorder(gsm) if bgn_file is not None else None
-    everything = AllFindActionStrategy()
+    recorder: GameRecorder | None = GameRecorder(gsm) if bgn_writer is not None else None
     pending: Ranked | None = None  # the learner's last afterstate
     losses: list[float] = []
     results: list = []
@@ -253,7 +255,7 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         temperature: float = cosine_annealing_temperature(turns, max_turns, 0.0, max_epoch_t)
         turns += 1
         if gsm.active_player != seat:
-            action = get_opponent_move(everything, gsm, opponent_strategy, rng, temperature)
+            action = get_opponent_move(gsm, opponent_strategy, rng, temperature)
             _submit(gsm, action)
             continue
         ranked: list[Ranked] = learner.rank(gsm)
@@ -266,8 +268,8 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
 
         _submit(gsm, pending.action)
 
-    if recorder is not None and bgn_file is not None:
-        _append_bgn(bgn_file, recorder)
+    if recorder is not None and bgn_writer is not None:
+        _append_bgn(bgn_writer, recorder)
     winner: int | None = gsm.view().winner if gsm.phase is Phase.GAME_OVER else None
     result: str
     bonus: float
@@ -331,17 +333,13 @@ def _progress(before: np.ndarray, after: np.ndarray) -> float:
     return 0.0 if start is None or end is None else start - end
 
 
-def get_opponent_move(everything: AllFindActionStrategy, gsm: GameStateMachine,
-                      opponent_strategy: AIFindActionStrategy | None, rng: Random,
+def get_opponent_move(gsm: GameStateMachine, opponent_strategy: AIFindActionStrategy, rng: Random,
                       temperature: float | None = None) -> Command:
-    if opponent_strategy is not None:
-        # return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
-        #return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
-        # Return randomly two best possible actions:
-        # return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
-        return opponent_strategy.rank(gsm)[0].action
-    else:
-        return rng.choice(everything.find_all_possible_actions(gsm))
+    """The opponent's best action (``rng`` and ``temperature``: for the variants below)."""
+    # return opponent_strategy.choose(opponent_strategy.rank(gsm), temperature).action
+    # Return randomly two best possible actions:
+    # return rng.choice(opponent_strategy.rank(gsm)[0:2]).action
+    return opponent_strategy.rank(gsm)[0].action
 
 
 def _save(learner: AIFindActionStrategy, path: Path) -> bool:
@@ -408,58 +406,67 @@ def _append_csv(csv_file: Path, run: str, epoch: int, epochs: int, played: list[
         log.warning("Could not write %s: %s", csv_file, error)
 
 
-def _new_bgn_file(bgn_file: Path) -> Path | None:
-    """An empty ``bgn_file`` for this run (None = it cannot be written: no games are recorded)."""
+def _new_bgn_file(bgn_file: Path) -> BgnWriter | None:
+    """An empty zipped ``bgn_file`` for this run, saved now (None = it cannot be written: no games are recorded)."""
     try:
-        bgn_file.write_text("", encoding="utf-8")
+        games = BgnWriter(bgn_file, new=True)
+        games.flush()
     except OSError as error:
         log.warning("Could not create %s, games are not recorded: %s", bgn_file, error)
         return None
     log.info("Games are recorded in %s", bgn_file)
-    return bgn_file
+    return games
 
 
-def _append_bgn(bgn_file: Path, recorder: GameRecorder) -> None:
-    """Append the recorder's game to ``bgn_file``. Never stops training."""
+def _append_bgn(games: BgnWriter, recorder: GameRecorder) -> None:
+    """Append the recorder's game to ``games`` (saved every few seconds). Never stops training."""
     try:
-        append_bgn(bgn_file, recorder.record())
-    except OSError as error:  # e.g. the file is locked: skip this game, keep training
-        log.warning("Could not write %s: %s", bgn_file, error)
+        games.append(recorder.record())
+    except OSError as error:  # e.g. the file is locked: the game stays in the buffer, saved with the next ones
+        log.warning("Could not save %s yet (kept, tried again with the next game): %s", games.path, error)
+
+
+def _close_bgn(games: BgnWriter) -> None:
+    """Save the last games."""
+    try:
+        games.close()
+    except OSError as error:
+        log.warning("Could not save the last games to %s: %s", games.path, error)
 
 
 def _log_to_file(log_file: Path | None) -> logging.Handler | None:
     log.setLevel(logging.INFO)
     if log_file is None:
         return None
-    handler = logging.FileHandler(log_file, encoding="utf-8")
+    handler = ZipLogHandler(log_file)  # appended to, like logging.FileHandler(log_file), but zipped
     handler.setFormatter(logging.Formatter(C.LOG_FORMAT))
     log.addHandler(handler)
     return handler
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    # no abbreviations: an old "--opponent ai" must not be taken for "--opponent-weights ai"
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], allow_abbrev=False)
     parser.add_argument("--games", type=int, default=100, help="games per epoch")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS,
-                        help="rounds of --games games; the ai opponent gets the learner's weights after each one")
-    parser.add_argument("--opponent", choices=OPPONENTS, default="random")
+                        help="rounds of --games games; the opponent gets the learner's weights after each one")
     parser.add_argument("--opponent-weights", type=Path,
-                        help="weights of the 'ai' opponent (default: --load); overwritten after every epoch")
+                        help="weights of the opponent (default: --load); overwritten after every epoch")
     parser.add_argument("--load", type=Path, help="weights to continue from (default: a new network)")
     parser.add_argument("--out", type=Path, default=C.AI_WEIGHTS_FILE, help="where the weights are saved")
     parser.add_argument("--seed", type=int, default=1, help="seed of the first game (game i uses seed + i)")
     parser.add_argument("--save-every", type=int, default=10, help="save the weights every N games")
     parser.add_argument("--max-turns", type=int, default=300, help="unit turns before a game is stopped")
-    parser.add_argument("--log", type=Path, default=Path("train_ai_bot.log"), help="log file")
+    parser.add_argument("--log", type=Path, default=Path("train_ai_bot.log.zip"), help="log file (zipped)")
     parser.add_argument("--csv", default="train_ai_bot.csv",
                         help='epoch statistics, one row per epoch, for tools/train_monitor.py ("" = none)')
-    parser.add_argument("--bgn", default="train_ai_bot.bgn",
-                        help='every game in BGN, emptied at the start, for tools/train_monitor.py ("" = none)')
+    parser.add_argument("--bgn", default="train_ai_bot.bgn.zip",
+                        help='every game in BGN (zipped), emptied at the start, for tools/train_monitor.py ("" = none)')
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
-    train(args.games, args.opponent, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
-          args.max_turns, args.log, epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None,
-          bgn_file=Path(args.bgn) if args.bgn else None)
+    train(args.games, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
+          args.max_turns, zip_path(args.log), epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None,
+          bgn_file=zip_path(args.bgn) if args.bgn else None)
 
 
 if __name__ == "__main__":

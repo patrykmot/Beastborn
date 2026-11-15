@@ -14,6 +14,7 @@ import pytest
 from tinygrad.nn.state import safe_load
 
 from beastborn import constant as C
+from beastborn import zip_text
 from beastborn.control import AIFindActionStrategy, AIMode, AllFindActionStrategy, BotPlayerController, BotVoice, Mood
 from beastborn.control import ai_find_action_strategy as ai
 from beastborn.control.ai_find_action_strategy import scale_score_for_ai
@@ -159,22 +160,33 @@ def test_only_the_best_commands_are_returned():
         AIFindActionStrategy(max_returned_commands=0)
 
 
-def test_top_k_sampling():
-    """Softmax of the best K values sums to 1, best = most likely; only those K are drawn; a win is always taken."""
+def test_top_k_probabilities():
+    """Softmax of the best K values sums to 1, best = most likely; a win or temperature 0 = the best only."""
     probabilities = ai.top_k_probabilities([0.5, 0.45, 0.4], temperature=0.05)
     assert sum(probabilities) == pytest.approx(1.0) and probabilities == sorted(probabilities, reverse=True)
     assert ai.top_k_probabilities([float("inf"), 1.0, 0.0]) == [1.0, 0.0, 0.0]
     assert ai.top_k_probabilities([0.5, 0.45, 0.4], temperature=0.0) == [1.0, 0.0, 0.0]  # annealed to 0: greedy
+    with pytest.raises(ValueError, match="top_k"):
+        AIFindActionStrategy(top_k=0)
+
+
+def test_choose_plays_a_random_action_with_probability_temperature():
+    """``choose``: temperature 0 = always the best action, 1 = always a random one of all, in between = sometimes."""
     gsm = game_after(11, 10)
     strategy = AIFindActionStrategy(rng=random.Random(0))
     ranked = strategy.rank(gsm)
-    picks = Counter(strategy.find_all_possible_actions(gsm)[0] for _ in range(300))
-    top = [r.action for r in ranked[:C.AI_TOP_K]]
-    assert set(picks) <= set(top) and len(picks) > 1  # a random draw, but never outside the best K
+    assert len(ranked) > 2
+    assert all(strategy.choose(ranked, 0.0) is ranked[0] for _ in range(200))
+    assert all(strategy.choose(ranked) is ranked[0] for _ in range(200))  # default: 0
+    picks = Counter(id(strategy.choose(ranked, 1.0)) for _ in range(600))
+    assert set(picks) <= {id(r) for r in ranked} and len(picks) > len(ranked) // 2  # any of them, not only the top
+    best = sum(strategy.choose(ranked, 0.3) is ranked[0] for _ in range(2000)) / 2000
+    assert best == pytest.approx(0.7 + 0.3 / len(ranked), abs=0.05)
+    with pytest.raises(ValueError, match="temperature"):
+        strategy.choose(ranked, None)
+    assert strategy.find_all_possible_actions(gsm) == strategy.find_all_possible_actions(gsm)  # no draw: best first
     assert AIFindActionStrategy(rng=random.Random(0)).choose(AIFindActionStrategy().rank(winning_hit_game())).value \
         == float("inf")
-    with pytest.raises(ValueError, match="top_k"):
-        AIFindActionStrategy(top_k=0)
 
 
 def test_a_winning_hit_comes_first():
@@ -285,12 +297,14 @@ def test_works_from_any_thread():
 def test_training_script_plays_saves_and_logs(tmp_path):
     from tools.train_ai_bot import train
 
-    out, log_file = tmp_path / "ai.safetensors", tmp_path / "train.log"
+    out, log_file = tmp_path / "ai.safetensors", tmp_path / "train.log.zip"
     summary = train(games=2, max_turns=12, out=out, log_file=log_file, seed=5, epochs=1)
     assert summary.games == 2 and summary.next_seed == 7 and out.is_file()
-    text = log_file.read_text(encoding="utf-8")
+    assert zip_text.is_zip(log_file)  # the log is saved zipped
+    text = zip_text.read_text(log_file)
     assert "game 1/2 seed" in text and "game 2/2 seed" in text and "--load" in text  # the map seed is fixed now
-    again = train(games=1, opponent="ai", load=out, out=out, log_file=None, max_turns=6, epochs=1)  # continue
+    assert out.with_name("ai.opponent.safetensors").is_file()  # the opponent got the learner's weights
+    again = train(games=1, load=out, out=out, log_file=None, max_turns=6, epochs=1)  # continue
     assert again.games == 1
 
 

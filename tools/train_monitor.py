@@ -3,10 +3,12 @@ of the games it played.
 
 Run from the project's environment (Python 3.10+ with tkinter; the Training tab alone needs no extra packages)::
 
-    python tools/train_monitor.py                         # finds train_ai_bot.csv (or .log) and .bgn by itself
+    python tools/train_monitor.py                             # finds train_ai_bot.csv (or .log.zip) and .bgn.zip
     python tools/train_monitor.py tools/train_ai_bot.csv
-    python tools/train_monitor.py tools/train_ai_bot.log  # a run started before the csv existed
-    python tools/train_monitor.py train_ai_bot.bgn        # opens the Games tab with these games
+    python tools/train_monitor.py tools/train_ai_bot.log.zip  # a run started before the csv existed
+    python tools/train_monitor.py train_ai_bot.bgn.zip        # opens the Games tab with these games
+
+The log and the games are zipped (``beastborn/zip_text.py``); old plain ``.log`` / ``.bgn`` files can be opened too.
 
 Training tab:
 
@@ -25,12 +27,12 @@ are the "Benchmark" chart (like "Results per epoch", against an opponent that do
 progress) and the list next to it; "Benchmark now" plays one for the newest run's last epoch at once. Only epochs
 written while the monitor runs are benchmarked (older ones were played with other weights); closing the monitor stops
 a benchmark that is being played. Files next to the statistics file: ``train_ai_bot.benchmark.csv`` (one row per
-benchmark, every run), ``.bgn`` (the games of the newest run's benchmarks), ``.log`` (eval_ai_bot's result lines)
-and ``.out`` (the console of the last benchmark).
+benchmark, every run), ``.bgn.zip`` (the games of the newest run's benchmarks), ``.log`` (eval_ai_bot's result
+lines) and ``.out`` (the console of the last benchmark).
 
-Games tab: the games of a ``.bgn`` file (Beastborn Game Notation, ``beastborn/game/bgn.py``; the trainer writes
-``train_ai_bot.bgn``), checked for new games every 2 seconds like the statistics. "Games" switches between the training
-games and the benchmark games (their "Epoch" is the training epoch whose weights played them; double-click a benchmark
+Games tab: the games of a ``.bgn.zip`` file (Beastborn Game Notation, ``beastborn/game/bgn.py``; the trainer writes
+``train_ai_bot.bgn.zip``), checked for new games every 2 seconds like the statistics. "Games" switches between the
+training games and the benchmark games (their "Epoch" is the training epoch whose weights played them; double-click a benchmark
 in the Training tab to see its games). Pick one and watch it: one step is
 one command of the game (a whole unit turn for the bots), forwards, backwards, or played automatically. The board
 shows the last step's move (dashed line) and attacks (red arrow); above it each player's score and the result.
@@ -59,17 +61,18 @@ if not __package__:  # run as a file: make the 'beastborn' package importable (t
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from beastborn import constant as C  # noqa: E402  (a leaf module, standard library only)
+from beastborn import zip_text  # noqa: E402  (also standard library only)
 
 POLL_MS: int = 2000
-CANDIDATES: tuple[str, ...] = ("train_ai_bot.csv", "train_ai_bot.log")
-GAMES_CANDIDATES: tuple[str, ...] = ("train_ai_bot.bgn",)
+CANDIDATES: tuple[str, ...] = ("train_ai_bot.csv", "train_ai_bot.log.zip", "train_ai_bot.log")
+GAMES_CANDIDATES: tuple[str, ...] = ("train_ai_bot.bgn.zip", "train_ai_bot.bgn")
 DEFAULT_DELAY_MS: int = 500  # Games tab: time between two steps when it plays by itself
 NUMBERS: tuple[str, ...] = ("epoch", "epochs", "games", "wins", "losses", "draws", "stopped", "unit_turns",
                             "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds")
 BENCHMARK_NUMBERS: tuple[str, ...] = ("epoch", "games", "wins", "losses", "draws", "stopped", "unit_turns",
                                       "win_turns", "loss_turns", "score", "seconds")  # tools/eval_ai_bot.py --csv
 EVAL_SCRIPT: Path = Path(__file__).resolve().with_name("eval_ai_bot.py")
-BENCHMARK_NAME: str = ".benchmark"  # train_ai_bot.csv -> train_ai_bot.benchmark.csv / .bgn / .log / .out
+BENCHMARK_NAME: str = ".benchmark"  # train_ai_bot.csv -> train_ai_bot.benchmark.csv / .bgn.zip / .log / .out
 TRAINING_GAMES, BENCHMARK_GAMES = "training games", "benchmark games"  # the Games tab's lists
 
 # ---------------------------------------------------------------------- colours
@@ -89,19 +92,30 @@ FONT_TITLE = ("Segoe UI Semibold", 10)
 Row = dict  # one epoch: the NUMBERS as float | None, plus "run" and "time" (str)
 
 
+def is_log(path: Path) -> bool:
+    """A training log (``.log.zip`` or an old plain ``.log``), not a csv file."""
+    return zip_text.strip_zip(path).suffix.lower() == ".log"
+
+
+def is_bgn(path: Path) -> bool:
+    """Recorded games (``.bgn.zip`` or an old plain ``.bgn``)."""
+    return zip_text.strip_zip(path).suffix.lower() == ".bgn"
+
+
 class Source:
-    """Epoch rows of every run in a csv or log file, read incrementally (only new complete lines each poll)."""
+    """Epoch rows of every run in a csv or log file (zipped or plain), read incrementally (only new complete lines
+    each poll)."""
 
     def __init__(self, path: Path, numbers: tuple[str, ...] = NUMBERS) -> None:
         """``numbers``: the csv columns read as numbers; the others are kept as text."""
         self.path: Path = path
         self.numbers: tuple[str, ...] = numbers
-        self.is_log: bool = path.suffix.lower() == ".log"
+        self.is_log: bool = is_log(path)
+        self.follower: zip_text.TextFollower = zip_text.TextFollower(path)
         self.reset()
 
     def reset(self) -> None:
         self.runs: dict[str, list[Row]] = {}
-        self.offset: int = 0
         self.rest: str = ""
         self.header: list[str] | None = None
         self.run: str = "?"  # log: the run being read
@@ -109,18 +123,11 @@ class Source:
 
     def poll(self) -> bool:
         """Read what was added since the last poll. True when there are new rows."""
-        try:
-            size: int = self.path.stat().st_size
-            if size < self.offset:  # the file was replaced or emptied: start over
-                self.reset()
-            if size == self.offset:
-                return False
-            with open(self.path, "rb") as file:
-                file.seek(self.offset)
-                data: bytes = file.read(size - self.offset)
-        except OSError:
-            return False
-        self.offset += len(data)
+        restarted, data = self.follower.read()
+        if restarted:  # the file was replaced or emptied: start over
+            self.reset()
+        if not data:
+            return restarted
         lines: list[str] = (self.rest + data.decode("utf-8", errors="replace")).split("\n")
         self.rest = lines.pop()  # an unfinished last line waits for the next poll
         before: int = sum(len(rows) for rows in self.runs.values())
@@ -449,17 +456,17 @@ class Benchmark:
     """Plays ``tools/eval_ai_bot.py`` (the BENCHMARK_* settings) on copies of the weights file, one process at a time.
 
     Its files are next to the statistics file ``stats``: ``<stem>.benchmark.csv`` (one row per benchmark, read like the
-    statistics), ``.bgn`` (the games, emptied when the first benchmark of a new run starts), ``.log`` (eval_ai_bot's
+    statistics), ``.bgn.zip`` (the games, emptied when the first benchmark of a new run starts), ``.log`` (eval_ai_bot's
     Arguments / Result lines), ``.out`` (the console of the last benchmark) and ``.e<epoch>.safetensors`` (the copied
     weights, deleted when their benchmark ends).
     """
 
     def __init__(self, stats: Path) -> None:
-        base: str = stats.stem + BENCHMARK_NAME
+        base: str = zip_text.strip_zip(stats).stem + BENCHMARK_NAME  # train_ai_bot.log.zip -> train_ai_bot.benchmark
         self.folder: Path = stats.parent
         self.base: str = base
         self.csv_path: Path = stats.with_name(base + ".csv")
-        self.games_path: Path = stats.with_name(base + ".bgn")
+        self.games_path: Path = stats.with_name(base + ".bgn.zip")
         self.log_path: Path = stats.with_name(base + ".log")
         self.out_path: Path = stats.with_name(base + ".out")
         self.source: Source = Source(self.csv_path, BENCHMARK_NUMBERS)
@@ -514,7 +521,7 @@ class Benchmark:
         names: list[str] = self.source.run_names()
         try:
             if not names or names[-1] != job.run:  # the first benchmark of a run: its games only
-                self.games_path.write_text("", encoding="utf-8")
+                zip_text.write_text(self.games_path, "")
             self._out = open(self.out_path, "w", encoding="utf-8")
             flags: int = (getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows: no console, training goes first
                           | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
@@ -689,41 +696,29 @@ class BenchmarkPanel(tk.Frame):
 
 # ====================================================================== the Games tab
 class BgnSource:
-    """Games of a .bgn file, read incrementally: each poll parses only the lines added since the last one.
+    """Games of a .bgn.zip file (or an old plain .bgn), read incrementally: each poll parses only the lines added
+    since the last one (``zip_text.TextFollower``).
 
     A file that was emptied or replaced (a new training run) is read again from the start.
     """
 
-    HEAD: int = 64  # first bytes of the file, compared to notice that it was replaced
-
     def __init__(self, path: Path) -> None:
         self.path: Path = path
+        self.follower: zip_text.TextFollower = zip_text.TextFollower(path)
         self.reset()
 
     def reset(self) -> None:
         self.records: list = []  # beastborn.game.bgn.GameRecord, in file order
         self.skipped: int = 0  # lines that are not valid BGN
-        self.offset: int = 0
         self.rest: bytes = b""
-        self.head: bytes = b""
 
     def poll(self) -> bool:
         """Read what was added since the last poll. True when the list of games changed."""
         from beastborn.game.bgn import BgnError, GameRecord
 
-        try:
-            with open(self.path, "rb") as file:
-                head: bytes = file.read(self.HEAD)
-                size: int = file.seek(0, 2)
-                replaced: bool = size < self.offset or not head.startswith(self.head)
-                if replaced:
-                    self.reset()
-                file.seek(self.offset)
-                data: bytes = file.read(size - self.offset)
-        except OSError:
-            return False
-        self.head = head
-        self.offset += len(data)
+        replaced, data = self.follower.read()
+        if replaced:
+            self.reset()
         lines: list[bytes] = (self.rest + data).split(b"\n")
         self.rest = lines.pop()  # an unfinished last line waits for the next poll
         before: int = len(self.records)
@@ -892,7 +887,7 @@ class GamesTab(tk.Frame):
 
     def choose_file(self) -> None:
         name = filedialog.askopenfilename(title="Recorded games",
-                                          filetypes=[("Beastborn games", "*.bgn"), ("All files", "*.*")])
+                                          filetypes=[("Beastborn games", "*.bgn.zip *.bgn"), ("All files", "*.*")])
         if name:
             self.open(Path(name))
 
@@ -906,10 +901,11 @@ class GamesTab(tk.Frame):
         return True
 
     def open(self, path: Path, kind: str | None = None) -> None:
-        """Show the games of ``path`` in list ``kind`` (default: benchmark games for a .benchmark.bgn file)."""
+        """Show the games of ``path`` in list ``kind`` (default: benchmark games for a .benchmark.bgn.zip file)."""
         if not self._can_replay():
             return
-        kind = kind or (BENCHMARK_GAMES if path.name.endswith(BENCHMARK_NAME + ".bgn") else TRAINING_GAMES)
+        kind = kind or (BENCHMARK_GAMES if zip_text.strip_zip(path).name.endswith(BENCHMARK_NAME + ".bgn")
+                        else TRAINING_GAMES)
         self.lists[kind].source = BgnSource(path)
         self.select(kind)
 
@@ -1350,9 +1346,9 @@ class Monitor(tk.Tk):
             charts.rowconfigure(i, weight=1, uniform="charts")
 
         self.window.trace_add("write", lambda *_: self.refresh())
-        games: Path | None = path if path is not None and path.suffix.lower() == ".bgn" else None
+        games: Path | None = path if path is not None and is_bgn(path) else None
         asked_games: bool = games is not None
-        # with a .bgn file, the statistics next to it give the epochs of its games
+        # with a .bgn.zip file, the statistics next to it give the epochs of its games
         path = self.find_file(CANDIDATES, games.parent) if games else path or self.find_file()
         if path:
             self.open(path)
@@ -1377,7 +1373,8 @@ class Monitor(tk.Tk):
 
     def choose_file(self) -> None:
         name = filedialog.askopenfilename(title="Training statistics",
-                                          filetypes=[("Training csv or log", "*.csv *.log"), ("All files", "*.*")])
+                                          filetypes=[("Training csv or log", "*.csv *.log.zip *.log"),
+                                                     ("All files", "*.*")])
         if name:
             self.open(Path(name))
 
@@ -1445,7 +1442,7 @@ class Monitor(tk.Tk):
                    and not b.has(newest[0], int(newest[1]["epoch"])))
         colour = MUTED
         if b is None:
-            status = "open a train_ai_bot .csv or .log file"
+            status = "open a train_ai_bot .csv or .log.zip file"
         elif b.job is not None:
             played, total = b.progress()
             status, colour = f"playing epoch {b.job.epoch}: game {played} / {total}", TEXT
@@ -1591,7 +1588,7 @@ class Monitor(tk.Tk):
         rows = self.source.runs.get(self.shown_run, []) if self.source and self.shown_run else []
         card = self.cards["Epoch"]
         if not self.source:
-            card.show("–", "open a train_ai_bot", MUTED, ".csv or .log file")
+            card.show("–", "open a train_ai_bot", MUTED, ".csv or .log.zip file")
         elif not rows:
             card.show("–", "waiting for the", MUTED, "first epoch…")
         else:

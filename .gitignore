@@ -166,10 +166,13 @@ cython_debug/
 beast.zip
 beast.zip.tmp
 
-# Games recorded by tools/train_ai_bot.py (rewritten by every training run)
+# Games recorded by tools/train_ai_bot.py before they were zipped (now train_ai_bot.bgn.zip, kept in git)
 train_ai_bot.bgn
 
-# Benchmarks played by tools/train_monitor.py (games, console, copied weights; the .csv is kept like train_ai_bot.csv)
+# Benchmarks played by tools/train_monitor.py (console, copied weights; the .csv and .bgn.zip are kept)
 *.benchmark.bgn
 *.benchmark.out
 *.benchmark.e*.safetensors
+
+# Zipped text files being saved (beastborn/zip_text.py: <file>.tmp replaces the file when it is complete)
+*.zip.tmp
