@@ -52,3 +52,8 @@ Looks there is a huge improvement because I was setting opponent to play best mo
 Looks superb good, get 77% of wind against good1! It happened on epoch 200 training. Next idea? Less cycles, and longer one like 3 X 50 epoches! 
 
 ![img.png](pic/img_12.png)
+
+# Results of training (2026.11.15 14:43)
+Maximum wins vs good1 was 78% in epoch 208. This learning was ONE long cycle only with 300 epoches. After epoch 240 Average did not raised.
+Idea now is to use this or 2026.11.14 as second opponent. 
+![img.png](img.png)

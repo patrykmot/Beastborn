@@ -118,8 +118,8 @@ SCORE_PER_ELEVATION_LEVEL: Final[int] = 0  # per level above the ground each of 
 SCORE_PER_KILL: Final[int] = 10  # extra per opponent's unit that has fallen (killed, or its Boss died)
 
 # ====================================================================== bot (beastborn/control/bot.py)
-BOT_SEARCH_DEPTH: Final[int] = 1  # unit turns the bot searches ahead (one ply = one whole unit turn)
-AI_MAX_RETURNED_COMMANDS: Final[int | None] = 50  # find_all_possible_actions returns only the best N (None = all)
+BOT_SEARCH_DEPTH: Final[int] = 8  # unit turns the bot searches ahead (one ply = one whole unit turn)
+AI_MAX_RETURNED_COMMANDS: Final[int | None] = 2  # find_all_possible_actions returns only the best N (None = all)
 BOT_WORKERS: Final[int | None] = None  # processes for one bot search: None = all CPU cores, 1 = no extra processes
 BOT_WIN_SCORE: Final[int] = 1_000_000  # search value of a won game (a lost one = minus this); far above any score
 MAX_BOTS: Final[int] = 1  # bots per game
@@ -168,7 +168,7 @@ AI_EPSILON: Final[float] = 0.05
 #    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
 AI_TEMPERATURE_MIN: Final[float] = 0.000001  # least randomness, reached at the end of a cycle
 AI_TEMPERATURE_MAX: Final[float] = 1.0  # most randomness, at the start of every cycle (after each warm restart)
-AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 40  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 300  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
 AI_MEMORY_SIZE: Final[int] = 300_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
