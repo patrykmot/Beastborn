@@ -14,7 +14,6 @@ import pytest
 from tinygrad.nn.state import safe_load
 
 from beastborn import constant as C
-from beastborn import zip_text
 from beastborn.control import AIFindActionStrategy, AIMode, AllFindActionStrategy, BotPlayerController, BotVoice, Mood
 from beastborn.control import ai_find_action_strategy as ai
 from beastborn.control.ai_find_action_strategy import scale_score_for_ai
@@ -297,15 +296,20 @@ def test_works_from_any_thread():
 def test_training_script_plays_saves_and_logs(tmp_path):
     from tools.train_ai_bot import train
 
-    out, log_file = tmp_path / "ai.safetensors", tmp_path / "train.log.zip"
+    out, log_file = tmp_path / "ai.safetensors", tmp_path / "train.log"
     summary = train(games=2, max_turns=12, out=out, log_file=log_file, seed=5, epochs=1)
     assert summary.games == 2 and summary.next_seed == 7 and out.is_file()
-    assert zip_text.is_zip(log_file)  # the log is saved zipped
-    text = zip_text.read_text(log_file)
+    text = log_file.read_text(encoding="utf-8")
     assert "game 1/2 seed" in text and "game 2/2 seed" in text and "--load" in text  # the map seed is fixed now
     assert out.with_name("ai.opponent.safetensors").is_file()  # the opponent got the learner's weights
-    again = train(games=1, load=out, out=out, log_file=None, max_turns=6, epochs=1)  # continue
+    benchmark_games = tmp_path / "train.benchmark.bgn"
+    benchmark_games.write_text("last run's games\n", encoding="utf-8")
+    again = train(games=1, load=out, out=out, log_file=log_file, max_turns=6, epochs=1,  # continue
+                  csv_file=tmp_path / "train.csv")
     assert again.games == 1
+    text = log_file.read_text(encoding="utf-8")
+    assert text.count("Training:") == 1 and "game 1/1 seed" in text  # overwritten, not appended to
+    assert benchmark_games.read_text(encoding="utf-8") == ""  # emptied when training starts
 
 
 def test_cosine_annealing_temperature_falls_from_max_to_min_and_restarts():

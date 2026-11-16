@@ -15,7 +15,6 @@ from beastborn.game.events import UnitMoved
 from beastborn.game.bgn import (
     BgnAction, BgnEntry, BgnError, append_bgn, parse_bgn, parse_tile, read_bgn, replay, tile_name, write_bgn,
 )
-from beastborn import zip_text
 from beastborn.ui.interaction import Interaction
 from beastborn.ui.replay import Replay
 from tests.conftest import KING
@@ -116,11 +115,10 @@ def test_invalid_lines(line):
 
 def test_files_hold_several_games(tmp_path):
     first, second = GameRecord(1, 10, 10, 10, ("a", "b")), GameRecord(2, 20, 12, 12, ("c", "d"))
-    path = tmp_path / "games.bgn.zip"
+    path = tmp_path / "games.bgn"
     write_bgn(path, [first])
     append_bgn(path, second)
-    assert zip_text.is_zip(path)  # saved zipped
-    assert zip_text.read_text(path).count("\n") == 2 and "\r" not in zip_text.read_text(path)
+    assert path.read_bytes().count(b"\n") == 2 and b"\r" not in path.read_bytes()
     assert read_bgn(path) == [first, second]
     assert parse_bgn(f"\n{first.to_line()}\r\n\n{second.to_line()}\n") == [first, second]
     with pytest.raises(BgnError, match="Line 2"):
@@ -348,37 +346,20 @@ def test_monitor_reads_new_games_as_they_are_written(tmp_path):
     pytest.importorskip("tkinter")
     from tools.train_monitor import BgnSource
 
-    path = tmp_path / "train.bgn.zip"
-    write_bgn(path, [])
-    source = BgnSource(path)
-    assert not source.poll()
-    first, second = GameRecord(1, 1, 10, 10, ("a", "b")), GameRecord(2, 2, 10, 10, ("a", "b"))
-    append_bgn(path, first)
-    zip_text.append_text(path, second.to_line()[:20])  # a line still being written
-    assert source.poll() and source.records == [first]
-    zip_text.append_text(path, second.to_line()[20:] + "\nbroken\n")
-    assert source.poll() and source.records == [first, second] and source.skipped == 1
-    write_bgn(path, [second, first, second])  # a new training run: a new file
-    assert source.poll() and source.records == [second, first, second]
-
-
-def test_monitor_reads_an_old_plain_bgn_file(tmp_path):
-    pytest.importorskip("tkinter")
-    from tools.train_monitor import BgnSource
-
     path = tmp_path / "train.bgn"
     path.write_text("", encoding="utf-8")
     source = BgnSource(path)
     assert not source.poll()
     first, second = GameRecord(1, 1, 10, 10, ("a", "b")), GameRecord(2, 2, 10, 10, ("a", "b"))
+    append_bgn(path, first)
     with open(path, "a", encoding="utf-8") as file:
-        file.write(first.to_line() + "\n" + second.to_line()[:20])  # a line still being written
+        file.write(second.to_line()[:20])  # a line still being written
     assert source.poll() and source.records == [first]
     with open(path, "a", encoding="utf-8") as file:
         file.write(second.to_line()[20:] + "\nbroken\n")
     assert source.poll() and source.records == [first, second] and source.skipped == 1
-    append_bgn(path, first)  # appending turns the old file into a zip: read again from the start
-    assert source.poll() and source.records == [first, second, first] and source.skipped == 1
+    write_bgn(path, [second, first, second])  # a new training run: a new file
+    assert source.poll() and source.records == [second, first, second]
 
 
 def test_monitor_games_tab(tmp_path):
@@ -386,7 +367,7 @@ def test_monitor_games_tab(tmp_path):
     from tools.train_monitor import Monitor
 
     _, record = recorded_game(seed=3)
-    path = tmp_path / "train_ai_bot.bgn.zip"
+    path = tmp_path / "train_ai_bot.bgn"
     write_bgn(path, [record])
     try:
         app = Monitor(path)

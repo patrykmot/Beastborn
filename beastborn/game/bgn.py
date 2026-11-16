@@ -12,8 +12,7 @@ Fields, each in brackets:
 6. game data.
 
 A ``.bgn`` file (UTF-8) holds any number of games, one per line. Seed, size and players are all ``new_game`` needs to
-build the same map and armies again (with the same units.json and constant.py). The files are saved zipped
-(``beastborn/zip_text.py``, named ``*.bgn.zip``); reading also takes an old plain-text ``.bgn`` file.
+build the same map and armies again (with the same units.json and constant.py).
 
 Tiles are written as in chess: column letter + row number, ``a1`` = ``Position(0, 0)`` (top-left), x -> ``a..p``,
 y -> ``1..16``.
@@ -39,7 +38,6 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from beastborn import zip_text
 from beastborn.domain.position import Position
 from beastborn.engine.interface import CalculationEngine
 from beastborn.game import events as ev
@@ -268,48 +266,18 @@ def parse_bgn(text: str) -> list[GameRecord]:
 
 
 def read_bgn(path: Path | str) -> list[GameRecord]:
-    """Every game of a zipped .bgn file (or an old plain-text one)."""
-    return parse_bgn(zip_text.read_text(path))
+    return parse_bgn(Path(path).read_text(encoding="utf-8"))
 
 
 def write_bgn(path: Path | str, records: Iterable[GameRecord]) -> None:
-    """A new zipped file with these games (an existing one is replaced)."""
-    zip_text.write_text(path, "".join(record.to_line() + "\n" for record in records))
+    """A new file with these games (an existing one is replaced)."""
+    Path(path).write_text("".join(record.to_line() + "\n" for record in records), encoding="utf-8", newline="\n")
 
 
 def append_bgn(path: Path | str, record: GameRecord) -> None:
-    """Add one game at the end of the zipped file (created if needed). For many games keep a ``BgnWriter`` open."""
-    zip_text.append_text(path, record.to_line() + "\n")
-
-
-class BgnWriter:
-    """Games appended one by one to a zipped .bgn file during a whole run (training, benchmark).
-
-    Saved every ``zip_text.FLUSH_SECONDS`` while games come, on ``flush`` and on ``close``
-    (``zip_text.ZipTextWriter``). ``new``: start an empty file (saved by the first ``flush``).
-    """
-
-    def __init__(self, path: Path | str, new: bool = False) -> None:
-        self.file: zip_text.ZipTextWriter = zip_text.ZipTextWriter(path, new=new)
-
-    @property
-    def path(self) -> Path:
-        return self.file.path
-
-    def append(self, record: GameRecord) -> None:
-        self.file.write(record.to_line() + "\n")
-
-    def flush(self) -> None:
-        self.file.flush()
-
-    def close(self) -> None:
-        self.file.close()
-
-    def __enter__(self) -> BgnWriter:
-        return self
-
-    def __exit__(self, *_exc) -> None:
-        self.close()
+    """Add one game at the end of the file (the file is created if needed)."""
+    with open(path, "a", encoding="utf-8", newline="\n") as file:
+        file.write(record.to_line() + "\n")
 
 
 def _escape(name: str) -> str:

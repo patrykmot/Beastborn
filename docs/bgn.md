@@ -19,9 +19,7 @@ Code: `beastborn/game/bgn.py` (format), `beastborn/game/recorder.py` (recording)
 | 5 | names | `Learner\|Opponent` | player names in seat order, `\|` between them; `%`, `[`, `]`, `\|` and line breaks are written `%25`, `%5B`, `%5D`, `%7C`, `%0A`, `%0D` |
 | 6 | game data | `a1:(b2,-) ...` | the command log, see below |
 
-A `.bgn` file is UTF-8 with any number of games, one per line (empty lines are skipped). It is saved zipped
-(`beastborn/zip_text.py`, named `*.bgn.zip`, a normal zip archive with bzip2-compressed members); `read_bgn` also
-reads an old plain-text `.bgn` file.
+A `.bgn` file is UTF-8 with any number of games, one per line (empty lines are skipped).
 Seed, board size and players are all `new_game` needs, so a record replays only with the same `units.json` and
 `constant.py` it was played with. A record that no longer fits the game raises `BgnError` when replayed.
 
@@ -51,16 +49,14 @@ before it, to find the units on the tiles.
 
 ```python
 from beastborn.game import GameRecorder, new_game, read_bgn
-from beastborn.game.bgn import BgnWriter, append_bgn, replay
+from beastborn.game.bgn import append_bgn, replay
 
 gsm = new_game(2, seed=42, width=10, height=10, player_names=["Learner", "Opponent"])
 recorder = GameRecorder(gsm)            # listens to the GSM from its first command on
 ...                                     # play: bots may submit and roll back freely while they search
-append_bgn("games.bgn.zip", recorder.record())  # one game; for a whole run keep a BgnWriter open:
-with BgnWriter("games.bgn.zip") as games:      # buffered, saved every few seconds and on close
-    games.append(recorder.record())
+append_bgn("games.bgn", recorder.record())
 
-record = read_bgn("games.bgn.zip")[0]
+record = read_bgn("games.bgn")[0]
 end = replay(record)                    # the same game, played to its last entry
 
 from beastborn.control import ReplayController
@@ -70,5 +66,5 @@ while ui.tick():                        # one entry per tick, with log lines and
     pass
 ```
 
-`tools/train_ai_bot.py` writes every training game to `train_ai_bot.bgn.zip` (`--bgn`), and the Games tab of
+`tools/train_ai_bot.py` writes every training game to `train_ai_bot.bgn` (`--bgn`), and the Games tab of
 `tools/train_monitor.py` replays them.

@@ -108,8 +108,8 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   `unit_position(unit_id)` is a cheap query for listeners.
 - Recorded games (`bgn.py`, `recorder.py`, format in [bgn.md](bgn.md)): `GameRecorder(gsm)` follows a game made by
   `new_game` from its first command and `record()` returns a `GameRecord` (seed, board size, player names, one
-  `BgnEntry` per logged command). `GameRecord.to_line()` / `from_line()`, `read_bgn`, `write_bgn`, `append_bgn`,
-  `BgnWriter` read and write `.bgn.zip` files (zipped by `beastborn/zip_text.py`); `replay(record)` plays a record to its end in a new GSM (`record.new_game()`).
+  `BgnEntry` per logged command). `GameRecord.to_line()` / `from_line()`, `read_bgn`, `write_bgn`, `append_bgn` read
+  and write `.bgn` files; `replay(record)` plays a record to its end in a new GSM (`record.new_game()`).
 - Map generation (`map_generator.py`) is the only random part. It uses `random.Random(seed)`.
   Every army is the same: a Boss + `BIG_RATS_PER_PLAYER` / `PEASANTS_PER_PLAYER` / `ARCHERS_PER_PLAYER` (`constant.py`).
 
