@@ -5,6 +5,7 @@ Run from the project root::
     python tools/train_ai_bot.py --games 200 --seed 1
     python tools/train_ai_bot.py --games 200 --load beastborn/data/ai_bot.safetensors --seed 201
     python tools/train_ai_bot.py --games 100 --epochs 20 --opponent-weights beastborn/data/ai_bot.opponent.safetensors
+    python tools/train_ai_bot.py --games 100 --challenger ""   # only the opponent, no TRAINING_CHALLENGER
 
 Training runs in ``--epochs`` rounds (default 10) of ``--games`` games each, so ``--games 100 --epochs 20`` plays
 2000 games. After every epoch the learner's weights are written to the opponent's file (``--opponent-weights``,
@@ -29,12 +30,19 @@ for the seed): with a fixed order the first one, waiting, would always win the t
 worth 0) would never walk towards the enemy. The opponent is a frozen WORKING copy of the network loaded from
 ``--opponent-weights`` (default the ``--load`` file; without a file: a new network = best score).
 
+Every second game is played against the TRAINING_CHALLENGER instead: a fixed AI loaded from ``--challenger`` (default
+AI_TRAINING_CHALLENGER in constant.py; None there or ``--challenger ""`` = none: every game against the opponent),
+which also always plays its best action and is never updated. So the learner meets one opponent that grows with it
+and one that does not. The learner's seat then changes every two games (P1 against both, then P2 against both), so it
+plays both sides against each of them.
+
 After every learner turn it collects (previous afterstate, reward, best afterstate now); at the end of a game
 (last afterstate, final reward, done). reward = score change / AI_SCORE_SCALE - AI_STEP_COST (every turn costs a
-little: quicker is better) + AI_PROGRESS_REWARD x how much closer its unit nearest to the enemy Boss got (not in the
-last transition); the last one also gets +- AI_WIN_REWARD for a win / loss. A game stopped at ``--max-turns`` did
-not really end, so its last afterstate (it has no next one) is left out and there is no end reward: the turn cost
-already makes stalling worse than moving on. After each game the learner does one ``train_step`` per
+little: quicker is better) + AI_HILL_REWARD per hill level under each of its units + AI_SWAMP_REWARD (< 0) per unit
+of it on mud (in the afterstate of its last action) + AI_PROGRESS_REWARD x how much closer its unit nearest to the
+enemy Boss got (not in the last transition); the last one also gets +- AI_WIN_REWARD for a win / loss. A game
+stopped at ``--max-turns`` did not really end, so its last afterstate (it has no next one) is left out and there is no
+end reward: the turn cost already makes stalling worse than moving on. After each game the learner does one ``train_step`` per
 AI_TRANSITIONS_PER_TRAIN_STEP transitions it stored (batches of AI_BATCH_SIZE).
 
 The weights are saved every ``--save-every`` games, at the end, and on Ctrl+C. Continue a run with ``--load`` (only
@@ -91,6 +99,7 @@ BENCHMARK_GAMES_SUFFIX: str = ".benchmark.bgn"  # train_ai_bot.csv -> train_ai_b
 DEFAULT_EPOCHS: int = 10  # rounds of ``games`` games; the opponent is refreshed after each one
 LEARNER_NAME: str = "Learner"  # player names in the recorded games (--bgn)
 OPPONENT_NAME: str = "Opponent"
+CHALLENGER_NAME: str = "Challenger"  # the TRAINING_CHALLENGER (C.AI_TRAINING_CHALLENGER)
 CSV_COLUMNS: tuple[str, ...] = (  # one row per epoch in --csv (read by tools/train_monitor.py)
     "run", "time", "epoch", "epochs", "games", "wins", "losses", "draws", "stopped",
     "unit_turns", "win_turns", "loss_turns", "score", "loss", "memory", "steps", "seconds",
@@ -105,6 +114,7 @@ class GameResult:
     turns: int
     score: int  # the learner's final score difference
     loss: float | None  # mean training loss of the game (None = no training step)
+    opponent: str = OPPONENT_NAME  # who it played: OPPONENT_NAME or CHALLENGER_NAME
 
 
 @dataclass
@@ -142,6 +152,7 @@ def train(
     log_file: Path | None = Path("train_ai_bot.log"), epochs: int = DEFAULT_EPOCHS,
     csv_file: Path | None = None, bgn_file: Path | None = None, temperature_min: float = C.AI_TEMPERATURE_MIN,
     temperature_max: float = C.AI_TEMPERATURE_MAX, total_games_number: int | None = None,
+    challenger_weights: Path | None = C.AI_TRAINING_CHALLENGER,
 ) -> Summary:
     """Play ``epochs`` x ``games`` training games and save the learner's weights to ``out``. Ctrl+C saves and stops.
 
@@ -150,6 +161,8 @@ def train(
     that many epochs), then a warm restart. Inside a game it falls from there to 0 over ``max_turns`` unit turns.
     The opponent: ``opponent_weights`` (None = ``load``; no file = a new network), always its best action.
     After every epoch the opponent gets the learner's weights: they are saved to its file and loaded again.
+    ``challenger_weights``: the TRAINING_CHALLENGER, a fixed AI (always its best action) that plays every second game
+    instead of the opponent (None = no challenger: every game against the opponent).
     ``csv_file``: one row of epoch statistics is appended there after every epoch (None = no file).
     ``bgn_file``: emptied now, then every game is appended to it in BGN when it ends (None = no file).
     ``log_file`` is overwritten now, and the benchmark games next to ``csv_file`` (if there are any) are emptied.
@@ -166,12 +179,16 @@ def train(
         learner = AIFindActionStrategy(AIMode.LEARNING, weights=load, seed=seed,
                                        base=RandomAllFindActionStrategy(random.Random(rng.random())))
         frozen: AIFindActionStrategy = getOpponent(None, load, opponent_weights, rng, seed)
+        challenger: AIFindActionStrategy | None = (getOpponent(None, None, Path(challenger_weights), rng, seed)
+                                                   if challenger_weights is not None else None)
         train_from: int = C.AI_WARMUP_MEMORY
         log.info("Training: %d epochs x %d games from seed %d vs ai (%s), max %d unit turns, "
                  "temperature %.2f..%.2f per game (cosine, restart every %d games), then down to 0 in a game, "
                  "save every %d to %s", epochs, games, seed,
                  frozen.weights or "new network", max_turns,
                  temperature_max, temperature_min, total_games_number, save_every, out)
+        log.info("Every second game vs %s: %s", CHALLENGER_NAME,
+                 challenger.weights if challenger is not None else "none (every game vs the opponent)")
         log.info(f"Training from = {train_from}")
         log.info("Learner weights: %s; device: %s", load or "new network", Device.DEFAULT)
         if bgn_file is not None:
@@ -190,9 +207,14 @@ def train(
                     warming: bool = len(learner.memory) < train_from
                     max_epoch_t: float = cosine_annealing_temperature(summary.games, total_games_number,
                                                                       temperature_min, temperature_max)
-                    played.append(_play(epoch, epochs, index, games, index, learner, frozen, rng, max_turns,
+                    # with a challenger: opponent, challenger, opponent... and the seat changes every two games
+                    vs_challenger: bool = challenger is not None and summary.games % 2 == 1
+                    seat: int = (summary.games // (2 if challenger is not None else 1)) % 2
+                    played.append(_play(epoch, epochs, index, games, index, learner,
+                                        challenger if vs_challenger else frozen, rng, max_turns,
                                         max_epoch_t,
-                                        summary, epsilon, train=not warming, bgn_file=bgn_file))
+                                        summary, epsilon, train=not warming, bgn_file=bgn_file, seat=seat,
+                                        opponent_name=CHALLENGER_NAME if vs_challenger else OPPONENT_NAME))
                     if warming and len(learner.memory) >= train_from:
                         log.info("Warm-up done: %d transitions in memory, training starts", len(learner.memory))
                     summary.next_seed = seed + summary.games
@@ -233,15 +255,17 @@ def getOpponent(frozen: AIFindActionStrategy | None, load: Path | None, opponent
 
 def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learner: AIFindActionStrategy,
           opponent_strategy: AIFindActionStrategy, rng: random.Random, max_turns: int, max_epoch_t: float,
-          summary: Summary,  epsilon: float, train: bool = True, bgn_file: Path | None = None,) -> GameResult:
+          summary: Summary,  epsilon: float, train: bool = True, bgn_file: Path | None = None, seat: int = 0,
+          opponent_name: str = OPPONENT_NAME) -> GameResult:
     """Game ``index`` of epoch ``epoch`` (both from 0); the learner remembers its transitions and trains after it.
 
+    ``seat``: the learner's player (0 = P1). ``opponent_strategy`` plays the other one, named ``opponent_name``
+    (the opponent or the challenger).
     ``bgn_file``: the game is appended to it in BGN when it ends.
     Top-K temperature of each unit turn (both sides): from ``max_epoch_t`` down to 0 over ``max_turns`` unit turns.
     """
     started: float = time.perf_counter()
-    seat: int = summary.games % 2  # the learner: P1 in even games, P2 in odd ones (counted over all epochs)
-    names: list[str] = [LEARNER_NAME, OPPONENT_NAME] if seat == 0 else [OPPONENT_NAME, LEARNER_NAME]
+    names: list[str] = [LEARNER_NAME, opponent_name] if seat == 0 else [opponent_name, LEARNER_NAME]
     gsm: GameStateMachine = new_game(2, seed=game_seed, width=C.AI_BOARD_SIZE, height=C.AI_BOARD_SIZE,
                                      player_names=names)
     recorder: GameRecorder | None = GameRecorder(gsm) if bgn_file is not None else None
@@ -259,7 +283,8 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
         ranked: list[Ranked] = learner.rank(gsm)
         if pending is not None:  # the best afterstate now is the "max" of the Bellman target
             reward: float = (scale_score_for_ai(ranked[0].score - pending.score) - C.AI_STEP_COST
-                             + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate))
+                             + C.AI_PROGRESS_REWARD * _progress(pending.afterstate, ranked[0].afterstate)
+                             + _terrain_reward(pending.afterstate))
             results.append((pending.afterstate, reward, ranked[0].afterstate, False))
         pending = learner.choose(ranked, temperature)  # Proportional Top-K Sampling
         #pending = ranked[0] if rng.random() >= max_epoch_t else rng.choice(ranked)
@@ -304,11 +329,12 @@ def _play(epoch: int, epochs: int, index: int, games: int, game_seed: int, learn
     summary.results.append(result)
 
     mean_loss: str = f"{np.mean(losses):.4f}" if losses else "-"
-    log.info("epoch %d/%d game %d/%d seed %d as P%d: %s after %d unit turns, score %+d, score for net %+.2f, "
+    log.info("epoch %d/%d game %d/%d seed %d as P%d vs %s: %s after %d unit turns, score %+d, score for net %+.2f, "
              "loss %s (%d steps), memory %d, max temperature %.3f, training = "+ str(train)+", %.1f s",
-             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, result, turns, final, score_for_network,
-             mean_loss, len(losses), len(learner.memory), max_epoch_t, time.perf_counter() - started)
-    return GameResult(result, turns, final, float(np.mean(losses)) if losses else None)
+             epoch + 1, epochs, index + 1, games, game_seed, seat + 1, opponent_name, result, turns, final,
+             score_for_network, mean_loss, len(losses), len(learner.memory), max_epoch_t,
+             time.perf_counter() - started)
+    return GameResult(result, turns, final, float(np.mean(losses)) if losses else None, opponent_name)
 
 
 def _boss_distance(planes: np.ndarray) -> float | None:
@@ -322,6 +348,15 @@ def _boss_distance(planes: np.ndarray) -> float | None:
     if len(mine) == 0 or len(boss) == 0:
         return None
     return float(np.abs(mine - boss[0]).sum(axis=1).min()) / (planes.shape[1] + planes.shape[2])
+
+
+def _terrain_reward(planes: np.ndarray) -> float:
+    """Where my units stand, in the learner's planes: AI_HILL_REWARD per elevation level under each of them, plus
+    AI_SWAMP_REWARD (< 0) for each of them on difficult terrain (mud)."""
+    mine: np.ndarray = planes[ai.CH_MY_HP] > 0  # every living unit of mine, the Boss too
+    levels: float = float(np.rint(planes[ai.CH_ELEVATION][mine] * C.MAX_ELEVATION).sum())
+    swamp: float = float((planes[ai.CH_DIFFICULT][mine] > 0).sum())
+    return C.AI_HILL_REWARD * levels + C.AI_SWAMP_REWARD * swamp
 
 
 def _progress(before: np.ndarray, after: np.ndarray) -> float:
@@ -373,6 +408,13 @@ def _log_epoch(epoch: int, epochs: int, played: list[GameResult], memory: int, s
              epoch + 1, epochs, len(played), results.count("win"), results.count("loss"), results.count("draw"),
              results.count("stopped"), np.mean([g.turns for g in played]) if played else 0.0,
              np.mean([g.score for g in played]) if played else 0.0, mean_loss, memory, seconds)
+    for name in (OPPONENT_NAME, CHALLENGER_NAME):  # results per opponent (only when both played)
+        games: list[GameResult] = [g for g in played if g.opponent == name]
+        if games and len(games) < len(played):
+            results = [g.result for g in games]
+            log.info("epoch %d/%d vs %s: %d games, %d wins, %d losses, %d draws, %d stopped, score %+.1f",
+                     epoch + 1, epochs, name, len(games), results.count("win"), results.count("loss"),
+                     results.count("draw"), results.count("stopped"), np.mean([g.score for g in games]))
 
 
 def _append_csv(csv_file: Path, run: str, epoch: int, epochs: int, played: list[GameResult], memory: int,
@@ -453,6 +495,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="rounds of --games games; the opponent gets the learner's weights after each one")
     parser.add_argument("--opponent-weights", type=Path,
                         help="weights of the opponent (default: --load); overwritten after every epoch")
+    parser.add_argument("--challenger", default=str(C.AI_TRAINING_CHALLENGER or ""),  # None in constant.py: none
+                        help='weights of the TRAINING_CHALLENGER, the fixed AI of every second game ("" = none)')
     parser.add_argument("--load", type=Path, help="weights to continue from (default: a new network)")
     parser.add_argument("--out", type=Path, default=C.AI_WEIGHTS_FILE, help="where the weights are saved")
     parser.add_argument("--seed", type=int, default=1, help="seed of the first game (game i uses seed + i)")
@@ -467,7 +511,8 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format=C.LOG_FORMAT)
     train(args.games, args.opponent_weights, args.load, args.out, args.seed, args.save_every,
           args.max_turns, args.log, epochs=args.epochs, csv_file=Path(args.csv) if args.csv else None,
-          bgn_file=Path(args.bgn) if args.bgn else None)
+          bgn_file=Path(args.bgn) if args.bgn else None,
+          challenger_weights=Path(args.challenger) if args.challenger else None)
 
 
 if __name__ == "__main__":

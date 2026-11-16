@@ -60,6 +60,10 @@ The weights are saved to `beastborn/data/ai_bot.safetensors` every 10 games, at 
 line tells you how to continue (`--load ... --seed ...`). Every game is recorded in `train_ai_bot.bgn`
 (Beastborn Game Notation, one game per line, see [docs/bgn.md](docs/bgn.md); emptied when training starts,
 `--bgn ""` = off).
+Every second game is played against the training challenger, a fixed AI from `AI_TRAINING_CHALLENGER` in
+`beastborn/constant.py` that always plays its best move (`--challenger FILE`, `--challenger ""` = off); the others
+against the opponent that gets the learner's weights after every epoch. The monitor's benchmarks are played against
+`TRAIN_MONITOR_BENCHMARK_AI`.
 
 Watch the training with `python tools/train_monitor.py`: the Training tab charts the epochs, the Games tab replays the
 recorded games (pick one; step forwards and backwards with the buttons or the arrow keys, Space plays and pauses),

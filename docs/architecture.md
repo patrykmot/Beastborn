@@ -185,8 +185,9 @@ Nothing in `game/` or `ui/` changes. `test_swapping_calculation_engine_changes_r
   - `AIFindActionStrategy` (`ai_find_action_strategy.py`, tinygrad + numpy) returns its base strategy's actions
     (default `AllFindActionStrategy`) **best first** by the value of the board right after each action, for the player
     who moves now: `value = score difference / AI_SCORE_SCALE + net(afterstate)`. The score part is exact; the network
-    (`AfterstateNet`, a small ResNet over 10 planes of 10x10: terrain, both sides' units with HP and energy, both
-    Bosses) only guesses how the score will change later. Its last layer starts at zero, so a new network gives the
+    (`AfterstateNet`, a small ResNet over 16 planes of 10x10: terrain, both sides' units with HP, energy and venom,
+    both Bosses; LeakyReLU activations, slope `AI_LEAKY_SLOPE`; drawing: `docs/beastborn_afterstate_net.png`) only
+    guesses how the score will change later. Its last layer starts at zero, so a new network gives the
     exact score order. A won game is `+inf`, a lost one `-inf`. **10x10 boards only** (`AI_BOARD_SIZE`; other sizes
     raise `ValueError`), 2-player games. Each action is tried with `submit` and undone with `rollback`; the ranking is
     cached per state. Network calls are batched, padded to 16, 32, 64... and compiled with `TinyJit`.

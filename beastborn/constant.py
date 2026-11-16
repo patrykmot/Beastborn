@@ -158,6 +158,10 @@ AI_UNIT_CHANNELS: Final[Mapping[str, int]] = MappingProxyType({
 })
 AI_FILTERS: Final[int] = 32  # filters of every 3x3 convolution
 AI_BLOCKS: Final[int] = 3  # residual blocks
+# AfterstateNet activation of a new network: LeakyReLU, x for x > 0, AI_LEAKY_SLOPE * x below. Unlike ReLU (slope 0) a
+# unit that is "off" still passes a small gradient, so it cannot die for good. The slope is saved in the weights file;
+# older files (none saved) run with slope 0 = ReLU, as they were trained.
+AI_LEAKY_SLOPE: Final[float] = 0.01
 AI_SCORE_SCALE: Final[int] = 100  # value of an afterstate = score difference / AI_SCORE_SCALE + network
 AI_WIN_REWARD: Final[float] = 5.0  # training reward for a won game (minus this for a lost one)
 AI_GAMMA: Final[float] = 0.98  # discount of the next afterstate's value (low = only rewards a few turns away count)
@@ -168,13 +172,15 @@ AI_EPSILON: Final[float] = 0.05
 #    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
 AI_TEMPERATURE_MIN: Final[float] = 0.000001  # least randomness, reached at the end of a cycle
 AI_TEMPERATURE_MAX: Final[float] = 1.0  # most randomness, at the start of every cycle (after each warm restart)
-AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 300  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 20  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 300_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 100_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.04  # training: reward taken off every learner turn (= 1 HP of score): be quick
 AI_PROGRESS_REWARD: Final[float] = 0.02  # training: x how much closer (0..1 of width + height) a unit got to the enemy Boss
+AI_HILL_REWARD: Final[float] = 0.01  # training: per elevation level under each of my units, every learner turn
+AI_SWAMP_REWARD: Final[float] = -0.01  # training: per unit of mine on difficult terrain (mud), every learner turn
 AI_WARMUP_MEMORY: Final[int] = 1_000  # training with --load: no train_step until the memory holds this many transitions
 
 # Proportional Top-K Sampling (AIFindActionStrategy.choose): the move is drawn from the best AI_TOP_K actions with
@@ -184,6 +190,10 @@ AI_TOP_K: Final[int] = 50
 
 AI_MIN_BATCH: Final[int] = 16  # network calls are padded to 16, 32, 64, ... so only a few shapes get compiled
 AI_WEIGHTS_FILE: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors"
+# tools/train_ai_bot.py: every second training game is played against this fixed AI (the TRAINING_CHALLENGER, always
+# its best action) instead of the opponent that gets the learner's weights after every epoch.
+# AI_TRAINING_CHALLENGER: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors.good1"
+AI_TRAINING_CHALLENGER: Final[Path | None] = None  # None = no challenger: every game against the opponent
 
 # ====================================================================== AI benchmark (tools/eval_ai_bot.py)
 # The defaults of tools/eval_ai_bot.py, also used by tools/train_monitor.py: every BENCHMARK_EVERY_EPOCHS training
@@ -192,6 +202,8 @@ BENCHMARK_EVERY_EPOCHS: Final[int] = 2  # train_monitor.py: a benchmark after ep
 BENCHMARK_GAMES: Final[int] = 100  # games per benchmark
 BENCHMARK_OPPONENT: Final[str] = "ai"  # "random" (a random legal turn) or "ai" (BENCHMARK_OPPONENT_WEIGHTS)
 BENCHMARK_OPPONENT_WEIGHTS: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors.good1"
+# tools/train_monitor.py: the AI its benchmarks are played against (always "ai", shown in the Benchmarks panel)
+TRAIN_MONITOR_BENCHMARK_AI: Final[Path] = PACKAGE_DIR / "data" / "ai_bot.safetensors.good4.20261115"
 BENCHMARK_MAP_SEED: Final[int] = 1  # seed of the first map (game i uses BENCHMARK_MAP_SEED + i)
 BENCHMARK_MAX_TURNS: Final[int] = 200  # unit turns before a game is stopped
 BENCHMARK_SEED: Final[int] = 1  # seed of the random choices (Top-K sampling, random opponent, ties)

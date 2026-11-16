@@ -6,6 +6,12 @@
   * Points: HP the opponent's units have lost (Boss HP counts more), plus a bonus per killed unit.
 * **Network** = a guess about the future: how much **more** the score will still change after this move
   (and whether the game will be won). It does not guess the score itself; that is already known.
+  * `AfterstateNet`: a small ResNet, every layer with its shapes in
+    [beastborn_afterstate_net.png](beastborn_afterstate_net.png).
+  * Activations are LeakyReLU (`AI_LEAKY_SLOPE` = 0.01: below 0 it passes 1% instead of 0), so a unit cannot die
+    for good. With plain ReLU the 2-channel head once died: every move got the same value and training stopped.
+  * The slope is saved in the weights file. Older files (saved with ReLU) have none and run with slope 0 = ReLU,
+    exactly as they were trained: with 0.01 they would play very differently.
 * Value of a move (`AIFindActionStrategy.rank`):
   * **value = score / AI_SCORE_SCALE + net(board after the move)**
   * A move that wins the game = `+inf` (no network needed).

@@ -20,7 +20,8 @@ to read the values of one epoch.
 
 Benchmark: every BENCHMARK_EVERY_EPOCHS epochs of the newest run (epoch 10, 20, ...) the monitor copies the weights
 file (AI_WEIGHTS_FILE, the trainer's default ``--out``) and plays the benchmark of ``tools/eval_ai_bot.py`` with it in a
-separate process (lower priority, one at a time; the BENCHMARK_* settings of ``beastborn/constant.py``). Its results
+separate process (lower priority, one at a time; the BENCHMARK_* settings of ``beastborn/constant.py``, against the
+AI in TRAIN_MONITOR_BENCHMARK_AI, whose name the Benchmarks panel shows). Its results
 are the "Benchmark" chart (like "Results per epoch", against an opponent that does not change, so it shows real
 progress) and the list next to it; "Benchmark now" plays one for the newest run's last epoch at once. Only epochs
 written while the monitor runs are benchmarked (older ones were played with other weights); closing the monitor stops
@@ -446,7 +447,8 @@ class BenchmarkJob:
 
 
 class Benchmark:
-    """Plays ``tools/eval_ai_bot.py`` (the BENCHMARK_* settings) on copies of the weights file, one process at a time.
+    """Plays ``tools/eval_ai_bot.py`` (the BENCHMARK_* settings, against TRAIN_MONITOR_BENCHMARK_AI) on copies of the
+    weights file, one process at a time.
 
     Its files are next to the statistics file ``stats``: ``<stem>.benchmark.csv`` (one row per benchmark, read like the
     statistics), ``.bgn`` (the games, emptied when the first benchmark of a new run starts), ``.log`` (eval_ai_bot's
@@ -521,7 +523,8 @@ class Benchmark:
             self.process = subprocess.Popen(
                 [sys.executable, str(EVAL_SCRIPT), "--weights", str(job.weights), "--csv", str(self.csv_path),
                  "--bgn", str(self.games_path), "--log", str(self.log_path), "--run", job.run,
-                 "--epoch", str(job.epoch)],
+                 "--epoch", str(job.epoch), "--opponent", "ai",
+                 "--opponent-weights", str(C.TRAIN_MONITOR_BENCHMARK_AI)],
                 cwd=str(EVAL_SCRIPT.parent), stdin=subprocess.DEVNULL, stdout=self._out, stderr=subprocess.STDOUT,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"}, creationflags=flags)
         except OSError as error:
@@ -599,9 +602,8 @@ class Benchmark:
 
 
 def benchmark_opponent() -> str:
-    if C.BENCHMARK_OPPONENT == "random":
-        return "random"
-    return C.BENCHMARK_OPPONENT_WEIGHTS.name.replace(".safetensors", "")  # as eval_ai_bot.weights_name
+    """The name of the AI the benchmarks are played against (C.TRAIN_MONITOR_BENCHMARK_AI)."""
+    return C.TRAIN_MONITOR_BENCHMARK_AI.name.replace(".safetensors", "")  # as eval_ai_bot.weights_name
 
 
 def benchmark_epochs(records: list, rows: list[Row], running: tuple[float, int] | None = None

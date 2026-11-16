@@ -330,15 +330,37 @@ def test_training_records_every_game(tmp_path):
 
     bgn = tmp_path / "train.bgn"
     bgn.write_text("old games\n", encoding="utf-8")
-    train(games=2, max_turns=8, out=tmp_path / "ai.safetensors", log_file=None, seed=5, epochs=1, bgn_file=bgn)
+    train(games=2, max_turns=8, out=tmp_path / "ai.safetensors", log_file=None, seed=5, epochs=1, bgn_file=bgn,
+          challenger_weights=None)
     records = read_bgn(bgn)  # the old content is gone
     assert [r.player_names for r in records] == [(LEARNER_NAME, OPPONENT_NAME), (OPPONENT_NAME, LEARNER_NAME)]
     assert [r.seed for r in records] == [0, 1] and all(len(r.entries) == 8 for r in records)
     assert records[0].game_id <= records[1].game_id
     for record in records:
         assert len(replay(record).command_log) == 8
-    train(games=1, max_turns=4, out=tmp_path / "ai.safetensors", log_file=None, seed=5, epochs=1, bgn_file=bgn)
+    train(games=1, max_turns=4, out=tmp_path / "ai.safetensors", log_file=None, seed=5, epochs=1, bgn_file=bgn,
+          challenger_weights=None)
     assert len(read_bgn(bgn)) == 1  # a new run starts a new file
+
+
+def test_training_plays_every_second_game_against_the_challenger(tmp_path):
+    pytest.importorskip("tinygrad")
+    from beastborn.control.ai_find_action_strategy import AIFindActionStrategy
+    from tools.train_ai_bot import CHALLENGER_NAME, LEARNER_NAME, OPPONENT_NAME, train
+
+    challenger = AIFindActionStrategy().save(tmp_path / "challenger.safetensors")
+    bgn, log_file = tmp_path / "train.bgn", tmp_path / "train.log"
+    summary = train(games=3, epochs=2, max_turns=4, out=tmp_path / "ai.safetensors", log_file=log_file, seed=5,
+                    bgn_file=bgn, challenger_weights=challenger)
+    assert summary.games == 6
+    # opponent, challenger, opponent...; the learner is P1 against both, then P2 against both
+    assert [r.player_names for r in read_bgn(bgn)] == [
+        (LEARNER_NAME, OPPONENT_NAME), (LEARNER_NAME, CHALLENGER_NAME),
+        (OPPONENT_NAME, LEARNER_NAME), (CHALLENGER_NAME, LEARNER_NAME),
+        (LEARNER_NAME, OPPONENT_NAME), (LEARNER_NAME, CHALLENGER_NAME)]
+    text = log_file.read_text(encoding="utf-8")
+    assert f"vs {CHALLENGER_NAME}: " in text and f"epoch 1/2 vs {OPPONENT_NAME}: 2 games" in text
+    assert f"epoch 2/2 vs {CHALLENGER_NAME}: 2 games" in text
 
 
 # ---------------------------------------------------------------- the monitor's Games tab (tools/train_monitor.py)

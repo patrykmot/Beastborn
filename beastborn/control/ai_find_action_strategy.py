@@ -153,16 +153,18 @@ def _on_tinygrad_thread(function: Callable[_P, _R]) -> Callable[_P, _R]:
 # device, which memory-maps the file and keeps it open, so on Windows the next save of the same file fails
 # (WinError 32, "the file is used by another process").
 _SAFETENSORS_F32: str = "F32"
+_LEAKY_SLOPE_KEY: str = "leaky_slope"  # in the file's __metadata__ (AfterstateNet.leaky_slope); missing = 0 (ReLU)
 # Windows: putting the new file in place fails (WinError 5 / 32) while another program has the old one open for a
 # moment (antivirus, search indexer, IDE, a bot loading it), so it is tried again a few times before giving up.
 _REPLACE_TRIES: int = 10
 _REPLACE_WAIT: float = 0.1  # seconds before the 1st retry, 0.2 before the 2nd, ... (4.5 s in all)
 
 
-def write_weights(path: Path, tensors: dict[str, Tensor]) -> None:
-    """Save float32 tensors as a ``.safetensors`` file: written next to it first, then put in its place."""
+def write_weights(path: Path, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
+    """Save float32 tensors as a ``.safetensors`` file: written next to it first, then put in its place.
+    ``metadata``: text values for the format's ``__metadata__`` (e.g. the activation's slope)."""
     arrays: dict[str, np.ndarray] = {name: t.numpy().astype("<f4") for name, t in tensors.items()}
-    header: dict[str, Any] = {}
+    header: dict[str, Any] = {"__metadata__": metadata} if metadata else {}
     offset: int = 0
     for name, array in arrays.items():
         header[name] = {"dtype": _SAFETENSORS_F32, "shape": list(array.shape),
@@ -203,23 +205,38 @@ def read_weights(path: Path) -> dict[str, Tensor]:
     return tensors
 
 
+def read_leaky_slope(path: Path) -> float:
+    """The LeakyReLU slope the network in ``path`` was trained with; 0 (= ReLU) for files saved before it was kept."""
+    with open(path, "rb") as file:
+        size: int = int.from_bytes(file.read(8), "little")
+        header: dict[str, Any] = json.loads(file.read(size))
+    return float(header.get("__metadata__", {}).get(_LEAKY_SLOPE_KEY, 0.0))
+
+
 # ---------------------------------------------------------------------- the network
 class ResBlock:
-    def __init__(self, filters: int) -> None:
+    def __init__(self, filters: int, leaky_slope: float = C.AI_LEAKY_SLOPE) -> None:
         self.conv1: nn.Conv2d = nn.Conv2d(filters, filters, 3, padding=1)
         self.conv2: nn.Conv2d = nn.Conv2d(filters, filters, 3, padding=1)
+        self.leaky_slope: float = leaky_slope
 
     def __call__(self, x: Tensor) -> Tensor:
-        return (self.conv2(self.conv1(x).relu()) + x).relu()
+        return (self.conv2(self.conv1(x).leaky_relu(self.leaky_slope)) + x).leaky_relu(self.leaky_slope)
 
 
 class AfterstateNet:
-    """Mini-ResNet: (B, AI_CHANNELS, 10, 10) afterstates -> (B,) how the score will change later (for the mover)."""
+    """Mini-ResNet: (B, AI_CHANNELS, 10, 10) afterstates -> (B,) how the score will change later (for the mover).
+
+    Every activation is LeakyReLU with slope ``leaky_slope`` below 0 (a new network: AI_LEAKY_SLOPE), so a unit never
+    stops learning ("dying ReLU" once killed the 2-channel head). Slope 0 = plain ReLU: networks saved before the slope
+    was kept run with it, as they were trained (``read_leaky_slope``); the weights themselves are the same.
+    """
 
     def __init__(self, channels: int = C.AI_CHANNELS, filters: int = C.AI_FILTERS, blocks: int = C.AI_BLOCKS,
-                 size: int = C.AI_BOARD_SIZE) -> None:
+                 size: int = C.AI_BOARD_SIZE, leaky_slope: float = C.AI_LEAKY_SLOPE) -> None:
+        self.leaky_slope: float = leaky_slope
         self.stem: nn.Conv2d = nn.Conv2d(channels, filters, 3, padding=1)
-        self.blocks: list[ResBlock] = [ResBlock(filters) for _ in range(blocks)]
+        self.blocks: list[ResBlock] = [ResBlock(filters, leaky_slope) for _ in range(blocks)]
         self.head: nn.Conv2d = nn.Conv2d(filters, 2, 1)
         self.hidden: nn.Linear = nn.Linear(2 * size * size, 128)
         self.value: nn.Linear = nn.Linear(128, 1)
@@ -230,11 +247,11 @@ class AfterstateNet:
         self.value.bias = Tensor.zeros(1).contiguous().realize()
 
     def __call__(self, x: Tensor) -> Tensor:
-        x = self.stem(x).relu()
+        x = self.stem(x).leaky_relu(self.leaky_slope)
         for block in self.blocks:
             x = block(x)
-        x = self.head(x).relu().flatten(1)
-        return self.value(self.hidden(x).relu()).flatten()
+        x = self.head(x).leaky_relu(self.leaky_slope).flatten(1)
+        return self.value(self.hidden(x).leaky_relu(self.leaky_slope)).flatten()
 
 
 # ---------------------------------------------------------------------- the strategy
@@ -429,7 +446,8 @@ class AIFindActionStrategy(FindActionStrategy):
     def _model(self) -> AfterstateNet:
         if self._net is None:
             Tensor.manual_seed(self.seed)
-            net: AfterstateNet = AfterstateNet()
+            net: AfterstateNet = AfterstateNet(
+                leaky_slope=read_leaky_slope(self.weights) if self.weights is not None else C.AI_LEAKY_SLOPE)
             if self.weights is not None:
                 load_state_dict(net, read_weights(self.weights), verbose=False)
             self._net = net
@@ -477,10 +495,12 @@ class AIFindActionStrategy(FindActionStrategy):
 
     @_on_tinygrad_thread
     def save(self, path: Path | str) -> Path:
-        """Write the network's weights (``.safetensors``); a later WORKING strategy can load them."""
+        """Write the network's weights (``.safetensors``, with its LeakyReLU slope); a later WORKING strategy can load
+        them."""
         target: Path = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        write_weights(target, get_state_dict(self._model()))
+        net: AfterstateNet = self._model()
+        write_weights(target, get_state_dict(net), {_LEAKY_SLOPE_KEY: repr(net.leaky_slope)})
         return target
 
     def _require_learning(self) -> None:
