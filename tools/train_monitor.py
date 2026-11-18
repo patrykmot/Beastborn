@@ -40,6 +40,19 @@ Keys: Right / Left = step, Space = play / pause, Home / End = start / end.
 the Training tab: the trainer empties the .bgn file when a run starts and appends its games in order, so the run's
 rows (found by the time of its first game) and their "games" counts tell which epoch played which game. Games after
 the run's last row belong to an epoch that is still being played (or was stopped).
+
+Network tab: the health of a network (``AfterstateNet``, ``beastborn/control/ai_find_action_strategy.py``). By default
+the weights file the trainer writes (its ``--out``, read from the run's log, else AI_WEIGHTS_FILE); "Open weights…"
+checks any other ``.safetensors`` file, "Training weights" goes back. With "Auto" it is checked again whenever the
+trainer saves it (at most once a minute, only while the tab is shown). Nothing about the network is fixed here: every
+tensor of the file is listed, the network is built from AfterstateNet with the sizes the file's shapes give, and its
+ReLU-like activations are found while it runs on "States" afterstates of the newest training games (as the network
+sees them in training; random games when there are none).
+Weights: mean, spread, how many are 0 (and output units with only zero weights), how much they changed since the
+save before, and how many get no gradient. Activations: dead units (never above 0 on any of the states, so a ReLU
+unit no longer learns; LeakyReLU only learns there at its small slope) and rarely active ones. On the right one
+square per unit coloured by how often it is active, and the histogram of the row picked (at first: the network's
+output, whose spread near 0 means it says the same of every state).
 """
 from __future__ import annotations
 
@@ -1251,6 +1264,812 @@ class GamesTab(tk.Frame):
                                    (" ✕" if step.killed else ""), fill=LOSS, font=FONT_TITLE)
 
 
+# ====================================================================== the Network tab
+# Health of an AfterstateNet weights file. Nothing about the network's size or layers is written here: the weights
+# table lists every tensor of the file, the network is built from beastborn's own AfterstateNet class (its sizes read
+# from the file's shapes) and the activations table lists every ReLU-like activation the network calls, found while
+# it runs.
+HEALTH_STATES: int = 256  # afterstates the network is checked on (the "States" box)
+HEALTH_GAMES: int = 12  # they come from the newest training games (or random games when there are none)
+HEALTH_AUTO_SECONDS: float = 60.0  # "Auto": a new check when the file changed, at most once per this many seconds
+ZERO_EPS: float = 1e-8  # |weight| below this counts as zero
+RARE_ACTIVE: float = 0.01  # a unit positive on fewer than 1 % of the states is "rarely active"
+DEAD_WARN, DEAD_BAD = 0.10, 0.50  # dead units of one layer: from 10 % a warning, from 50 % a problem
+ZERO_WARN, ZERO_BAD = 0.05, 0.50  # zero weights of one tensor: the same
+# activations where "dead" means something (the output is never above 0); found while the network runs
+ACTIVATIONS: tuple[str, ...] = ("relu", "leaky_relu", "relu6", "elu", "celu", "selu", "gelu", "quick_gelu", "silu",
+                                "swish", "hardswish", "mish")
+OK, WARNING, PROBLEM = "ok", "warning", "problem"
+STATUS_COLOURS = {OK: TEXT, WARNING: WARN, PROBLEM: LOSS}
+
+
+def read_arrays(path: Path) -> tuple[dict, dict[str, str]]:
+    """The tensors of a ``.safetensors`` file as numpy arrays (file order), and its ``__metadata__``."""
+    import json
+    import numpy as np
+
+    data: bytes = path.read_bytes()
+    size: int = int.from_bytes(data[:8], "little")
+    header: dict = json.loads(data[8:8 + size])
+    body = memoryview(data)[8 + size:]
+    types = {"F32": "<f4", "F16": "<f2", "F64": "<f8", "BF16": None}
+    arrays: dict = {}
+    for name, info in header.items():
+        if name == "__metadata__":
+            continue
+        kind = types.get(info["dtype"])
+        if kind is None:
+            raise ValueError(f"{name}: {info['dtype']} tensors are not supported")
+        start, end = info["data_offsets"]
+        arrays[name] = np.frombuffer(body[start:end], dtype=kind).reshape(info["shape"]).astype(np.float32)
+    return arrays, dict(header.get("__metadata__", {}))
+
+
+def training_weights(stats: Path | None) -> Path:
+    """The weights file the trainer writes: the ``save every N to <file>`` of its newest log line (the ``.log`` next
+    to the statistics file), else AI_WEIGHTS_FILE (the trainer's default ``--out``)."""
+    log: Path | None = None if stats is None else stats if stats.suffix.lower() == ".log" else stats.with_suffix(".log")
+    found: str | None = None
+    try:
+        if log is not None:
+            with open(log, encoding="utf-8", errors="replace") as file:
+                for line in file:
+                    if "save every" in line:
+                        match = re.search(r"save every \d+ to (.+?)\s*$", line)
+                        found = match.group(1) if match else found
+    except OSError:
+        pass
+    if found:
+        path = Path(found)
+        for candidate in ((path,) if path.is_absolute() else (log.parent / path, Path.cwd() / path)):
+            if candidate.is_file():
+                return candidate.resolve()
+    return C.AI_WEIGHTS_FILE
+
+
+@dataclass
+class TensorHealth:
+    """One tensor of the weights file."""
+
+    name: str
+    shape: tuple
+    values: object  # np.ndarray, flat
+    mean: float
+    std: float
+    absmax: float
+    zero: float  # share of weights with |w| < ZERO_EPS
+    zero_units: int  # output units (first axis) whose weights are all zero; 0 for 1-D tensors
+    units: int  # size of the first axis (1-D tensors: 0)
+    nonfinite: int  # NaN / inf weights
+    change: float | None = None  # ||w - w_before|| / ||w_before|| against the previous save (None = none seen)
+    grad_zero: float | None = None  # share of weights whose gradient is exactly 0 on the states
+    grad_norm: float | None = None  # ||grad|| / ||w||
+
+    @property
+    def status(self) -> str:
+        if self.nonfinite or self.zero >= ZERO_BAD or (self.units and self.zero_units >= self.units * ZERO_BAD) \
+                or (self.grad_zero is not None and self.grad_zero >= ZERO_BAD):
+            return PROBLEM
+        if self.zero >= ZERO_WARN or self.zero_units or (self.grad_zero is not None and self.grad_zero >= ZERO_WARN) \
+                or self.change == 0:
+            return WARNING
+        return OK
+
+
+@dataclass
+class LayerHealth:
+    """One activation the network called: which layer's output went into it, and how its units behaved."""
+
+    name: str
+    shape: tuple  # of one state's output
+    active: object  # np.ndarray (units,): share of the states (and positions) where a unit's output is > 0
+    mean: float
+    std: float
+    nonfinite: int
+
+    @property
+    def units(self) -> int:
+        return len(self.active)
+
+    @property
+    def dead(self) -> int:
+        return int((self.active == 0).sum())
+
+    @property
+    def rare(self) -> int:
+        return int(((self.active > 0) & (self.active < RARE_ACTIVE)).sum())
+
+    @property
+    def status(self) -> str:
+        if self.nonfinite or self.dead >= self.units * DEAD_BAD:
+            return PROBLEM
+        if self.dead >= max(1, self.units * DEAD_WARN) or self.rare >= self.units * 0.25:
+            return WARNING
+        return OK
+
+
+@dataclass
+class HealthReport:
+    path: Path
+    mtime: float
+    arrays: dict  # name -> np.ndarray, for the next check's "change"
+    tensors: list[TensorHealth]
+    slope: float | None = None  # LeakyReLU slope of the file (None = not kept: plain ReLU)
+    sizes: str = ""  # the AfterstateNet arguments read from the shapes
+    layers: list[LayerHealth] | None = None
+    output: object = None  # np.ndarray: the network's prediction for every state
+    states: int = 0
+    states_from: str = ""
+    error: str = ""  # why the network could not be run (the weights table is still filled)
+    seconds: float = 0.0
+
+
+def tensor_health(name: str, array, before) -> TensorHealth:
+    import numpy as np
+
+    flat = array.reshape(-1)
+    finite = flat[np.isfinite(flat)]
+    rows = array.reshape(array.shape[0], -1) if array.ndim >= 2 else None
+    change = None
+    if before is not None and before.shape == array.shape:
+        change = float(np.linalg.norm(array - before) / max(float(np.linalg.norm(before)), 1e-12))
+    return TensorHealth(
+        name=name, shape=tuple(array.shape), values=flat,
+        mean=float(finite.mean()) if finite.size else float("nan"),
+        std=float(finite.std()) if finite.size else float("nan"),
+        absmax=float(np.abs(finite).max()) if finite.size else float("nan"),
+        zero=float((np.abs(flat) < ZERO_EPS).mean()) if flat.size else 0.0,
+        zero_units=int((np.abs(rows) < ZERO_EPS).all(axis=1).sum()) if rows is not None else 0,
+        units=int(array.shape[0]) if rows is not None else 0,
+        nonfinite=int(flat.size - finite.size), change=change)
+
+
+def _network_sizes(arrays: dict) -> dict[str, int]:
+    """AfterstateNet's size arguments that its __init__ takes, read from the tensor shapes: ``channels`` / ``filters``
+    = input / output planes of the first convolution, ``blocks`` = how many ``blocks.<n>.`` there are, ``size`` =
+    board side, from the first linear layer's inputs and the last convolution's outputs."""
+    import math
+
+    convs = [a.shape for a in arrays.values() if a.ndim == 4]
+    linears = [a.shape for a in arrays.values() if a.ndim == 2]
+    sizes: dict[str, int] = {}
+    if convs:
+        sizes["filters"], sizes["channels"] = int(convs[0][0]), int(convs[0][1])
+        if linears and linears[0][1] % convs[-1][0] == 0:
+            sizes["size"] = math.isqrt(linears[0][1] // convs[-1][0])
+    blocks = {m.group(1) for name in arrays if (m := re.match(r"blocks\.(\d+)\.", name))}
+    if blocks:
+        sizes["blocks"] = len(blocks)
+    return sizes
+
+
+def build_network(arrays: dict, slope: float):
+    """beastborn's AfterstateNet with these weights; its sizes are taken from the shapes of the tensors."""
+    import inspect
+
+    from tinygrad import Tensor
+    from tinygrad.nn.state import get_state_dict, load_state_dict
+
+    from beastborn.control.ai_find_action_strategy import AfterstateNet
+
+    accepted = inspect.signature(AfterstateNet.__init__).parameters
+    sizes = {k: v for k, v in _network_sizes(arrays).items() if k in accepted}
+    if "leaky_slope" in accepted:
+        sizes["leaky_slope"] = slope
+    net = AfterstateNet(**sizes)
+    expected = get_state_dict(net)
+    missing, extra = expected.keys() - arrays.keys(), arrays.keys() - expected.keys()
+    if missing or extra:
+        raise ValueError("the file does not fit AfterstateNet"
+                         + (f"; missing: {', '.join(sorted(missing))}" if missing else "")
+                         + (f"; not used: {', '.join(sorted(extra))}" if extra else ""))
+    load_state_dict(net, {name: Tensor(array.copy()) for name, array in arrays.items()}, verbose=False)
+    return net, {k: v for k, v in sizes.items() if k != "leaky_slope"}
+
+
+def sample_states(records: list, count: int, channels: int):
+    """``count`` afterstates as the network sees them in training (each one for the player who just moved), evenly
+    taken from the moves of ``records`` (recorded games); from random games when there are none. And where from."""
+    import random
+
+    import numpy as np
+
+    from beastborn import constant as BC
+    from beastborn.control.ai_find_action_strategy import AIFindActionStrategy
+    from beastborn.control.find_action_strategy import RandomAllFindActionStrategy
+    from beastborn.game.setup import new_game
+
+    if channels != BC.AI_CHANNELS:
+        raise ValueError(f"the network reads {channels} input planes, the game encodes {BC.AI_CHANNELS}")
+    encoder = AIFindActionStrategy()  # only its board encoding (no network is built)
+    states: list = []
+    games: int = 0
+
+    def play(gsm, commands) -> None:
+        for command in commands:
+            me = gsm.active_player
+            if command is None or not gsm.submit(command).ok:
+                return
+            states.append(encoder.state_to_tensor(gsm, me))
+
+    for record in reversed(records):
+        if (record.width, record.height) != (BC.AI_BOARD_SIZE, BC.AI_BOARD_SIZE) or record.num_players != 2:
+            continue
+        try:
+            gsm = record.new_game()
+            play(gsm, (entry.to_command(gsm) for entry in record.entries))
+            games += 1
+        except Exception:  # a record that does not fit the game any more: skip it
+            continue
+    source = f"{games} newest training games"
+    if not states:  # no recorded games: a few random ones
+        rng = random.Random(1)
+        for seed in range(1, 5):
+            gsm = new_game(2, seed, BC.AI_BOARD_SIZE, BC.AI_BOARD_SIZE)
+            strategy = RandomAllFindActionStrategy(rng)
+
+            def moves(gsm=gsm, strategy=strategy):
+                for _ in range(BC.BENCHMARK_MAX_TURNS):
+                    actions = strategy.find_all_possible_actions(gsm)
+                    yield actions[0] if actions else None
+
+            play(gsm, moves())
+        source = "4 random games (no training games found)"
+    if not states:
+        raise ValueError("no states to check the network on")
+    picked = np.linspace(0, len(states) - 1, min(count, len(states))).round().astype(int)
+    return np.stack([states[i] for i in picked]).astype(np.float32), f"{len(picked)} states of {source}"
+
+
+class _Probe:
+    """Stands in for one layer (any object the network calls) and remembers its output, to name the activations."""
+
+    def __init__(self, inner, name: str, recorder: _Recorder) -> None:
+        self._inner, self._name, self._recorder = inner, name, recorder
+
+    def __call__(self, *args, **kwargs):
+        self._recorder.stack.append(self._name)
+        try:
+            out = self._inner(*args, **kwargs)
+        finally:
+            self._recorder.stack.pop()
+        self._recorder.last = (self._name, out)
+        return out
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
+class _Recorder:
+    """While the network runs: every ReLU-like activation it calls, named after the layer whose output it got."""
+
+    def __init__(self) -> None:
+        self.stack: list[str] = []  # layers being called, outermost first
+        self.last: tuple[str, object] | None = None  # (name, output) of the layer called last
+        self.layers: list[tuple[str, object]] = []  # (name, np.ndarray output)
+        self.depth: int = 0  # inside an activation (one built from others is recorded once)
+
+    @staticmethod
+    def _is_layer(value) -> bool:
+        from tinygrad import Tensor
+
+        return (callable(value) and hasattr(value, "__dict__") and not isinstance(value, (Tensor, type))
+                and not _is_function(value))
+
+    def wrap(self, obj, prefix: str = "") -> None:
+        """Put a _Probe in front of every layer of ``obj`` (its attributes and lists of them, any depth)."""
+        for attr, value in list(vars(obj).items()):
+            name = f"{prefix}{attr}"
+            if isinstance(value, list):
+                for i, item in enumerate(value):
+                    if self._is_layer(item):
+                        self.wrap(item, f"{name}.{i}.")
+                        value[i] = _Probe(item, f"{name}.{i}", self)
+            elif self._is_layer(value):
+                self.wrap(value, f"{name}.")
+                setattr(obj, attr, _Probe(value, name, self))
+
+    def activation(self, original, kind: str):
+        recorder = self
+
+        def run(tensor, *args, **kwargs):
+            if recorder.depth:
+                return original(tensor, *args, **kwargs)
+            recorder.depth += 1
+            try:
+                out = original(tensor, *args, **kwargs)
+            finally:
+                recorder.depth -= 1
+            if recorder.last is not None and recorder.last[1] is tensor:
+                name = f"{recorder.last[0]} → {kind}"  # straight after a layer
+            else:  # after something computed in a layer (e.g. a residual sum)
+                name = f"{recorder.stack[-1] if recorder.stack else 'net'} (sum) → {kind}"
+            taken = sum(1 for n, _ in recorder.layers if n == name or n.startswith(name + " #"))
+            recorder.layers.append((name if not taken else f"{name} #{taken + 1}", out.numpy()))
+            return out
+
+        return run
+
+
+def _is_function(value) -> bool:
+    import functools
+    import types
+
+    return isinstance(value, (types.FunctionType, types.MethodType, types.BuiltinFunctionType, functools.partial))
+
+
+def layer_health(name: str, output) -> LayerHealth:
+    import numpy as np
+
+    units = output.reshape(output.shape[0], output.shape[1], -1) if output.ndim >= 2 else output.reshape(-1, 1, 1)
+    finite = np.isfinite(units)
+    return LayerHealth(name=name, shape=tuple(output.shape[1:]), active=(units > 0).mean(axis=(0, 2)),
+                       mean=float(units[finite].mean()) if finite.any() else float("nan"),
+                       std=float(units[finite].std()) if finite.any() else float("nan"),
+                       nonfinite=int((~finite).sum()))
+
+
+def run_network(net, states) -> tuple[list[LayerHealth], object, dict]:
+    """Run ``net`` on ``states``: every activation's health, the predictions, and the gradient of their mean for
+    every weight (name -> np.ndarray). ``net`` gets probes, so it is not to be used again."""
+    from tinygrad import Tensor
+    from tinygrad.nn.state import get_state_dict
+
+    params = get_state_dict(net)
+    for tensor in params.values():
+        tensor.requires_grad = True
+    out = net(Tensor(states))
+    out.mean().backward()
+    grads = {name: t.grad.numpy() for name, t in params.items() if t.grad is not None}
+
+    recorder = _Recorder()
+    recorder.wrap(net)
+    patched: dict[str, object] = {}
+    for kind in ACTIVATIONS:
+        original = getattr(Tensor, kind, None)
+        if original is not None:
+            patched[kind] = Tensor.__dict__.get(kind)
+            setattr(Tensor, kind, recorder.activation(original, kind))
+    try:
+        predicted = net(Tensor(states)).numpy()
+    finally:
+        for kind, original in patched.items():
+            if original is None:
+                delattr(Tensor, kind)  # it came from a base class
+            else:
+                setattr(Tensor, kind, original)
+    return [layer_health(name, output) for name, output in recorder.layers], predicted, grads
+
+
+def check_network(path: Path, before: dict | None, records: list, count: int) -> HealthReport:
+    """The whole health check of the weights file ``path`` (``before``: the arrays of its previous save)."""
+    import numpy as np
+
+    started: float = time.time()
+    mtime: float = path.stat().st_mtime
+    arrays, metadata = read_arrays(path)
+    report = HealthReport(path=path, mtime=mtime, arrays=arrays,
+                          tensors=[tensor_health(name, a, (before or {}).get(name)) for name, a in arrays.items()])
+    report.slope = float(metadata["leaky_slope"]) if "leaky_slope" in metadata else None
+    try:
+        net, sizes = build_network(arrays, report.slope or 0.0)
+        report.sizes = ", ".join(f"{k} {v}" for k, v in sizes.items())
+        states, report.states_from = sample_states(records, count, sizes.get("channels", C.AI_CHANNELS))
+        report.states = len(states)
+        report.layers, report.output, grads = run_network(net, states)
+        for tensor in report.tensors:
+            grad = grads.get(tensor.name)
+            if grad is not None:
+                tensor.grad_zero = float((grad == 0).mean())
+                tensor.grad_norm = float(np.linalg.norm(grad) / max(float(np.linalg.norm(arrays[tensor.name])),
+                                                                     1e-12))
+    except Exception as error:  # the weights table is still worth showing
+        report.error = f"{type(error).__name__}: {error}"
+    report.seconds = time.time() - started
+    return report
+
+
+class HealthTab(tk.Frame):
+    """Health of an AfterstateNet weights file: zero weights, dead units, gradients and how much the weights change.
+
+    By default the file the trainer writes (``training_weights``), checked again when it changes ("Auto"); "Open
+    weights…" checks any other one.
+    """
+
+    def __init__(self, master: tk.Misc, stats=lambda: None, records=lambda: []) -> None:
+        """``stats()``: the statistics file of the Training tab (to find the trainer's weights file); ``records()``:
+        recorded training games (their states are the network's input)."""
+        super().__init__(master, background=BG)
+        self.stats, self.records = stats, records
+        self.follow: bool = True  # the trainer's weights file
+        self.path: Path | None = None
+        self.versions: dict[Path, list[tuple[float, dict]]] = {}  # per file: (mtime, arrays) of its last 2 saves
+        self.report: HealthReport | None = None
+        self.job = None  # concurrent.futures.Future of the check being run
+        self.checked_at: float = 0.0
+        self.executor = None
+        self._cells: list[tuple[float, float, float, float, str]] = []  # unit map: rectangles and their text
+
+        # ---- top bar
+        bar = tk.Frame(self, background=BG, padx=14, pady=10)
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Training weights", command=self.use_training).pack(side="left")
+        ttk.Button(bar, text="Open weights…", command=self.choose_file).pack(side="left", padx=(6, 0))
+        self.file_label = tk.Label(bar, text="", bg=BG, fg=MUTED, font=FONT)
+        self.file_label.pack(side="left", padx=(10, 14))
+        self.status = tk.Label(bar, text="", bg=BG, fg=MUTED, font=FONT)
+        self.status.pack(side="right")
+        self.check_button = ttk.Button(bar, text="Check now", command=self.check)
+        self.check_button.pack(side="right", padx=(12, 12))
+        self.auto = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="Auto", variable=self.auto).pack(side="right")
+        self.count = tk.IntVar(value=HEALTH_STATES)
+        ttk.Spinbox(bar, from_=16, to=4096, increment=64, width=6, textvariable=self.count).pack(side="right",
+                                                                                                padx=(6, 14))
+        tk.Label(bar, text="States", bg=BG, fg=MUTED, font=FONT).pack(side="right")
+
+        # ---- cards
+        cards = tk.Frame(self, background=BG, padx=10)
+        cards.pack(fill="x")
+        names = ("Health", "Parameters", "Zero weights", "Dead units", "No gradient", "Changed", "Output")
+        self.cards: dict[str, Card] = {}
+        for column, name in enumerate(names):
+            card = Card(cards, name)
+            card.grid(row=0, column=column, sticky="nsew", padx=4, pady=4)
+            cards.columnconfigure(column, weight=1, uniform="cards")
+            self.cards[name] = card
+
+        # ---- tables on the left, pictures on the right
+        body = tk.Frame(self, background=BG, padx=10, pady=4)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=8, uniform="body")
+        body.columnconfigure(1, weight=5, uniform="body")
+        body.rowconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        weights = (("name", "Weights", 150, "w"), ("shape", "Shape", 82, "w"), ("mean", "Mean", 58, "e"),
+                   ("std", "Std", 50, "e"), ("absmax", "|max|", 50, "e"), ("zero", "Zero", 50, "e"),
+                   ("zero_units", "Zero units", 66, "e"), ("change", "Δ last save", 74, "e"),
+                   ("grad_zero", "Grad 0", 52, "e"), ("grad_norm", "|grad|/|w|", 66, "e"), ("status", "", 62, "w"))
+        layers = (("name", "Activations", 200, "w"), ("shape", "Output", 80, "w"), ("units", "Units", 48, "e"),
+                  ("dead", "Dead", 82, "e"), ("rare", "Rare", 46, "e"), ("active", "Active", 58, "e"),
+                  ("mean", "Mean", 58, "e"), ("std", "Std", 52, "e"), ("status", "", 62, "w"))
+        self.weights = self._table(body, weights, 0, "Zero: |w| < 1e-8 · Zero units: output units with only zero "
+                                                     "weights · Grad 0: weights with no gradient on the states")
+        self.layers = self._table(body, layers, 1, "Dead: never above 0 on any state (any position) · Rare: above 0 "
+                                                   "on < 1 % · Active: mean share above 0")
+        self.weights.bind("<<TreeviewSelect>>", lambda _e: self.pick(self.weights))
+        self.layers.bind("<<TreeviewSelect>>", lambda _e: self.pick(self.layers))
+
+        side = tk.Frame(body, background=BG)
+        side.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(8, 0))
+        self.map = tk.Canvas(side, background=PANEL, highlightthickness=0)
+        self.map.pack(fill="both", expand=True)
+        self.map.bind("<Configure>", lambda _e: self.draw_map())
+        self.map.bind("<Motion>", self._map_motion)
+        self.map_note = tk.Label(side, text="", bg=BG, fg=MUTED, font=FONT_SMALL, anchor="w")
+        self.map_note.pack(fill="x", pady=(2, 6))
+        self.histogram = tk.Canvas(side, background=PANEL, highlightthickness=0, height=190)
+        self.histogram.pack(fill="x")
+        self.histogram.bind("<Configure>", lambda _e: self.draw_histogram())
+        self.shown: tuple[str, object, str] | None = None  # histogram: (title, values, what is counted)
+        self.show_report()
+
+    def _table(self, master: tk.Misc, columns, row: int, note: str) -> ttk.Treeview:
+        frame = tk.Frame(master, background=BG)
+        frame.grid(row=row, column=0, sticky="nsew", pady=(0, 6))
+        tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", selectmode="browse")
+        for name, title, width, anchor in columns:
+            tree.heading(name, text=title, anchor=anchor)
+            tree.column(name, width=width, minwidth=40, anchor=anchor, stretch=name == "name")
+        for status, colour in STATUS_COLOURS.items():
+            tree.tag_configure(status, foreground=colour)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        if note:
+            tk.Label(frame, text=note, bg=BG, fg=MUTED, font=FONT_SMALL, anchor="w").pack(side="bottom", fill="x")
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="left", fill="y")
+        return tree
+
+    # ---------------------------------------------------------- which file
+    def use_training(self) -> None:
+        self.follow = True
+        self.check()
+
+    def choose_file(self) -> None:
+        name = filedialog.askopenfilename(title="Network weights", initialdir=str(C.AI_WEIGHTS_FILE.parent),
+                                          filetypes=[("Weights", "*.safetensors*"), ("All files", "*.*")])
+        if name:
+            self.follow = False
+            self.path = Path(name)
+            self.check()
+
+    def target(self) -> Path:
+        if self.follow or self.path is None:
+            self.path = training_weights(self.stats())
+        return self.path
+
+    # ---------------------------------------------------------- checking
+    def visible(self) -> bool:
+        try:
+            return self.master.select() == str(self)
+        except tk.TclError:
+            return False
+
+    def poll(self) -> None:
+        """A finished check is shown; with "Auto", a changed file is checked again while the tab is shown."""
+        if self.job is not None:
+            if self.job.done():
+                job, self.job = self.job, None
+                try:
+                    self.report = job.result()
+                except Exception as error:  # the file could not be read (e.g. being replaced): try again later
+                    self.report, self.checked_at = None, 0.0
+                    self.status.config(text=f"could not check: {error}", fg=WARN)
+                else:
+                    versions = self.versions.setdefault(self.report.path, [])
+                    if not versions or versions[-1][0] != self.report.mtime:
+                        versions.append((self.report.mtime, self.report.arrays))
+                        del versions[:-2]
+                self.show_report()
+            return
+        path = self.target()
+        self._file_text(path)
+        if not self.visible() or not self.auto.get():
+            return
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return
+        report = self.report
+        new = report is None or report.path != path or report.mtime != mtime
+        if new and time.time() - self.checked_at >= (HEALTH_AUTO_SECONDS if report and report.path == path else 0):
+            self.check()
+
+    def check(self) -> None:
+        if self.job is not None:
+            return
+        path = self.target()
+        self._file_text(path)
+        if not path.is_file():
+            self.status.config(text=f"no weights file {path.name}", fg=WARN)
+            return
+        try:
+            mtime = path.stat().st_mtime
+            count = max(1, int(self.count.get()))
+        except (OSError, tk.TclError, ValueError):
+            return
+        before = next((arrays for m, arrays in reversed(self.versions.get(path, [])) if m != mtime), None)
+        try:
+            records = list(self.records())[-HEALTH_GAMES:]
+        except Exception:
+            records = []
+        self.job = self._executor().submit(check_network, path, before, records, count)
+        self.checked_at = time.time()
+        self.status.config(text="checking… (the first check compiles the network, it takes longer)", fg=TEXT)
+        self.check_button.state(["disabled"])
+
+    def _executor(self):
+        """tinygrad runs on the one thread the game's AI uses for it (tinygrad is not thread-safe)."""
+        if self.executor is None:
+            try:
+                from beastborn.control.ai_find_action_strategy import _tinygrad_pool
+                self.executor = _tinygrad_pool
+            except ImportError:  # no tinygrad: the weights table only (the network check reports why)
+                from concurrent.futures import ThreadPoolExecutor
+                self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="health")
+        return self.executor
+
+    def _file_text(self, path: Path) -> None:
+        try:
+            age = time.time() - path.stat().st_mtime
+            saved = f"saved {duration(age)} ago" if age >= 60 else f"saved {int(age)} s ago"
+        except OSError:
+            saved = "missing"
+        source = "trainer's weights" if self.follow else "opened"
+        self.file_label.config(text=f"{path.parent.name}/{path.name}  ({source}, {saved})")
+
+    # ---------------------------------------------------------- showing
+    def show_report(self) -> None:
+        self.check_button.state(["!disabled"])
+        r = self.report
+        for tree in (self.weights, self.layers):
+            tree.delete(*tree.get_children())
+        if r is None:
+            for card in self.cards.values():
+                card.show("–")
+            self.cards["Health"].show("–", "open the Network tab to check", MUTED)
+            self.shown = None
+            self.draw_map()
+            self.draw_histogram()
+            return
+        when = datetime.fromtimestamp(r.mtime).strftime("%H:%M:%S")
+        error = r.error if len(r.error) <= 120 else r.error[:117] + "…"
+        self.status.config(text=error or f"checked in {r.seconds:.1f} s on {r.states_from}",
+                           fg=WARN if r.error else MUTED)
+
+        def num(value: float | None, digits: int = 3) -> str:
+            if value is None:
+                return "–"
+            return f"{value:.{digits}g}" if abs(value) < 1e5 else f"{value:.2e}"
+
+        def pct(value: float | None) -> str:
+            return "–" if value is None else f"{value * 100:.1f} %" if value < 0.995 or value == 1 else "99.5+ %"
+
+        for i, t in enumerate(r.tensors):
+            self.weights.insert("", "end", iid=f"w{i}", tags=(t.status,), values=(
+                t.name, "×".join(map(str, t.shape)), num(t.mean), num(t.std), num(t.absmax), pct(t.zero), f"{t.zero_units} / {t.units}" if t.units else "–", pct(t.change),
+                pct(t.grad_zero), num(t.grad_norm), "" if t.status == OK else t.status))
+        for i, layer in enumerate(r.layers or []):
+            self.layers.insert("", "end", iid=f"l{i}", tags=(layer.status,), values=(
+                layer.name, "×".join(map(str, layer.shape)), layer.units,
+                f"{layer.dead} ({layer.dead / max(1, layer.units) * 100:.0f} %)", layer.rare,
+                pct(float(layer.active.mean())), num(layer.mean), num(layer.std),
+                "" if layer.status == OK else layer.status))
+
+        # cards
+        items = [t.status for t in r.tensors] + [layer.status for layer in r.layers or []]
+        problems, warnings = items.count(PROBLEM), items.count(WARNING)
+        checked = f"{len(r.tensors)} tensors, {len(r.layers or [])} activations"
+        if r.error:
+            self.cards["Health"].show("?", "the network did not run", WARN, "weights only, see the top right")
+        elif problems:
+            self.cards["Health"].show("problem", f"{problems} problems, {warnings} warnings", LOSS, checked)
+        elif warnings:
+            self.cards["Health"].show("warning", f"{warnings} warnings", WARN, checked)
+        else:
+            self.cards["Health"].show("healthy", "no zero weights or dead units", WIN, checked)
+        total = sum(len(t.values) for t in r.tensors)
+        slope = "ReLU (no slope kept)" if r.slope is None else f"LeakyReLU slope {r.slope:g}"
+        self.cards["Parameters"].show(f"{total:,}".replace(",", " "), f"{len(r.tensors)} tensors", MUTED, slope)
+        zero = sum(t.zero * len(t.values) for t in r.tensors) / max(1, total)
+        zero_units = sum(t.zero_units for t in r.tensors)
+        nonfinite = sum(t.nonfinite for t in r.tensors)
+        self.cards["Zero weights"].show(
+            f"{zero * 100:.2f} %", f"{nonfinite} NaN / inf" if nonfinite else f"{zero_units} all-zero units",
+            LOSS if nonfinite or zero >= ZERO_BAD else WARN if zero >= ZERO_WARN or zero_units else MUTED,
+            f"|w| < {ZERO_EPS:g}")
+        if r.layers:
+            units = sum(layer.units for layer in r.layers)
+            dead = sum(layer.dead for layer in r.layers)
+            rare = sum(layer.rare for layer in r.layers)
+            worst = max(r.layers, key=lambda layer: layer.dead / max(1, layer.units))
+            self.cards["Dead units"].show(f"{dead} / {units}", f"{rare} rarely active",
+                                          STATUS_COLOURS[worst.status] if worst.dead else MUTED,
+                                          f"most: {worst.name.split(' → ')[0]}" if worst.dead else "")
+        else:
+            self.cards["Dead units"].show("–")
+        graded = [t for t in r.tensors if t.grad_zero is not None]
+        if graded:
+            no_grad = sum(t.grad_zero * len(t.values) for t in graded) / max(1, sum(len(t.values) for t in graded))
+            frozen = [t.name for t in graded if t.grad_zero == 1]
+            self.cards["No gradient"].show(f"{no_grad * 100:.2f} %", "of the weights",
+                                           LOSS if frozen else WARN if no_grad >= ZERO_WARN else MUTED,
+                                           f"none at all: {', '.join(frozen)}" if frozen else "weights get learning")
+        else:
+            self.cards["No gradient"].show("–")
+        changes = [(t.change, len(t.values)) for t in r.tensors if t.change is not None]
+        if changes:
+            change = sum(c * n for c, n in changes) / max(1, sum(n for _c, n in changes))
+            still = sum(1 for c, _n in changes if c == 0)
+            self.cards["Changed"].show(f"{change * 100:.3f} %", f"{still} tensors did not change" if still
+                                       else "since the save before", WARN if still else MUTED, f"save of {when}")
+        else:
+            self.cards["Changed"].show("–", "after the next save", MUTED, f"save of {when}")
+        if r.output is not None and len(r.output):
+            spread = float(r.output.std())
+            self.cards["Output"].show(f"{float(r.output.mean()):+.3f}", f"spread {spread:.3g}",
+                                      WARN if spread < 1e-6 else MUTED,
+                                      f"{float(r.output.min()):+.2f} … {float(r.output.max()):+.2f}")
+            self.shown = ("network output on the states", r.output, "states")
+        else:
+            self.cards["Output"].show("–")
+            self.shown = None
+        self.draw_map()
+        self.draw_histogram()
+
+    def pick(self, tree: ttk.Treeview) -> None:
+        """A row was picked: the histogram of its weights, or of its units' active shares."""
+        selected = tree.selection()
+        if not selected or self.report is None:
+            return
+        index = int(selected[0][1:])
+        if tree is self.weights:
+            t = self.report.tensors[index]
+            self.shown = (f"values of {t.name}", t.values, "weights")
+            self.layers.selection_remove(*self.layers.selection())
+        else:
+            layer = (self.report.layers or [])[index]
+            self.shown = (f"active share of the units of {layer.name}", layer.active * 100, "units")
+            self.weights.selection_remove(*self.weights.selection())
+        self.draw_histogram()
+
+    def draw_map(self) -> None:
+        """One small square per unit of every activation, coloured by how often it is above 0."""
+        canvas = self.map
+        canvas.delete("all")
+        self._cells = []
+        width = max(canvas.winfo_width(), 200)
+        canvas.create_text(12, 10, text="Units  (red = dead, orange = rarely active, green = often active)",
+                           anchor="nw", fill=TEXT, font=FONT_TITLE)
+        if self.report is not None and self.report.sizes:
+            slope = "ReLU" if self.report.slope is None else f"LeakyReLU {self.report.slope:g}"
+            canvas.create_text(12, 28, text=f"AfterstateNet: {self.report.sizes} · {slope}", anchor="nw",
+                               fill=MUTED, font=FONT_SMALL)
+        layers = self.report.layers if self.report is not None else None
+        if not layers:
+            canvas.create_text(width / 2, 60, text="no activations yet" if self.report is None or not self.report.error
+                               else "the network did not run", fill=MUTED, font=FONT)
+            return
+        height = max(canvas.winfo_height(), 200)
+        # the largest square that fits all layers in the canvas
+        cell = 14
+        while cell > 3:
+            per_row = max(1, (width - 24) // cell)
+            total = 50 + sum(16 + -(-layer.units // per_row) * cell + 6 for layer in layers)
+            if total <= height:
+                break
+            cell -= 1
+        per_row = max(1, (width - 24) // cell)
+        y = 50
+        for layer in layers:
+            canvas.create_text(12, y, text=f"{layer.name}   {layer.dead} dead / {layer.units}", anchor="nw",
+                               fill=STATUS_COLOURS[layer.status] if layer.status != OK else MUTED, font=FONT_SMALL)
+            y += 16
+            for unit, share in enumerate(layer.active):
+                x0 = 12 + (unit % per_row) * cell
+                y0 = y + (unit // per_row) * cell
+                colour = LOSS if share == 0 else WARN if share < RARE_ACTIVE else blend(GRID, WIN, 0.25 + 0.75 * share)
+                canvas.create_rectangle(x0, y0, x0 + cell - 1, y0 + cell - 1, fill=colour, outline="")
+                self._cells.append((x0, y0, x0 + cell, y0 + cell,
+                                    f"{layer.name}, unit {unit}: above 0 on {share * 100:.1f} % of the states"))
+            y += -(-layer.units // per_row) * cell + 6
+
+    def _map_motion(self, event: tk.Event) -> None:
+        text = next((t for x0, y0, x1, y1, t in self._cells if x0 <= event.x < x1 and y0 <= event.y < y1), "")
+        self.map_note.config(text=text)
+
+    def draw_histogram(self) -> None:
+        canvas = self.histogram
+        canvas.delete("all")
+        width, height = max(canvas.winfo_width(), 200), max(canvas.winfo_height(), 120)
+        if self.shown is None:
+            canvas.create_text(width / 2, height / 2, text="pick a row to see its values", fill=MUTED, font=FONT)
+            return
+        import numpy as np
+
+        title, values, counted = self.shown
+        values = np.asarray(values, dtype=np.float64)
+        values = values[np.isfinite(values)]
+        canvas.create_text(12, 8, text=title, anchor="nw", fill=TEXT, font=FONT_TITLE)
+        if not values.size:
+            return
+        low, high = float(values.min()), float(values.max())
+        if high - low < 1e-12:
+            low, high = low - 0.5, high + 0.5
+        counts, _edges = np.histogram(values, bins=40, range=(low, high))
+        left, right, top, bottom = 44, width - 12, 30, height - 22
+        peak = max(1, int(counts.max()))
+        step = (right - left) / len(counts)
+        for i, n in enumerate(counts):
+            if n:
+                y = bottom - (bottom - top) * n / peak
+                canvas.create_rectangle(left + i * step, y, left + (i + 1) * step - 1, bottom, fill=TURNS,
+                                        outline="")
+        canvas.create_line(left, bottom, right, bottom, fill=AXIS)
+        if low < 0 < high:  # where 0 is
+            x = left + (right - left) * (0 - low) / (high - low)
+            canvas.create_line(x, top - 4, x, bottom, fill=WARN, dash=(3, 2))
+        exact = int((np.abs(values) < ZERO_EPS).sum()) if counted == "weights" else None
+        for x, value, anchor in ((left, low, "nw"), (right, high, "ne")):
+            canvas.create_text(x, bottom + 4, text=f"{value:.3g}", anchor=anchor, fill=MUTED, font=FONT_SMALL)
+        canvas.create_text(left - 6, top, text=str(peak), anchor="ne", fill=MUTED, font=FONT_SMALL)
+        info = f"{values.size} {counted}, mean {values.mean():.3g}, std {values.std():.3g}"
+        if exact is not None:
+            info += f", {exact} exactly 0"
+        canvas.create_text(right, 8, text=info, anchor="ne", fill=MUTED, font=FONT_SMALL)
+
+
 # ====================================================================== the window
 class Monitor(tk.Tk):
     def __init__(self, path: Path | None) -> None:
@@ -1296,6 +2115,10 @@ class Monitor(tk.Tk):
             training_epochs=lambda records: game_epochs(records, self.source.runs if self.source else {}),
             benchmark_epochs=self.benchmark_epochs)
         self.notebook.add(self.games, text="Games")
+        self.health = HealthTab(self.notebook, stats=lambda: self.source.path if self.source else None,
+                                records=self.training_records)
+        self.notebook.add(self.health, text="Network")
+        self.notebook.bind("<<NotebookTabChanged>>", lambda _e: self.health.poll(), add="+")
 
         # ---- top bar
         bar = tk.Frame(training, background=BG, padx=14, pady=10)
@@ -1408,12 +2231,22 @@ class Monitor(tk.Tk):
         else:
             self.update_panel()  # the running benchmark's progress
         self.games.poll()
+        self.health.poll()
         self.after(POLL_MS, self.poll)
 
     def close(self) -> None:
         if self.benchmark is not None:
             self.benchmark.stop()
         self.destroy()
+
+    def training_records(self) -> list:
+        """The training games of the Games tab (the Network tab checks the network on their states)."""
+        source = self.games.lists[TRAINING_GAMES].source
+        if source is None:
+            return []
+        if self.games.kind != TRAINING_GAMES:  # the list shown is polled by the Games tab, this one is not
+            source.poll()
+        return source.records
 
     # ---------------------------------------------------------- benchmark
     def newest(self) -> tuple[str, Row] | None:
