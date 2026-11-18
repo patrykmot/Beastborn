@@ -172,9 +172,9 @@ AI_EPSILON: Final[float] = 0.05
 #    --max-turns unit turns. Values differ by ~0.04-0.07 between the best 3 moves: 0.5 = nearly uniform, 0.01 = greedy.
 AI_TEMPERATURE_MIN: Final[float] = 0.000001  # least randomness, reached at the end of a cycle
 AI_TEMPERATURE_MAX: Final[float] = 1.0  # most randomness, at the start of every cycle (after each warm restart)
-AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 20  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
+AI_TEMPERATURE_CYCLE_EPOCHS: Final[int] = 300  # epochs in one cycle: 1 = full cycle every epoch, 10 = one over 10
 AI_LEARNING_RATE: Final[float] = 1e-3  # Adam
-AI_MEMORY_SIZE: Final[int] = 100_000  # replay memory (transitions)
+AI_MEMORY_SIZE: Final[int] = 300_000  # replay memory (transitions)
 AI_BATCH_SIZE: Final[int] = 128  # transitions per training step
 AI_TRANSITIONS_PER_TRAIN_STEP: Final[int] = 4  # training: one train_step per N transitions a finished game stored
 AI_STEP_COST: Final[float] = 0.04  # training: reward taken off every learner turn (= 1 HP of score): be quick

@@ -57,3 +57,7 @@ Looks superb good, get 77% of wind against good1! It happened on epoch 200 train
 Maximum wins vs good1 was 78% in epoch 208. This learning was ONE long cycle only with 300 epoches. After epoch 240 Average did not raised.
 Idea now is to use this or 2026.11.14 as second opponent. 
 ![img.png](img.png)
+
+# Results of training (2026.11.18)
+Looks super good. Benchmar won 64% vs ai_bot.safetensors.good4.20261115
+![img_1.png](pic/img_13.png)
